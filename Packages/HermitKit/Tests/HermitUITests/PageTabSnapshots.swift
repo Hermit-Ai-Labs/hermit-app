@@ -51,8 +51,8 @@ final class PageTabSnapshots: XCTestCase {
         let vm = WalletsViewModel.shared
         if wanted("wallets") {
             for t in ["dapps", "gas", "activity", "accounts", "trading"] { try page(.wallets, t) }
-            try sheet(SendSheet(vm: vm, fromID: "main", chain: nil, token: nil), "send", height: 900)
-            try sheet(ReceiveSheet(vm: vm, walletID: "main", title: "Deposit"), "receive")
+            try sheet(WalletSendSheet(vm: vm, fromID: "main", chain: nil, token: nil), "send", height: 900)
+            try sheet(WalletReceiveSheet(vm: vm, walletID: "main", title: "Deposit"), "receive")
             try sheet(TransferSheet(vm: vm, fromID: "main"), "transfer")
             try sheet(BridgeSheet(vm: vm, walletID: "main", token: "USDC"), "bridge")
             try sheet(GasTopUpSheet(vm: vm, chain: .monad), "gas-topup")
@@ -73,7 +73,7 @@ final class PageTabSnapshots: XCTestCase {
             FilesStore.shared.open(FilesStore.shared.files[6])
             try page(.files, "viewer-csv")
             FilesStore.shared.closeAll()
-            try sheet(RecordSheet { _ in }, "record", height: 420)
+            try sheet(FilesRecordSheet { _ in }, "record", height: 420)
         }
     }
 }
