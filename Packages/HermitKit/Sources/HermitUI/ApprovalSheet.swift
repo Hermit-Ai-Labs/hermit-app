@@ -9,6 +9,8 @@ struct ApprovalSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var passed = 0
     @State private var phase: Phase = .scanning
+    @State private var txHash: String?
+    @State private var failure: String?
     enum Phase { case scanning, ready, signing, done }
 
     var body: some View {
@@ -58,10 +60,20 @@ struct ApprovalSheet: View {
                 }
             }
 
+            if let failure {
+                Text(failure).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
+            }
             if phase == .done {
-                Label(approval.success, systemImage: "checkmark.circle.fill").font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.green).frame(maxWidth: .infinity).padding(.vertical, 6)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                VStack(spacing: 4) {
+                    Label(approval.success, systemImage: "checkmark.circle.fill").font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.green)
+                    if let txHash {
+                        Text("\(txHash.prefix(10))…\(txHash.suffix(8))").font(.system(size: 12).monospaced()).foregroundStyle(Theme.muted)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
             } else {
                 HStack(spacing: 10) {
                     Button("Cancel") { dismiss() }.buttonStyle(SheetButton(primary: false))
@@ -95,6 +107,20 @@ struct ApprovalSheet: View {
     }
 
     private func approve() async {
+        // Real sends: the wallet asks for Touch ID / Face ID itself when it unlocks the key, so no second prompt here.
+        if let perform = approval.perform {
+            phase = .signing; failure = nil
+            do {
+                txHash = try await perform()
+                phase = .done
+                try? await Task.sleep(for: .milliseconds(1400))
+                onApproved()
+            } catch {
+                failure = error.localizedDescription
+                phase = .ready
+            }
+            return
+        }
         guard await authenticate() else { return }
         phase = .signing
         try? await Task.sleep(for: .milliseconds(900))

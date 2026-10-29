@@ -55,7 +55,14 @@ public struct Approval: Equatable, Sendable, Identifiable {
     public let checks: [String]
     public let success: String
     public let receipt: Card?
-    public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil) {
+    /// Does the real work after Approve (sign and send) and returns a transaction hash. nil keeps the demo flow.
+    public var perform: (@Sendable () async throws -> String)?
+    public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil,
+                perform: (@Sendable () async throws -> String)? = nil) {
         self.kind = kind; self.title = title; self.lines = lines; self.checks = checks; self.success = success; self.receipt = receipt
+        self.perform = perform
+    }
+    public static func == (a: Approval, b: Approval) -> Bool {
+        a.kind == b.kind && a.title == b.title && a.lines == b.lines && a.checks == b.checks && a.success == b.success && a.receipt == b.receipt
     }
 }

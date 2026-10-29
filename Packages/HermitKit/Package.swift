@@ -10,11 +10,23 @@ let package = Package(
     products: [
         .library(name: "HermitCore", targets: ["HermitCore"]),
         .library(name: "HermitUI", targets: ["HermitUI"]),
+        .library(name: "HermitWallet", targets: ["HermitWallet"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/21-DOT-DEV/swift-secp256k1", exact: "0.23.2"),
+        .package(url: "https://github.com/krzyzanowskim/CryptoSwift", exact: "1.9.0"),
     ],
     targets: [
         .target(name: "HermitCore"),
-        .target(name: "HermitUI", dependencies: ["HermitCore"], resources: [.process("Resources")]),
+        // HermitWallet: keys, Keychain + Secure Enclave, EVM and Solana clients, signing.
+        .target(name: "HermitWallet", dependencies: [
+            "HermitCore",
+            .product(name: "libsecp256k1", package: "swift-secp256k1"),
+            .product(name: "CryptoSwift", package: "CryptoSwift"),
+        ], resources: [.copy("Resources/bip39-english.txt")]),
+        .target(name: "HermitUI", dependencies: ["HermitCore", "HermitWallet"], resources: [.process("Resources")]),
         .testTarget(name: "HermitUITests", dependencies: ["HermitUI"]),
+        .testTarget(name: "HermitWalletTests", dependencies: ["HermitWallet"]),
     ],
     swiftLanguageModes: [.v5]
 )
