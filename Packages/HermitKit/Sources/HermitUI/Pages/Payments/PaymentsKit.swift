@@ -27,7 +27,7 @@ enum PayChecks {
 
     /// `afterSheet`: the caller just dismissed its own sheet, so wait for it to leave before presenting.
     func request(_ a: Approval, model: AppModel, afterSheet: Bool = false, then: @escaping () -> Void = {}) {
-        pending = (a.success, model.messages.count, then)
+        pending = (a.success, model.approvalCount, then)
         if afterSheet {
             Task { @MainActor in try? await Task.sleep(for: .milliseconds(380)); model.approval = a }
         } else {
@@ -38,7 +38,7 @@ enum PayChecks {
     func settle(model: AppModel) {
         guard model.approval == nil, let p = pending else { return }
         pending = nil
-        if model.messages.count > p.count, model.messages.last?.text == p.success + "." { p.then() }
+        if model.approvalCount > p.count { p.then() }
     }
 }
 
