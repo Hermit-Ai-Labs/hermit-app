@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import HermitCore
+import HermitModel
 
 public enum Route: String, CaseIterable, Identifiable, Hashable {
     case home, projects, automations, trade, earn, payments, explore, calendar, wallets, connectors, files, settings
@@ -58,10 +59,17 @@ public final class AppModel {
     ]
     public let recents = ["AI budgeting app: get API key", "Send USDC to 48 wallets", "What news is moving markets?", "Weekly ETH DCA"]
 
+    /// On-device models: download state and the one chat uses.
+    public let models: ModelStore
     private let agent: Agent
     private var replyTask: Task<Void, Never>?
 
-    public init(agent: Agent = ScriptedAgent()) { self.agent = agent }
+    /// Defaults to the hybrid agent: scripted money flows, everything else on the local model.
+    public init(agent: Agent? = nil, models: ModelStore? = nil) {
+        let models = models ?? .shared
+        self.models = models
+        self.agent = agent ?? HybridAgent(store: models)
+    }
 
     public var inChat: Bool { !messages.isEmpty }
 
@@ -75,8 +83,11 @@ public final class AppModel {
     public func open(_ r: Route, tab: String? = nil) { tabRequest = tab; route = r }
 
     public func newChat() {
-        replyTask?.cancel(); messages = []; busy = false; route = .home
+        replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
     }
+
+    /// Stops the reply being written. What came so far stays.
+    public func stop() { replyTask?.cancel() }
 
     public func send(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)

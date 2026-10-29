@@ -5,8 +5,17 @@ struct Composer: View {
     @Environment(AppModel.self) private var model
     @State private var text = ""
     @FocusState private var focused: Bool
+    @State private var showModels = false
 
     var body: some View {
+        VStack(spacing: 14) {
+            if !model.inChat { ModelPrompt() }
+            box
+        }
+        .sheet(isPresented: $showModels) { ModelSheet().environment(model) }
+    }
+
+    private var box: some View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("How can I help?", text: $text, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 15)).lineLimit(1...8)
@@ -17,8 +26,12 @@ struct Composer: View {
                     Image(systemName: s).font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
                 Spacer()
-                Text("Local model").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
-                Button(action: send) {
+                Button { showModels = true } label: {
+                    Text(model.models.label).font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                        .contentTransition(.numericText()).animation(.snappy, value: model.models.label)
+                }
+                .buttonStyle(.plain)
+                Button { model.busy ? model.stop() : send() } label: {
                     Image(systemName: model.busy ? "stop.fill" : "arrow.up").font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white).frame(width: 30, height: 30)
                         .background(canSend || model.busy ? Theme.accent : Theme.faint.opacity(0.45), in: Circle())

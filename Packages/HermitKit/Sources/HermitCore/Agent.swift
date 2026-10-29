@@ -12,6 +12,12 @@ public enum AgentEvent: Sendable {
 /// The agent behind the chat box. Today a scripted stand-in; next, the on-device model with tools.
 public protocol Agent: Sendable {
     func reply(to prompt: String) -> AsyncStream<AgentEvent>
+    /// Forget the conversation (New chat). Agents without memory ignore it.
+    func reset()
+}
+
+public extension Agent {
+    func reset() {}
 }
 
 /// Scripted replies taken from the web demo, streamed at a model-like pace so the UI can be tuned for real use.
@@ -52,9 +58,15 @@ public struct ScriptedAgent: Agent {
         receipt: .receipt(title: "Scheduled", rows: [["To", "alice.eth"], ["Amount", "200 USDC"], ["When", "Friday 09:00"]])
     )
 
-    static func script(for prompt: String) -> Script {
+    /// True when there is a scripted scenario for this prompt (money moves and demo flows), so the
+    /// approval flows keep working while everything else goes to the on-device model.
+    public static func matches(_ prompt: String) -> Bool {
         let p = prompt.lowercased()
-        if p.contains("alice") || p.contains("pay") {
+        return p.contains("alice") || p.contains("pay")
+    }
+
+    static func script(for prompt: String) -> Script {
+        if matches(prompt) {
             return Script(
                 statuses: ["Resolving alice.eth…", "Checking past payments…"],
                 text: "alice.eth is the same address you've paid 3 times before. I'll send **200 USDC** on Friday at 09:00.",
