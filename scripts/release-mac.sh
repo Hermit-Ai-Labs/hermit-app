@@ -17,9 +17,12 @@ echo "Signing as: $ID"
 ~/hermit/bin/xcodegen generate -q
 xcodebuild -project Hermit.xcodeproj -scheme Hermit -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath "$DD" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$ID" DEVELOPMENT_TEAM="$TEAM" \
-  OTHER_CODE_SIGN_FLAGS="--keychain $KC --timestamp" ENABLE_HARDENED_RUNTIME=YES clean build | grep -E "error|BUILD" || true
+  OTHER_CODE_SIGN_FLAGS="--keychain $KC --timestamp" ENABLE_HARDENED_RUNTIME=YES \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO clean build | grep -E "error|BUILD" || true
 APP="$DD/Build/Products/Release/Hermit.app"
 codesign --verify --deep --strict --verbose=1 "$APP"
+# Apple refuses debug entitlements in notarized apps
+if codesign -d --entitlements - "$APP" 2>/dev/null | grep -q get-task-allow; then echo "get-task-allow is still in the build"; exit 1; fi
 
 VER=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString)
 BUILD=$(defaults read "$APP/Contents/Info" CFBundleVersion)

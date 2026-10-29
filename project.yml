@@ -32,6 +32,8 @@ targets:
       path: App/macOS/Info.plist
       properties:
         CFBundleDisplayName: Hermit
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: © 2026 Hermit AI Labs
     entitlements:
@@ -58,6 +60,8 @@ targets:
       path: App/iOS/Info.plist
       properties:
         CFBundleDisplayName: Hermit
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSFaceIDUsageDescription: Hermit asks for Face ID before any money moves.
