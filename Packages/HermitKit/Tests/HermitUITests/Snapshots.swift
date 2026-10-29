@@ -58,5 +58,32 @@ final class Snapshots: XCTestCase {
     func testMark() throws {
         try shoot(HermitMark(height: 120).padding(30).background(.white), "mark", CGSize(width: 260, height: 180))
     }
+
+    private func filledModel() -> AppModel {
+        let m = AppModel()
+        m.messages = [
+            Message(role: .user, text: "Pay alice.eth 200 USDC on Friday"),
+            Message(role: .assistant, text: "alice.eth is the same address you've paid 3 times before. I'll send **200 USDC** on Friday at 09:00.",
+                    steps: 2, card: .bars(title: "Paid to alice.eth", rows: [BarRow("Aug", 800, "$800"), BarRow("Sep", 1200, "$1,200"),
+                                                                              BarRow("Oct", 1200, "$1,200"), BarRow("Friday", 200, "$200", highlight: true)]),
+                    actions: [Action("Schedule", approval: ScriptedAgent.payAlice)]),
+        ]
+        return m
+    }
+
+    func testChatFilled() throws {
+        try shoot(RootView(model: filledModel()), "mac-chat-filled", CGSize(width: 1320, height: 822), settle: 2)
+    }
+
+    func testMessagesPlain() throws {
+        let m = filledModel()
+        try shoot(VStack(alignment: .leading, spacing: 22) { ForEach(m.messages) { MessageView(message: $0) } }
+                    .padding(28).frame(maxHeight: .infinity, alignment: .top).background(.white).environment(m),
+                  "mac-messages-plain", CGSize(width: 760, height: 520), settle: 2)
+    }
+
+    func testSidebarPlain() throws {
+        try shoot(Sidebar().environment(AppModel()), "mac-sidebar-plain", CGSize(width: 260, height: 822))
+    }
 }
 #endif
