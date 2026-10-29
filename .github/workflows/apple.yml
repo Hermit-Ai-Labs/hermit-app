@@ -51,6 +51,18 @@ jobs:
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build | tail -25
           ditto -c -k --keepParent build/Build/Products/Release/Hermit.app Hermit-mac.zip
 
+
+      - name: Screenshot the running Mac app
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          open build/Build/Products/Release/Hermit.app
+          sleep 8
+          osascript -e 'tell application "Hermit" to activate' || true
+          sleep 2
+          screencapture -x shots/mac-running.png
+          osascript -e 'tell application "Hermit" to quit' || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: Hermit-mac
@@ -62,3 +74,22 @@ jobs:
           xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath build-ios \
             CODE_SIGNING_ALLOWED=NO build | tail -25
+
+      - name: Screenshot the iPhone app in the simulator
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          DEV=$(xcrun simctl list devices available -j | python3 -c "import sys,json; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if 'iPhone' in x['name'] and 'Pro' in x['name']))")
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl install "$DEV" build-ios/Build/Products/Debug-iphonesimulator/Hermit.app
+          xcrun simctl launch "$DEV" my.hermit.ios
+          sleep 8
+          xcrun simctl io "$DEV" screenshot shots/iphone-running.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: running
+          path: shots
+          if-no-files-found: warn
