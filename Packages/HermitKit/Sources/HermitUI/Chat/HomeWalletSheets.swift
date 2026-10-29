@@ -3,10 +3,10 @@ import CoreImage.CIFilterBuiltins
 import HermitCore
 
 /// Phantom-style wallet actions under the home greeting: money moves sit right next to the AI.
-enum WalletSheet: String, Identifiable { case send, swap, receive, buy; var id: String { rawValue } }
+enum HomeWalletSheet: String, Identifiable { case send, swap, receive, buy; var id: String { rawValue } }
 
 struct WalletActionSheet: View {
-    let kind: WalletSheet
+    let kind: HomeWalletSheet
     var body: some View {
         switch kind {
         case .send: SendSheet()

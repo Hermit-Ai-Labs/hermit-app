@@ -7,7 +7,7 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
     @State private var appeared = SnapshotMode.active
-    @State private var sheet: WalletSheet?
+    @State private var sheet: HomeWalletSheet?
 
     var body: some View {
         Group {
@@ -111,7 +111,7 @@ struct HomeView: View {
         return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"
     }
 
-    private func walletAction(_ kind: WalletSheet, _ title: String, _ symbol: String) -> some View {
+    private func walletAction(_ kind: HomeWalletSheet, _ title: String, _ symbol: String) -> some View {
         Button { sheet = kind } label: {
             VStack(spacing: 7) {
                 Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
