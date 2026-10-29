@@ -3,8 +3,10 @@ import Observation
 import HermitCore
 
 public enum Route: String, CaseIterable, Identifiable, Hashable {
-    case home, projects, automations, trade, earn, payments, explore, calendar
+    case home, projects, automations, trade, earn, payments, explore, calendar, wallets, connectors, files, settings
     public var id: String { rawValue }
+    /// Pages listed in the sidebar. Wallets, Connectors, Files and Settings open from the account menu.
+    static let sidebar: [Route] = [.home, .projects, .automations, .trade, .earn, .payments, .explore, .calendar]
     var title: String {
         switch self {
         case .home: "New chat"
@@ -15,6 +17,10 @@ public enum Route: String, CaseIterable, Identifiable, Hashable {
         case .payments: "Payments"
         case .explore: "Explore"
         case .calendar: "Calendar"
+        case .wallets: "Wallets"
+        case .connectors: "Connectors"
+        case .files: "Files"
+        case .settings: "Settings"
         }
     }
     var symbol: String {
@@ -27,6 +33,10 @@ public enum Route: String, CaseIterable, Identifiable, Hashable {
         case .payments: "dollarsign.square"
         case .explore: "safari"
         case .calendar: "calendar"
+        case .wallets: "wallet.bifold"
+        case .connectors: "puzzlepiece.extension"
+        case .files: "doc"
+        case .settings: "gearshape"
         }
     }
 }
@@ -38,6 +48,8 @@ public final class AppModel {
     public var messages: [Message] = []
     public var approval: Approval?
     public var busy = false
+    /// Short confirmation shown at the bottom; set it with `toast(_:)`.
+    public var toastText: String?
     public let user = "Ryan"
     public let projects: [(String, Color)] = [
         ("Dev: HYPE news bot", Color(hex: 0x2563EB)), ("Stablecoin yield ladder", Color(hex: 0x15803D)),
@@ -52,6 +64,15 @@ public final class AppModel {
     public init(agent: Agent = ScriptedAgent()) { self.agent = agent }
 
     public var inChat: Bool { !messages.isEmpty }
+
+    public func toast(_ text: String) {
+        withAnimation(.snappy) { toastText = text }
+        Task { try? await Task.sleep(for: .seconds(2.4)); if toastText == text { withAnimation(.smooth) { toastText = nil } } }
+    }
+
+    /// Open a page, optionally on a tab (pages read `tabRequest` once on appear).
+    public var tabRequest: String?
+    public func open(_ r: Route, tab: String? = nil) { tabRequest = tab; route = r }
 
     public func newChat() {
         replyTask?.cancel(); messages = []; busy = false; route = .home

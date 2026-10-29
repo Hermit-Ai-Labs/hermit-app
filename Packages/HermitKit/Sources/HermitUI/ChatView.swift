@@ -7,7 +7,18 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
+            if SnapshotMode.active { thread.frame(maxHeight: .infinity, alignment: .top) } else {
+                ScrollView { thread }
+                    .defaultScrollAnchor(.bottom)
+                    .scrollIndicators(.automatic)
+            }
+            Composer()
+                .frame(maxWidth: 720)
+                .padding(.horizontal, 28).padding(.bottom, 20)
+        }
+    }
+
+    private var thread: some View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ForEach(model.messages) { m in
                         MessageView(message: m)
@@ -18,13 +29,6 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 28).padding(.top, 40).padding(.bottom, 24)
                 .animation(.smooth(duration: 0.35), value: model.messages)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollIndicators(.automatic)
-            Composer()
-                .frame(maxWidth: 720)
-                .padding(.horizontal, 28).padding(.bottom, 20)
-        }
     }
 }
 

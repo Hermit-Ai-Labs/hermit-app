@@ -6,11 +6,18 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
+            if SnapshotMode.active { list.frame(maxHeight: .infinity, alignment: .top).clipped() } else { ScrollView { list } }
+            Divider().overlay(Theme.border)
+            account
+        }
+        .background(Theme.subtle)
+    }
+
+    private var list: some View {
                 VStack(alignment: .leading, spacing: 2) {
                     HermitMark(height: 15).padding(.leading, 8).padding(.bottom, 12)
                     funds.padding(.bottom, 10)
-                    ForEach(Route.allCases) { r in row(r) }
+                    ForEach(Route.sidebar) { r in row(r) }
                     section("Projects")
                     ForEach(model.projects, id: \.0) { p in
                         HStack(spacing: 8) {
@@ -27,11 +34,6 @@ struct Sidebar: View {
                     }
                 }
                 .padding(.horizontal, 10).padding(.top, 6)
-            }
-            Divider().overlay(Theme.border)
-            account
-        }
-        .background(Theme.subtle)
     }
 
     private var funds: some View {
@@ -83,7 +85,19 @@ struct Sidebar: View {
             Text(model.user).font(.system(size: 13.5, weight: .medium))
             Text("Local").font(.system(size: 13)).foregroundStyle(Theme.faint)
             Spacer()
-            Image(systemName: "wallet.bifold").font(.system(size: 13)).foregroundStyle(Theme.muted)
+            Menu {
+                Button("Wallets", systemImage: "wallet.bifold") { model.open(.wallets) }
+                Button("Files", systemImage: "doc") { model.open(.files) }
+                Button("Connectors", systemImage: "puzzlepiece.extension") { model.open(.connectors) }
+                Button("Settings", systemImage: "gearshape") { model.open(.settings) }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Theme.muted)
+            }
+            .menuStyle(.button).buttonStyle(.plain).fixedSize()
+            Button { model.open(.wallets) } label: {
+                Image(systemName: "wallet.bifold").font(.system(size: 13)).foregroundStyle(Theme.muted)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
     }

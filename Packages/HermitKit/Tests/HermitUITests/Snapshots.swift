@@ -13,6 +13,7 @@ final class Snapshots: XCTestCase {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         HermitFonts.register()
+        SnapshotMode.active = true
     }
 
     private var dir: URL {
@@ -80,6 +81,15 @@ final class Snapshots: XCTestCase {
         try shoot(VStack(alignment: .leading, spacing: 22) { ForEach(m.messages) { MessageView(message: $0) } }
                     .padding(28).frame(maxHeight: .infinity, alignment: .top).background(.white).environment(m),
                   "mac-messages-plain", CGSize(width: 760, height: 520), settle: 2)
+    }
+
+    /// Every page at Mac window size: page-<route>.png. Filter with SNAPSHOT_ONLY=trade,earn to render a few.
+    func testPages() throws {
+        let only = ProcessInfo.processInfo.environment["SNAPSHOT_ONLY"]?.split(separator: ",").map(String.init)
+        for r in Route.allCases where r != .home && (only == nil || only!.contains(r.rawValue)) {
+            let m = AppModel(); m.route = r
+            try shoot(RootView(model: m), "page-\(r.rawValue)", CGSize(width: 1320, height: 900), settle: 1.2)
+        }
     }
 
     func testSidebarPlain() throws {
