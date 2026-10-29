@@ -90,6 +90,7 @@ final class Snapshots: XCTestCase {
             let m = AppModel(); m.route = r
             try shoot(RootView(model: m), "page-\(r.rawValue)", CGSize(width: 1320, height: 900), settle: 1.2)
         }
+        try ShellShots.run(only)
     }
 
     func testSidebarPlain() throws {

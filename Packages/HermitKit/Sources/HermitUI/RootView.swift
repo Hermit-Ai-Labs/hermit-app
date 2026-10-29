@@ -1,21 +1,80 @@
 import SwiftUI
 import HermitCore
 
-/// The whole app: sidebar on the left, the page on the right. On iPhone the split view collapses to a stack.
+/// The whole app. Mac (and iPad): sidebar on the left, the page on the right. iPhone: a tab bar with
+/// Chat, Trade, Earn, Payments and Wallets, and the sidebar as a drawer. First launch shows the sign-in page.
 public struct RootView: View {
     @State private var model: AppModel
-    public init(model: AppModel? = nil) { _model = State(initialValue: model ?? AppModel()) }
+    @AppStorage(SignIn.key) private var signedIn = false
+    private let forcePhone: Bool
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+
+    /// `phone: true` renders the iPhone layout anywhere (snapshot tests).
+    public init(model: AppModel? = nil, phone: Bool = false) {
+        _model = State(initialValue: model ?? AppModel())
+        forcePhone = phone
+    }
+
+    private var compact: Bool {
+        #if os(iOS)
+        return forcePhone || sizeClass == .compact
+        #else
+        return forcePhone
+        #endif
+    }
 
     public var body: some View {
-        if SnapshotMode.active {
-            HStack(spacing: 0) { Sidebar().frame(width: 248); Divider(); detail }
+        ZStack {
+            if !signedIn && !SnapshotMode.active {
+                LoginView { withAnimation(.smooth(duration: 0.5)) { signedIn = true } }
+                    .transition(.opacity)
+            } else if compact {
+                CompactShell()
+            } else if SnapshotMode.active {
+                HStack(spacing: 0) { Sidebar().frame(width: 248); Divider(); RouteDetail() }
+            } else {
+                split
+            }
+        }
+        .environment(model)
+        .environment(\.compact, compact)
+        .foregroundStyle(Theme.text)
+        .environment(\.colorScheme, .light)
+        .tint(Theme.accent)
+        .focusedSceneValue(\.hermitModel, model)
+        .overlay(alignment: .bottom) {
+            if let t = model.toastText {
+                ToastView(text: t).padding(.bottom, compact ? 96 : 28)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(item: $model.approval) { a in
+            ApprovalSheet(approval: a) { model.approved(a) }
                 .environment(model)
-        } else {
-            split
+                .foregroundStyle(Theme.text)
+                #if os(iOS)
+                .presentationDetents([.large])
+                .presentationCornerRadius(20)
+                #endif
         }
     }
 
-    private var detail: some View {
+    private var split: some View {
+        NavigationSplitView {
+            Sidebar()
+                .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
+        } detail: {
+            RouteDetail()
+        }
+    }
+}
+
+/// The page for the current route.
+struct RouteDetail: View {
+    @Environment(AppModel.self) private var model
+    var body: some View {
         Group {
             switch model.route {
             case .home: if model.inChat { ChatView() } else { HomeView() }
@@ -35,23 +94,6 @@ public struct RootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
     }
-
-    private var split: some View {
-        NavigationSplitView {
-            Sidebar()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
-        } detail: {
-            detail
-        }
-        .overlay(alignment: .bottom) {
-            if let t = model.toastText { ToastView(text: t).padding(.bottom, 28).transition(.move(edge: .bottom).combined(with: .opacity)) }
-        }
-        .environment(model)
-        .tint(Theme.accent)
-        .sheet(item: $model.approval) { a in
-            ApprovalSheet(approval: a) { model.approved(a) }
-        }
-    }
 }
 
 struct PlaceholderPage: View {
@@ -63,4 +105,28 @@ struct PlaceholderPage: View {
             Text("Coming to the native app next.").foregroundStyle(Theme.muted)
         }
     }
+}
+
+// MARK: Menu bar commands (Mac): New Chat ⌘N, Focus chat box ⌘K.
+
+public struct HermitCommands: Commands {
+    @FocusedValue(\.hermitModel) private var model
+    public init() {}
+    public var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Chat") { model?.newChat() }.keyboardShortcut("n").disabled(model == nil)
+        }
+        CommandMenu("Chat") {
+            Button("Focus Chat Box") { model?.focusTick += 1; if model?.route != .home && model?.route != .automations && model?.route != .projects { model?.route = .home } }
+                .keyboardShortcut("k").disabled(model == nil)
+            Button("Stop Reply") { model?.stop() }.keyboardShortcut(".").disabled(model?.busy != true)
+            Divider()
+            Button("Projects") { model?.open(.projects) }.keyboardShortcut("1", modifiers: [.command, .option])
+            Button("Automations") { model?.open(.automations) }.keyboardShortcut("2", modifiers: [.command, .option])
+        }
+    }
+}
+
+extension FocusedValues {
+    @Entry var hermitModel: AppModel?
 }
