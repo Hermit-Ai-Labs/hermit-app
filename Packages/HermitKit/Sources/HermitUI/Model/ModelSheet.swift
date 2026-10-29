@@ -5,10 +5,31 @@ import HermitModel
 struct ModelSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    /// Inside Settings › Models: just the list, no title or close button.
+    var embedded = false
 
     var body: some View {
+        if embedded {
+            list.animation(.smooth(duration: 0.3), value: model.models.states)
+        } else {
+            sheet
+        }
+    }
+
+    private var list: some View {
         let store = model.models
-        VStack(alignment: .leading, spacing: 18) {
+        return VStack(spacing: 0) {
+            ForEach(Array(ModelCatalog.all.enumerated()), id: \.element.id) { i, spec in
+                if i > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
+                row(store, spec)
+            }
+        }
+        .card()
+    }
+
+    private var sheet: some View {
+        let store = model.models
+        return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Models").font(.system(size: 19, weight: .semibold))
@@ -22,13 +43,7 @@ struct ModelSheet: View {
                 }
                 .buttonStyle(.plain)
             }
-            VStack(spacing: 0) {
-                ForEach(Array(ModelCatalog.all.enumerated()), id: \.element.id) { i, spec in
-                    if i > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
-                    row(store, spec)
-                }
-            }
-            .card()
+            list
         }
         .padding(24)
         #if os(macOS)

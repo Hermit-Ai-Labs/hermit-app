@@ -14,7 +14,11 @@ struct SettingsPage: View {
         Page(title: "Settings", tabs: [("safety", "Safety"), ("memory", "Memory"), ("models", "Models"), ("home", "Home")], tab: $tab) { t in
             switch t {
             case "memory": MemoryEditor()
-            case "models": ModelsList()
+            case "models":
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Hermit runs on this device. Nothing you type leaves it.").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    ModelSheet(embedded: true)
+                }
             case "home": home
             default: safety
             }
