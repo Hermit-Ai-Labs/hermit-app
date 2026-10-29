@@ -273,8 +273,20 @@ public struct Approval: Equatable, Sendable, Identifiable, Codable {
     public let receipt: Card?
     /// Posted into chat after approval when this opens a position.
     public var live: LiveTrade?
-    public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil, live: LiveTrade? = nil) {
-        self.kind = kind; self.title = title; self.lines = lines; self.checks = checks; self.success = success; self.receipt = receipt; self.live = live
+    /// Does the real work after Approve (sign and send) and returns a transaction hash. nil keeps the demo flow.
+    /// Not saved with the chat and not part of equality.
+    public var perform: (@Sendable () async throws -> String)?
+    public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil,
+                live: LiveTrade? = nil, perform: (@Sendable () async throws -> String)? = nil) {
+        self.kind = kind; self.title = title; self.lines = lines; self.checks = checks; self.success = success; self.receipt = receipt
+        self.live = live; self.perform = perform
+    }
+
+    enum CodingKeys: String, CodingKey { case kind, title, lines, checks, success, receipt, live }
+
+    public static func == (a: Approval, b: Approval) -> Bool {
+        a.kind == b.kind && a.title == b.title && a.lines == b.lines && a.checks == b.checks && a.success == b.success
+            && a.receipt == b.receipt && a.live == b.live
     }
 
     /// The hazard scan every money move runs, with any extra checks for this move.
