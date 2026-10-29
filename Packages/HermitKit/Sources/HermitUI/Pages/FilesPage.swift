@@ -37,7 +37,7 @@ struct FilesPage: View {
                     RowList(items: list) { f in
                         Button { store.open(f) } label: {
                             HStack(spacing: 12) {
-                                SymbolTile(symbol: f.symbol, size: 34)
+                                WalletSymbolTile(symbol: f.symbol, size: 34)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(f.name).font(.system(size: 14, weight: .medium)).lineLimit(1)
                                     Text("\(f.type), \(f.src)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -67,7 +67,7 @@ struct FilesPage: View {
         .sheet(item: $sheet) { s in
             Group {
                 switch s {
-                case .record: RecordSheet { f in store.add(f); model.toast("\(f.name) added") }
+                case .record: FilesRecordSheet { f in store.add(f); model.toast("\(f.name) added") }
                 case .upload: UploadSheet { f in store.add(f); model.toast("\(f.name) added") }
                 }
             }
@@ -150,7 +150,7 @@ final class FilesStore {
 // MARK: Record
 
 /// Dictation: a live waveform and timer, stop or keep going, then save to Files.
-struct RecordSheet: View {
+struct FilesRecordSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onSave: (HFile) -> Void
     @State private var seconds = 0
@@ -235,13 +235,13 @@ struct UploadSheet: View {
             Segmented(options: ["Device", "Photos", "Hermit files", "Drive"].map { ($0, $0) }, selection: $source)
             if source == "Device" {
                 SelectRow(title: "Choose a file…", subtitle: "PDF, CSV, images, docs or code", action: { importing = true }) {
-                    SymbolTile(symbol: "folder", size: 34)
+                    WalletSymbolTile(symbol: "folder", size: 34)
                 }
             }
             RowList(items: list) { f in
                 Button { onPick(f); dismiss() } label: {
                     HStack(spacing: 12) {
-                        SymbolTile(symbol: f.symbol, size: 34)
+                        WalletSymbolTile(symbol: f.symbol, size: 34)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(f.name).font(.system(size: 14, weight: .medium)).lineLimit(1)
                             Text(f.size).font(.system(size: 12.5)).foregroundStyle(Theme.muted)

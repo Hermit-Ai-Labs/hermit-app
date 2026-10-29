@@ -144,12 +144,12 @@ struct ModelsList: View {
             NoteBox(symbol: "airplane", text: "Every model runs on this device, so Hermit works in flight mode and nothing you say leaves it.")
         }
         .onAppear { ToastRelay.post = { [model] in model.toast($0) } }
-        .sheet(item: $open) { m in ModelSheet(name: m.name).environment(model).tint(Theme.text) }
+        .sheet(item: $open) { m in SettingsModelSheet(name: m.name).environment(model).tint(Theme.text) }
     }
 
     private func activeCard(_ m: LocalModel) -> some View {
         HStack(spacing: 14) {
-            SymbolTile(symbol: m.symbol, size: 44, tint: Theme.accent)
+            WalletSymbolTile(symbol: m.symbol, size: 44, tint: Theme.accent)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(m.name).font(.system(size: 16, weight: .semibold))
@@ -166,7 +166,7 @@ struct ModelsList: View {
     private func row(_ m: LocalModel) -> some View {
         Button { open = m } label: {
             HStack(spacing: 12) {
-                SymbolTile(symbol: m.symbol, size: 34)
+                WalletSymbolTile(symbol: m.symbol, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.role == "Text" ? "\(m.name) by \(m.by)" : m.name).font(.system(size: 14, weight: .medium))
                     Text(m.role == "Text" ? "Text, \(m.size)" : "\(m.by), \(m.size)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -198,7 +198,7 @@ struct ModelsList: View {
 }
 
 /// One model: size, where it runs, use it, update or re-download.
-struct ModelSheet: View {
+struct SettingsModelSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var store = ModelsStore.shared

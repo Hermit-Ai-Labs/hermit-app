@@ -291,7 +291,7 @@ extension SelectRow where Trailing == EmptyView {
 }
 
 /// Square app-style icon for an SF Symbol (wallet types, file kinds).
-struct SymbolTile: View {
+struct WalletSymbolTile: View {
     let symbol: String
     var size: CGFloat = 34
     var tint: Color = Theme.text

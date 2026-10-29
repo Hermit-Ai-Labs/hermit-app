@@ -170,7 +170,7 @@ struct GasTopUpSheet: View {
                 ForEach(sources) { w in
                     let direct = vm.balance(of: chain.gasToken, wallet: w.id, chain: chain) * vm.price(chain.gasToken) >= usd
                     SelectRow(title: w.name, subtitle: "\(MoneyFmt.usd(vm.total(w.id))), \(direct ? "direct" : "bridged in 30s")", on: fromID == w.id, action: { fromID = w.id }) {
-                        SymbolTile(symbol: w.symbol, size: 28)
+                        WalletSymbolTile(symbol: w.symbol, size: 28)
                     }
                 }
             }
@@ -224,7 +224,7 @@ struct GasWithdrawSheet: View {
                 TokenLogo(symbol: "USDC", chain: chain, size: 28)
             }
             ForEach(vm.wallets.filter { $0.id != "main" && $0.address(on: chain) != nil }) { w in
-                SelectRow(title: "Send to \(w.name)", subtitle: w.kind, on: to == w.id, action: { to = w.id }) { SymbolTile(symbol: w.symbol, size: 28) }
+                SelectRow(title: "Send to \(w.name)", subtitle: w.kind, on: to == w.id, action: { to = w.id }) { WalletSymbolTile(symbol: w.symbol, size: 28) }
             }
         } foot: {
             Button("Review") {
@@ -339,7 +339,7 @@ struct AddWalletSheet: View {
     }
 
     private func option(_ symbol: String, _ title: String, _ sub: String, _ action: @escaping () -> Void) -> some View {
-        SelectRow(title: title, subtitle: sub, action: { withAnimation(.smooth) { action() } }) { SymbolTile(symbol: symbol, size: 34) } trailing: {
+        SelectRow(title: title, subtitle: sub, action: { withAnimation(.smooth) { action() } }) { WalletSymbolTile(symbol: symbol, size: 34) } trailing: {
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
         }
     }

@@ -60,11 +60,11 @@ struct WalletsPage: View {
     @ViewBuilder private func sheetView(_ s: WalletSheet) -> some View {
         switch s {
         case .send(let from, let chain, let token):
-            SendSheet(vm: vm, fromID: from ?? (selected == "all" ? "main" : selected), chain: chain, token: token)
+            WalletSendSheet(vm: vm, fromID: from ?? (selected == "all" ? "main" : selected), chain: chain, token: token)
         case .transfer(let from):
             TransferSheet(vm: vm, fromID: from ?? (selected == "all" ? "main" : selected))
         case .receive(let w):
-            ReceiveSheet(vm: vm, walletID: w ?? (selected == "all" ? "main" : selected), title: w == nil && selected == "all" ? "Deposit" : "Add funds")
+            WalletReceiveSheet(vm: vm, walletID: w ?? (selected == "all" ? "main" : selected), title: w == nil && selected == "all" ? "Deposit" : "Add funds")
         case .bridge(let token):
             BridgeSheet(vm: vm, walletID: selected == "all" ? "main" : selected, token: token ?? "USDC")
         case .history(let w):

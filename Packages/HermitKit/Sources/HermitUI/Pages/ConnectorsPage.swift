@@ -74,7 +74,7 @@ struct ConnectorsPage: View {
     private var skills: some View {
         RowList(items: ConnectorSeed.skills) { s in
             HStack(spacing: 12) {
-                SymbolTile(symbol: s.symbol, size: 34)
+                WalletSymbolTile(symbol: s.symbol, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(s.name).font(.system(size: 14, weight: .medium))
                     Text(s.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)

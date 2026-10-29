@@ -3,7 +3,7 @@ import HermitCore
 
 /// Exchange-style send: from wallet, network, address (paste or scan), a whitelist of saved addresses,
 /// add address with a 24-hour hold, and Whitelist only. Address format is checked per network before Review.
-struct SendSheet: View {
+struct WalletSendSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var ask
     @Bindable var vm: WalletsViewModel
@@ -289,7 +289,7 @@ struct TransferSheet: View {
 }
 
 /// Receive / Deposit: pick a wallet and a network, then a real QR code and the address to copy.
-struct ReceiveSheet: View {
+struct WalletReceiveSheet: View {
     @Environment(AppModel.self) private var model
     let vm: WalletsViewModel
     @State private var walletID: String

@@ -13,7 +13,7 @@ struct WalletPicker: View {
     var body: some View {
         Button { open.toggle() } label: {
             HStack(spacing: 8) {
-                SymbolTile(symbol: current?.symbol ?? "wallet.bifold", size: 26)
+                WalletSymbolTile(symbol: current?.symbol ?? "wallet.bifold", size: 26)
                 Text(current?.name ?? "All wallets").font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
                     .rotationEffect(.degrees(open ? 180 : 0))
@@ -68,7 +68,7 @@ struct WalletMenu: View {
                     }
                     .padding(.vertical, 6).padding(.horizontal, 10)
                 }
-                .buttonStyle(MenuRowStyle())
+                .buttonStyle(WalletMenuRowStyle())
             }
         }
         .padding(8)
@@ -82,7 +82,7 @@ struct WalletMenu: View {
             close()
         } label: {
             HStack(spacing: 10) {
-                SymbolTile(symbol: symbol, size: 30)
+                WalletSymbolTile(symbol: symbol, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
                     HStack(spacing: 6) {
@@ -98,7 +98,7 @@ struct WalletMenu: View {
             .padding(.vertical, 6).padding(.horizontal, 10)
             .background(selected == id ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(MenuRowStyle())
+        .buttonStyle(WalletMenuRowStyle())
     }
 }
 
@@ -109,7 +109,7 @@ struct WalletPickerMenuPreview: View {
 }
 
 /// Menu-like row: hover highlight, quick press.
-struct MenuRowStyle: ButtonStyle {
+struct WalletMenuRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { MenuRowBody(configuration: configuration) }
     struct MenuRowBody: View {
         let configuration: Configuration
