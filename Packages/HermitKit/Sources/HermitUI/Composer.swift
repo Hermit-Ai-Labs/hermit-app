@@ -8,7 +8,8 @@ struct Composer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
     var placeholder = "How can I help?"
-    var label = "Local model"
+    /// Empty hides it; nil shows the real on-device model (tap to manage models).
+    var label: String? = nil
     var projectPicker = true
     var minLines = 1
     var dictation = "Long HYPE 5x on Hyperliquid, stop at $22"
@@ -21,6 +22,7 @@ struct Composer: View {
     @State private var attaching = false
     @State private var recording = false
     @State private var importing = false
+    @State private var showModels = false
     @State private var connectorsOn: Set<String> = ["Gmail", "Google Calendar", "Notion", "X", "OpenAI", "Perplexity"]
     @State private var pluginsOn: Set<String> = ["Research analyst"]
     @FocusState private var focused: Bool
@@ -43,6 +45,7 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if onSend == nil && !model.inChat && projectPicker { ModelPrompt().padding(.bottom, 14) }
             box
             if projectPicker, let p = model.project(model.chatProject) {
                 HStack(spacing: 7) {
@@ -65,6 +68,7 @@ struct Composer: View {
             }
         }
         .animation(.snappy, value: model.chatProject)
+        .sheet(isPresented: $showModels) { ModelSheet().environment(model) }
         .sheet(isPresented: $attaching) {
             AttachSheet { picked in
                 withAnimation(.snappy) { file = picked }
@@ -106,8 +110,14 @@ struct Composer: View {
                 tool("paperclip", "Attach file") { attaching = true }
                 tool("mic", "Speak") { recording = true }
                 Spacer(minLength: 8)
-                if !label.isEmpty {
+                if let label, !label.isEmpty {
                     Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1).padding(.trailing, 6)
+                } else if label == nil {
+                    Button { showModels = true } label: {
+                        Text(model.models.label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
+                            .contentTransition(.numericText()).animation(.snappy, value: model.models.label)
+                    }
+                    .buttonStyle(.plain).padding(.trailing, 6).help("On-device model")
                 }
                 sendButton
             }

@@ -14,6 +14,12 @@ public enum AgentEvent: Sendable {
 /// The agent behind the chat box. Today a scripted stand-in; next, the on-device model with tools.
 public protocol Agent: Sendable {
     func reply(to prompt: String) -> AsyncStream<AgentEvent>
+    /// Forget the conversation (New chat). Agents without memory ignore it.
+    func reset()
+}
+
+public extension Agent {
+    func reset() {}
 }
 
 /// A scripted reply: tool steps run first, then blocks appear one by one. In production these come from the
@@ -65,6 +71,12 @@ public struct ScriptedAgent: Agent {
             }
             cont.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// True when there is a scripted scenario (money moves, demo flows, memory) for this prompt, so those keep their
+    /// approval flows while everything else goes to the on-device model.
+    public static func matches(_ prompt: String) -> Bool {
+        Scenario.match(prompt) != nil || memoryItem(prompt) != nil
     }
 
     /// The reply for a prompt: memory, a scenario from the demo, or a short fallback with prompts to try.

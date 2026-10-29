@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import HermitCore
+import HermitModel
 
 public enum Route: String, CaseIterable, Identifiable, Hashable {
     case home, projects, automations, trade, earn, payments, explore, calendar, wallets, connectors, files, settings
@@ -104,8 +105,14 @@ public final class AppModel {
     private var replyTask: Task<Void, Never>?
     private let persist: Bool
 
-    public init(agent: Agent = ScriptedAgent()) {
-        self.agent = agent
+    /// The on-device models (download, pick, delete).
+    public let models: ModelStore
+
+    /// Defaults to the hybrid agent: scripted money flows and demo scenarios, everything else on the local model.
+    public init(agent: Agent? = nil, models: ModelStore? = nil) {
+        let models = models ?? .shared
+        self.models = models
+        self.agent = agent ?? HybridAgent(store: models)
         persist = !SnapshotMode.active
         if persist { load() }
     }
@@ -131,7 +138,7 @@ public final class AppModel {
     /// A fresh chat, optionally inside a project.
     public func newChat(project: String?) {
         commit()
-        replyTask?.cancel(); messages = []; busy = false; route = .home
+        replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
         currentID = nil; chatProject = project; drawerOpen = false
         focusTick += 1
     }
@@ -191,8 +198,8 @@ public final class AppModel {
         messages.append(reply)
         busy = true
         let stream: AsyncStream<AgentEvent>
-        if let a = attachment, let scripted = agent as? ScriptedAgent {
-            stream = scripted.stream(ScriptedAgent.script(for: text, attachment: a))
+        if let a = attachment {
+            stream = ScriptedAgent().stream(ScriptedAgent.script(for: text, attachment: a))
         } else {
             stream = agent.reply(to: text)
         }
