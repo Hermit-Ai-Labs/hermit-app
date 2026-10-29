@@ -535,15 +535,15 @@ struct ApprovalHost: ViewModifier {
                 closeSheets()
                 Task { @MainActor in
                     if wait { try? await Task.sleep(for: .milliseconds(450)) }
-                    pending = (a.id, model.messages.count, then)
+                    pending = (a.id, model.approvalCount, then)
                     model.approval = a
                 }
             })
             .onChange(of: model.approval == nil) { _, closed in
                 guard closed, let p = pending else { return }
                 pending = nil
-                // AppModel.approved(_:) posts the receipt to the conversation; that is how we know it went through.
-                if model.messages.count > p.count { p.run() }
+                // approvalCount only moves when the sheet was approved, not cancelled.
+                if model.approvalCount > p.count { p.run() }
             }
     }
 }

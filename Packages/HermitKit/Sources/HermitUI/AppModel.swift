@@ -85,6 +85,8 @@ public final class AppModel {
     public var memory: [String] = ["Never use more than 5x leverage", "Prefer audited protocols for stablecoin yield", "Keep replies short, numbers first"]
     /// Titles of approvals that went through, so cards can show their after-state (sent, live, key added).
     public var approvedIDs: Set<String> = []
+    /// Goes up by one each time an approval goes through. Pages compare it to know a sheet was approved, not cancelled.
+    public private(set) var approvalCount = 0
     /// Bumped by ⌘K so the chat box takes focus.
     public var focusTick = 0
     /// iPhone: the sidebar drawer.
@@ -260,6 +262,7 @@ public final class AppModel {
     public func approved(_ a: Approval) {
         approval = nil
         approvedIDs.insert(a.title)
+        approvalCount += 1
         guard route == .home, inChat else { toast(a.success); return }
         if let idx = messages.lastIndex(where: { $0.role == .assistant }), messages[idx].blocks.isEmpty {
             messages[idx].actions = []

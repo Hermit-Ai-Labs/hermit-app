@@ -162,21 +162,21 @@ final class TradeEarnStore {
     var earnPositions = EarnData.positionsSeed
 
     /// What to do once the approval sheet with this success text goes through.
-    private var pending: (success: String, toast: String?, apply: () -> Void)?
+    private var pending: (count: Int, toast: String?, apply: () -> Void)?
 
     /// Open the approval sheet and remember what changes on screen once it is approved.
     func approve(_ model: AppModel, _ a: Approval, toast: String? = nil, apply: @escaping () -> Void = {}) {
-        pending = (a.success, toast, apply)
+        pending = (model.approvalCount, toast, apply)
         model.approval = a
     }
 
-    /// Called when the approval sheet closes. Approved sheets leave their success line in the conversation.
+    /// Called when the approval sheet closes; only an approval (not Cancel) applies the change.
     func approvalClosed(_ model: AppModel) {
         guard let p = pending else { return }
         pending = nil
-        guard model.messages.last?.text == p.success + "." else { return }
+        guard model.approvalCount > p.count else { return }
         withAnimation(.smooth(duration: 0.35)) { p.apply() }
-        model.toast(p.toast ?? p.success)
+        if let t = p.toast { model.toast(t) }
     }
 }
 
