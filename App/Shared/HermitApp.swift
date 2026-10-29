@@ -10,6 +10,7 @@ struct HermitApp: App {
             RootView()
                 .preferredColorScheme(.light)
         }
+        .commands { HermitCommands() }
         #if os(macOS)
         .defaultSize(width: 1320, height: 822)
         .windowToolbarStyle(.unified(showsTitle: false))
