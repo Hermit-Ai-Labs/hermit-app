@@ -1,5 +1,5 @@
 import Foundation
-import Security
+@preconcurrency import Security
 import LocalAuthentication
 import CryptoKit
 
@@ -256,12 +256,12 @@ final class SecureEnclaveStore: KeychainBase, SealedStore, @unchecked Sendable {
             if st == errSecItemNotFound { throw WalletError.vault("This wallet's Secure Enclave key is gone (biometrics changed?). Restore it from the recovery phrase.") }
             throw keychainError(st, "key lookup")
         }
-        let priv = r as! SecKey // swiftlint:disable:this force_cast
+        let priv = UncheckedBox(r as! SecKey) // swiftlint:disable:this force_cast
         // Decrypting is where Touch ID / Face ID is asked. It blocks, so run it off the main thread.
         return try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: Unmanaged<CFError>?
-                guard let plain = SecKeyCreateDecryptedData(priv, Self.algorithm, box as CFData, &err) as Data? else {
+                guard let plain = SecKeyCreateDecryptedData(priv.value, Self.algorithm, box as CFData, &err) as Data? else {
                     let e = err?.takeRetainedValue()
                     let code = e.map { CFErrorGetCode($0) } ?? 0
                     cont.resume(throwing: code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue
