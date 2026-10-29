@@ -1,0 +1,64 @@
+# Builds the Mac and iPhone apps on a GitHub macOS runner and renders screenshots of the native UI.
+#  - snapshots: the SwiftUI screens rendered to PNG by the HermitKit tests (artifact "snapshots")
+#  - Hermit-mac.zip: the Mac app, ad-hoc signed (right-click > Open the first time) until we have a Developer ID
+#  - the iPhone app is built for the simulator only until we have an Apple Developer account
+name: apple
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+          swift --version
+
+      - name: Snapshot the screens
+        working-directory: Packages/HermitKit
+        run: SNAPSHOT_DIR="$GITHUB_WORKSPACE/snapshots" swift test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: snapshots
+          if-no-files-found: warn
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build the Mac app
+        run: |
+          set -o pipefail
+          xcodebuild -project Hermit.xcodeproj -scheme Hermit -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath build \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build | tail -25
+          ditto -c -k --keepParent build/Build/Products/Release/Hermit.app Hermit-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hermit-mac
+          path: Hermit-mac.zip
+
+      - name: Build the iPhone app (simulator)
+        run: |
+          set -o pipefail
+          xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO build | tail -25

@@ -1,0 +1,68 @@
+# XcodeGen spec: `xcodegen generate` writes Hermit.xcodeproj (not checked in).
+name: Hermit
+options:
+  bundleIdPrefix: my.hermit
+  deploymentTarget:
+    macOS: "26.0"
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  HermitKit:
+    path: Packages/HermitKit
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Hermit:
+    type: application
+    platform: macOS
+    sources:
+      - App/Shared
+      - App/macOS
+    dependencies:
+      - package: HermitKit
+        product: HermitUI
+    info:
+      path: App/macOS/Info.plist
+      properties:
+        CFBundleDisplayName: Hermit
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: © 2026 Hermit AI Labs
+    entitlements:
+      path: App/macOS/Hermit.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: my.hermit.mac
+        PRODUCT_NAME: Hermit
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+  HermitiOS:
+    type: application
+    platform: iOS
+    sources:
+      - App/Shared
+      - App/iOS
+    dependencies:
+      - package: HermitKit
+        product: HermitUI
+    info:
+      path: App/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Hermit
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSFaceIDUsageDescription: Hermit asks for Face ID before any money moves.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: my.hermit.ios
+        PRODUCT_NAME: Hermit
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
