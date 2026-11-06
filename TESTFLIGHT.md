@@ -7,15 +7,15 @@ a signed build, not just in a snapshot.
 - [x] Mac build box reachable (`ssh mac`): plugged in, awake, tunnel up.
 - [x] App Store Connect API key with the **App Manager** role: Issuer ID, Key ID, `.p8` stored on the Mac only.
 - [x] Bundle ID `my.hermit.ios` registered on team 4G5YW2XP2B with these capabilities: Keychain Sharing, Increased Memory Limit.
-- [ ] App record in App Store Connect: name (e.g. "Hermit: Private AI"), SKU, primary language, category Productivity.
+- [x] App record in App Store Connect: name (e.g. "Hermit: Private AI"), SKU, primary language, category Productivity.
 - [x] Apple Distribution certificate + App Store profile (made with scripts/asc.py; private keys only in ~/hermit/signing.keychain-db).
 - [ ] Internal testers added in App Store Connect (up to 100 team users, no Beta Review needed).
 
 ## B. App: real, no fake data
-- [ ] Merge the four real-data branches (real-shell, real-pages, real-wallet, real-markets) and build for iOS.
+- [x] Merge the four real-data branches (real-shell, real-pages, real-wallet, real-markets) and build for iOS.
 - [ ] No seeded people, balances, threads, calendar items or stats anywhere; empty states instead.
 - [ ] Controls that aren't wired yet are greyed out with a short "Soon".
-- [ ] Onboarding asks only "What should Hermit call you?".
+- [x] Onboarding asks only "What should Hermit call you?".
 
 ## C. App: iPhone-first
 - [ ] Every tab laid out for a 390pt-wide screen: nothing cut off, no Mac-sized rows, safe areas respected.
@@ -40,7 +40,7 @@ a signed build, not just in a snapshot.
 - [ ] Build number goes up on every upload (`CURRENT_PROJECT_VERSION`).
 
 ## F. Upload
-- [ ] `scripts/release-ios.sh` on the Mac: archive, export with the App Store method, upload with the API key.
+- [x] `scripts/release-ios.sh` on the Mac: archive, export with the App Store method, upload with the API key.
 - [ ] Build processed in App Store Connect, assigned to the internal group, installed via the TestFlight app.
 
 ## Risks to decide before external testing (public link / waitlist)
