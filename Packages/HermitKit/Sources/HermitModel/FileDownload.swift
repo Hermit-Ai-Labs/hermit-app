@@ -2,12 +2,12 @@ import Foundation
 import CryptoKit
 
 /// A file in a Hugging Face repo, as the tree API lists it. `sha256` is set for LFS files (the weights).
-struct RepoFile: Decodable, Sendable {
+struct RepoFile: Codable, Sendable {
     let type: String
     let path: String
     let size: Int64
     let lfs: LFS?
-    struct LFS: Decodable, Sendable { let oid: String; let size: Int64 }
+    struct LFS: Codable, Sendable { let oid: String; let size: Int64 }
     var sha256: String? { lfs?.oid }
 }
 

@@ -33,7 +33,11 @@ public final class ModelStore {
     @ObservationIgnored private let keepAlive = DownloadKeepAlive()
     #endif
     private static let selectedKey = "hermit.model.selected"
+    /// The model the user asked to download and hasn't finished, so a relaunch picks the download up again.
+    private static let downloadingKey = "hermit.model.downloading"
     private static let readyMarker = ".hermit-ready"
+    /// The file list as fetched when the download started, so a relaunch can continue without the network.
+    private static let filesCache = ".hermit-files.json"
 
     public init(root: URL? = nil) {
         self.root = root ?? URL.applicationSupportDirectory.appending(path: "Hermit/Models", directoryHint: .isDirectory)
@@ -43,10 +47,36 @@ public final class ModelStore {
         for spec in ModelCatalog.all { states[spec.id] = isComplete(spec.id) ? .ready : .notDownloaded }
         if states[selectedID] == nil { states[selectedID] = isComplete(selectedID) ? .ready : .notDownloaded }
         #if os(iOS)
-        keepAlive.onExpire = { [weak self] id in self?.cancel(id) }
-        keepAlive.onResume = { [weak self] id in self?.download(id) }
+        BackgroundDownloads.shared.root = self.root
+        // iOS may have kept transfers going while Hermit wasn't running: attach to them, and continue a download the
+        // user started that hasn't landed yet.
+        Task { [weak self] in
+            var ids = await BackgroundDownloads.shared.modelsInFlight()
+            if let pending = UserDefaults.standard.string(forKey: Self.downloadingKey) { ids.insert(pending) }
+            guard let self else { return }
+            for id in ids where self.state(id) != .ready { self.download(id) }
+        }
         #endif
     }
+
+    #if os(iOS)
+    // MARK: App delegate hooks (iPhone)
+
+    /// From didFinishLaunching: registers the background-time handler (it must be registered during launch) and
+    /// creates the store, which re-attaches to transfers iOS kept going while Hermit wasn't running.
+    public static func appDidLaunch() {
+        DownloadKeepAlive.registerAtLaunch()
+        _ = shared
+    }
+
+    /// From handleEventsForBackgroundURLSession: iOS woke Hermit because transfers finished. `completion` runs once
+    /// they're delivered, after which iOS may suspend Hermit again.
+    public static func handleBackgroundEvents(identifier: String, completion: @escaping () -> Void) {
+        guard identifier == BackgroundDownloads.identifier else { completion(); return }
+        _ = shared
+        BackgroundDownloads.shared.handleEvents(completion)
+    }
+    #endif
 
     // MARK: Reading
 
@@ -80,6 +110,7 @@ public final class ModelStore {
     public func download(_ id: String) {
         guard tasks[id] == nil, state(id) != .ready else { return }
         states[id] = .downloading(progress(id))
+        UserDefaults.standard.set(id, forKey: Self.downloadingKey)
         #if os(iOS)
         keepAlive.begin(id: id, name: ModelCatalog.spec(id).name, received: received[id] ?? 0, total: totals[id] ?? 0)
         #endif
@@ -88,16 +119,23 @@ public final class ModelStore {
             do {
                 try await self.fetch(id)
                 self.states[id] = .ready
+                self.clearDownloading(id)
                 self.keepAliveFinish(id, .landed)
             } catch is CancellationError {
                 self.states[id] = .notDownloaded
+                self.clearDownloading(id)
                 self.keepAliveFinish(id, .paused)
             } catch {
                 self.states[id] = .failed(error.localizedDescription)
+                self.clearDownloading(id)
                 self.keepAliveFinish(id, .failed)
             }
             self.tasks[id] = nil
         }
+    }
+
+    private func clearDownloading(_ id: String) {
+        if UserDefaults.standard.string(forKey: Self.downloadingKey) == id { UserDefaults.standard.removeObject(forKey: Self.downloadingKey) }
     }
 
     /// Stops a download. What came down so far stays on disk, so the next download picks up from there.
@@ -108,6 +146,10 @@ public final class ModelStore {
     /// Removes the model from this device.
     public func delete(_ id: String) {
         tasks[id]?.cancel(); tasks[id] = nil
+        #if os(iOS)
+        BackgroundDownloads.shared.discard(model: id)
+        #endif
+        clearDownloading(id)
         for observer in deleteObservers { observer(id) }
         try? FileManager.default.removeItem(at: directory(id))
         received[id] = nil
@@ -134,7 +176,88 @@ public final class ModelStore {
         var rootValues = URLResourceValues(); rootValues.isExcludedFromBackup = true
         var rootURL = root; try? rootURL.setResourceValues(rootValues)
 
+        #if os(iOS)
+        try await fetchInBackground(id, dir)
+        #else
+        try await fetchInApp(id, dir)
+        #endif
+    }
+
+    /// The model's file list: cached in its folder once fetched, so a download can continue after a relaunch offline.
+    private func fileList(_ id: String, _ dir: URL) async throws -> [RepoFile] {
+        let cache = dir.appending(path: Self.filesCache)
+        if let data = try? Data(contentsOf: cache), let files = try? JSONDecoder().decode([RepoFile].self, from: data), !files.isEmpty {
+            return files
+        }
         let files = try await Self.listFiles(id)
+        try? JSONEncoder().encode(files).write(to: cache)
+        return files
+    }
+
+    /// Size and SHA-256 check, then the .part file takes the file's place.
+    private func verifyAndPlace(_ id: String, _ file: RepoFile, part: URL, dest: URL) async throws {
+        let size = (try? FileManager.default.attributesOfItem(atPath: part.path)[.size] as? Int64) ?? 0
+        guard size == file.size else { try? FileManager.default.removeItem(at: part); throw DownloadError.sizeMismatch(file.path) }
+        if let sha = file.sha256 {
+            states[id] = .verifying
+            keepAliveUpdate(id)
+            let actual = try await Task.detached(priority: .utility) { try FileDownload.sha256(of: part) }.value
+            guard actual == sha else { try? FileManager.default.removeItem(at: part); throw DownloadError.checksum(file.path) }
+        }
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.moveItem(at: part, to: dest)
+    }
+
+    private func writeReadyMarker(_ files: [RepoFile], _ dir: URL) throws {
+        let manifest = files.map { "\($0.path) \($0.size) \($0.sha256 ?? "-")" }.joined(separator: "\n")
+        try manifest.write(to: dir.appending(path: Self.readyMarker), atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(at: dir.appending(path: Self.filesCache))
+    }
+
+    #if os(iOS)
+    /// iPhone: every missing file is handed to the background session at once, while the app is in front (transfers
+    /// started from the background can be held back by iOS). The system finishes them even if Hermit is suspended or
+    /// closed; then each file is checked and moved into place.
+    private func fetchInBackground(_ id: String, _ dir: URL) async throws {
+        let files = try await fileList(id, dir)
+        totals[id] = files.reduce(0) { $0 + $1.size }
+        let bg = BackgroundDownloads.shared
+        var have: Int64 = 0
+        var pending: [RepoFile] = []
+        for file in files {
+            let size = (try? FileManager.default.attributesOfItem(atPath: dir.appending(path: file.path).path)[.size] as? Int64) ?? -1
+            if size == file.size { have += file.size } else { pending.append(file) }
+        }
+        let bytes = ByteTally()
+        for file in pending { bytes.counts[file.path] = bg.receivedSoFar(BackgroundDownloads.key(id, file.path)) }
+        let base = have
+        report(id, base + bytes.sum)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for file in pending {
+                let url = URL(string: "https://huggingface.co/\(id)/resolve/main/\(file.path)")!
+                group.addTask { @MainActor [weak self] in
+                    try await bg.fetch(key: BackgroundDownloads.key(id, file.path), url: url, expected: file.size) { n in
+                        bytes.counts[file.path] = n
+                        self?.report(id, base + bytes.sum)
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        for file in pending {
+            try Task.checkCancellation()
+            let dest = dir.appending(path: file.path)
+            try await verifyAndPlace(id, file, part: dir.appending(path: file.path + ".part"), dest: dest)
+        }
+        report(id, totals[id] ?? 0)
+        try writeReadyMarker(files, dir)
+    }
+    #endif
+
+    /// Mac: one file after another inside the app, resuming with HTTP ranges.
+    private func fetchInApp(_ id: String, _ dir: URL) async throws {
+        let files = try await fileList(id, dir)
         let total = files.reduce(0) { $0 + $1.size }
         totals[id] = total
         var done: Int64 = 0
@@ -153,21 +276,11 @@ public final class ModelStore {
                 Task { @MainActor in self?.report(id, base + bytes) }
             }.run()
 
-            let size = (try? FileManager.default.attributesOfItem(atPath: part.path)[.size] as? Int64) ?? 0
-            guard size == file.size else { try? FileManager.default.removeItem(at: part); throw DownloadError.sizeMismatch(file.path) }
-            if let sha = file.sha256 {
-                states[id] = .verifying
-                keepAliveUpdate(id)
-                let actual = try await Task.detached(priority: .utility) { try FileDownload.sha256(of: part) }.value
-                guard actual == sha else { try? FileManager.default.removeItem(at: part); throw DownloadError.checksum(file.path) }
-            }
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: part, to: dest)
+            try await verifyAndPlace(id, file, part: part, dest: dest)
             done += file.size
             report(id, done)
         }
-        let manifest = files.map { "\($0.path) \($0.size) \($0.sha256 ?? "-")" }.joined(separator: "\n")
-        try manifest.write(to: dir.appending(path: Self.readyMarker), atomically: true, encoding: .utf8)
+        try writeReadyMarker(files, dir)
     }
 
     private func report(_ id: String, _ bytes: Int64) {
@@ -199,3 +312,11 @@ public final class ModelStore {
             .sorted { $0.size < $1.size }   // small files first, weights last
     }
 }
+
+#if os(iOS)
+/// Bytes per file while several download at once; only touched on the main actor.
+@MainActor private final class ByteTally: @unchecked Sendable {
+    var counts: [String: Int64] = [:]
+    var sum: Int64 { counts.values.reduce(0, +) }
+}
+#endif
