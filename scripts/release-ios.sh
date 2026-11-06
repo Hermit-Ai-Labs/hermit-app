@@ -3,8 +3,8 @@
 #   zsh scripts/release-ios.sh            bumps the build number, archives, uploads
 # Needs an App Store Connect API key (App Manager or Admin) in ~/hermit/asc.env:
 #   ASC_KEY_ID=...  ASC_ISSUER_ID=...  ASC_KEY_PATH=~/hermit/AuthKey_<id>.p8
-# Signs with the Apple Distribution certificate in signing.keychain-db and the "Hermit iOS App Store" profile, both
-# made through the API (see ~/hermit/asc.py). The key also uploads the build.
+# Signs with the Apple Distribution certificate in signing.keychain-db and the "Hermit iOS App Store" and
+# "Hermit Widgets App Store" profiles, all made through the API (see ~/hermit/asc.py). The key also uploads the build.
 set -euo pipefail
 cd "${0:A:h}/.."
 source ~/hermit/asc.env
@@ -22,7 +22,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath "$DD" -archivePath "$OUT/Hermit.xcarchive" CURRENT_PROJECT_VERSION="$BUILD" \
   HERMIT_IDENTITY="$(security find-identity -v -p codesigning "$KC" | awk '/Apple Distribution/ {print $2; exit}')" \
-  HERMIT_PROFILE="Hermit iOS App Store" OTHER_CODE_SIGN_FLAGS="--keychain $KC" archive | grep -E "error:|warning: .*entitlement|ARCHIVE" || true
+  HERMIT_PROFILE="Hermit iOS App Store" HERMIT_WIDGET_PROFILE="Hermit Widgets App Store" OTHER_CODE_SIGN_FLAGS="--keychain $KC" archive | grep -E "error:|warning: .*entitlement|ARCHIVE" || true
 [[ -d "$OUT/Hermit.xcarchive" ]] || { echo "Archive failed"; exit 1; }
 
 cat > "$OUT/export.plist" <<PLIST
@@ -34,7 +34,10 @@ cat > "$OUT/export.plist" <<PLIST
   <key>teamID</key><string>$TEAM</string>
   <key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>Apple Distribution</string>
-  <key>provisioningProfiles</key><dict><key>my.hermit.ios</key><string>Hermit iOS App Store</string></dict>
+  <key>provisioningProfiles</key><dict>
+    <key>my.hermit.ios</key><string>Hermit iOS App Store</string>
+    <key>my.hermit.ios.widgets</key><string>Hermit Widgets App Store</string>
+  </dict>
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 PLIST

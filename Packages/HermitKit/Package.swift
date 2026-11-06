@@ -4,6 +4,7 @@
 //   HermitModel the on-device model (MLX): download, load, stream. Keeps MLX out of HermitCore.
 //   HermitWallet keys (Secure Enclave), EVM and Solana clients, signing.
 //   HermitUI    the design system and every screen, in SwiftUI.
+//   HermitActivity the model-download Live Activity's data, shared with the iPhone widget extension. No dependencies.
 import PackageDescription
 
 let package = Package(
@@ -14,6 +15,7 @@ let package = Package(
         .library(name: "HermitModel", targets: ["HermitModel"]),
         .library(name: "HermitUI", targets: ["HermitUI"]),
         .library(name: "HermitWallet", targets: ["HermitWallet"]),
+        .library(name: "HermitActivity", targets: ["HermitActivity"]),
     ],
     dependencies: [
         // Wallet: bitcoin-core libsecp256k1 and Keccak-256.
@@ -26,8 +28,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "HermitCore"),
+        .target(name: "HermitActivity"),
         .target(name: "HermitModel", dependencies: [
             "HermitCore",
+            "HermitActivity",
             .product(name: "MLX", package: "mlx-swift"),
             .product(name: "MLXLLM", package: "mlx-swift-lm"),
             .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
