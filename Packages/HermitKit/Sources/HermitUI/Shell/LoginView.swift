@@ -37,7 +37,7 @@ struct LoginView: View {
         let size = min(max(width * 0.168, 52), 92)
         return ZStack(alignment: .topTrailing) {
             WelcomeGlow().ignoresSafeArea()
-            WelcomeDial(shown: shown).frame(width: 230, height: 230).offset(x: 70, y: -40).allowsHitTesting(false)
+            WelcomeDial(shown: shown).frame(width: 230, height: 230).offset(x: 70, y: 24).allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 0) {
                 HermitMark(height: 20).padding(.top, 24)
                 Spacer(minLength: 28)

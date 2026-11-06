@@ -93,11 +93,13 @@ struct HomeView: View {
     @ViewBuilder private var cards: some View {
         // Today only shows when there is something on it; a project's card always shows (it says when it's empty).
         let today = showToday && (model.chatProject != nil || !TodayCard.rows(model, project: nil).isEmpty)
-        let both = showBalance && today
+        // With no wallet yet, the Create your wallet card above already says it: no second prompt here.
+        let balance = showBalance && (model.chatProject != nil || !(wallets.loaded && wallets.wallets.isEmpty))
+        let both = balance && today
         let layout = compact || !both ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-        if showBalance || today {
+        if balance || today {
             layout {
-                if showBalance {
+                if balance {
                     if let p = model.project(model.chatProject) { ProjectMoneyCard(project: p) } else { HomeBalanceCard { showBalance = false } }
                 }
                 if today { TodayCard(project: model.chatProject) { showToday = false } }

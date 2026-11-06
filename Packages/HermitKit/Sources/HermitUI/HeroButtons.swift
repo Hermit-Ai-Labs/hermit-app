@@ -85,6 +85,8 @@ struct GradientCTA: View {
     let symbol: String
     let title: String
     let subtitle: String
+    /// Narrow places (the sidebar): no arrow button, one line each.
+    var compact = false
     let action: () -> Void
 
     var body: some View {
@@ -96,15 +98,18 @@ struct GradientCTA: View {
                     .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white))
                     .shadow(color: HermitGradient.mid.opacity(0.12), radius: 6, y: 3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(title).font(.system(size: compact ? 15 : 16.5, weight: .semibold)).foregroundStyle(Theme.text)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                     Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.text.opacity(0.62))
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(compact ? 1 : 2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
+                if !compact {
                 Image(systemName: "arrow.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(LinearGradient(colors: [Color(hex: 0x3A3A3A), Color(hex: 0x0A0A0A)], startPoint: .top, endPoint: .bottom)))
                     .overlay(Circle().fill(LinearGradient(colors: [.white.opacity(0.25), .clear], startPoint: .top, endPoint: .center)).padding(1.5))
+                }
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)

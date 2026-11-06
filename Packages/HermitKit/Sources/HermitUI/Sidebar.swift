@@ -24,7 +24,7 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 2) {
             HermitMark(height: 15).padding(.leading, 10).padding(.bottom, 14).padding(.top, compactTop)
             if wallets.loaded && wallets.wallets.isEmpty {
-                GradientCTA(symbol: "wallet.bifold", title: "Create your wallet", subtitle: "Keys made on this phone") {
+                GradientCTA(symbol: "wallet.bifold", title: "Create your wallet", subtitle: "Keys made on this phone", compact: true) {
                     model.open(.wallets, tab: "create")
                 }
                 .padding(.bottom, 12)
