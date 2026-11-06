@@ -1,16 +1,16 @@
 import SwiftUI
 import HermitCore
 
-/// Automations, Claude-style: describe one in the chat box, Hermit drafts the rule, you turn it on.
-/// Each automation is a conversation: what you asked for, then every run as a reply.
+/// Automations, Claude-style: describe one in the chat box, Hermit drafts the rule (a prompt and a schedule), you save it.
+/// Each automation is a conversation: what you asked for, then every run. Run now sends the prompt to Hermit in a new chat.
 struct AutomationsPage: View {
     @Environment(AppModel.self) private var model
 
     static let examples = [
-        "Every morning at 8, send me HYPE news on Telegram",
-        "Buy $50 of ETH every Monday",
-        "Alert me when HYPE funding goes above 0.03%",
-        "Pay invoices from my inbox under $100",
+        "Every morning at 8, give me three priorities for the day",
+        "Every Friday at 5pm, help me review my week",
+        "Every Monday at 9, remind me to check my budget",
+        "Every evening at 9, ask me what went well today",
     ]
 
     var body: some View {
@@ -34,8 +34,8 @@ struct AutomationsPage: View {
                 Button { model.automationOpen = .new("") } label: { Label("New", systemImage: "plus") }
                     .buttonStyle(BlackButton())
             }
-            Composer(placeholder: "Describe an automation", label: "Automation", projectPicker: false,
-                     dictation: "Every morning at 8, send me HYPE news on Telegram", autoFocus: false) { text, _ in
+            Composer(placeholder: "Describe an automation", label: "", projectPicker: false,
+                     dictation: Self.examples[0], autoFocus: false) { text, _ in
                 if !text.isEmpty { model.automationOpen = .new(text) }
             }
             .padding(.top, 20)
@@ -46,10 +46,15 @@ struct AutomationsPage: View {
             }
             .padding(.top, 12).padding(.bottom, 26)
             Divider().overlay(Theme.border)
+            if model.automations.isEmpty {
+                EmptyNote(text: "No automations yet. Describe one above or pick an example.")
+            }
             ForEach(model.automations) { a in
                 AutomationRow(automation: a)
                 Divider().overlay(Theme.border)
             }
+            Label("Scheduled runs are coming soon. Until then, open an automation and press Run now.", systemImage: "clock")
+                .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 14)
         }
     }
 }
@@ -62,18 +67,17 @@ struct AutomationRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: automation.isSchedule ? "clock" : "bolt")
-                .font(.system(size: 14)).foregroundStyle(automation.on ? Theme.accent : Theme.faint)
+                .font(.system(size: 14)).foregroundStyle(Theme.muted)
                 .frame(width: 34, height: 34)
                 .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
                 .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
             VStack(alignment: .leading, spacing: 2) {
-                Text(automation.name).font(.system(size: 14, weight: .medium)).foregroundStyle(automation.on ? Theme.text : Theme.faint)
+                Text(automation.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(automation.trigger).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Text(automation.last).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text(automation.last).font(.system(size: 12.5)).foregroundStyle(Theme.faint)
             }
             Spacer()
-            Toggle(automation.name, isOn: Binding(get: { automation.on }, set: { _ in model.toggleAutomation(automation.name) }))
-                .labelsHidden().toggleStyle(.switch).tint(Theme.text).controlSize(.small)
+            Button("Run now") { model.runAutomation(automation.name) }.buttonStyle(OutlineButton())
             Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.faint)
         }
         .padding(.vertical, 12).padding(.horizontal, 8)
@@ -83,76 +87,89 @@ struct AutomationRow: View {
         .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
         .padding(.horizontal, -8)
         .contextMenu {
-            Button(automation.on ? "Pause" : "Turn on", systemImage: automation.on ? "pause" : "play") { model.toggleAutomation(automation.name) }
+            Button("Run now", systemImage: "play") { model.runAutomation(automation.name) }
             Button("Open", systemImage: "bubble.left") { model.automationOpen = .existing(automation.name) }
+            Divider()
+            Button("Delete", systemImage: "trash", role: .destructive) { model.deleteAutomation(automation.name) }
         }
     }
 }
 
-/// What the model reads from a sentence: when, what, how much it may spend, and whether it asks first.
+extension AppModel {
+    /// Runs an automation now: its prompt goes to Hermit in a new chat, the same way a typed message does.
+    func runAutomation(_ name: String) {
+        guard let i = automations.firstIndex(where: { $0.name == name }) else { return }
+        guard !busy else { toast("Hermit is still answering. Try again in a moment."); return }
+        let now = Date()
+        let stamp = now.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        automations[i].lastRun = now
+        automations[i].last = "Ran \(stamp)"
+        automations[i].thread.append(Message(role: .assistant, text: "Ran in a new chat.", run: stamp))
+        automationOpen = nil
+        newChat(project: nil)
+        send(automations[i].runPrompt)
+    }
+
+    func deleteAutomation(_ name: String) {
+        withAnimation(.snappy) { automations.removeAll { $0.name == name } }
+        if automationOpen == .existing(name) { automationOpen = nil }
+        toast("Automation deleted")
+    }
+}
+
+/// What a sentence becomes: a name, when it runs, and the prompt each run sends.
 struct AutomationDraft: Equatable {
     var name, trigger, action, limit, prompt: String
     var asks: Bool
 
-    /// Demo stand-in for the model drafting a rule from a sentence (same rules as the web demo).
+    static let weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+    /// Reads the schedule out of a sentence ("every Monday at 9", "each morning", "every hour") and keeps the rest as the prompt.
     static func from(_ text: String) -> AutomationDraft {
         let t = text.lowercased()
         func has(_ p: String) -> Bool { t.range(of: p, options: .regularExpression) != nil }
-        func group(_ p: String, _ i: Int) -> String? {
-            let s = text
-            guard let re = try? NSRegularExpression(pattern: p, options: [.caseInsensitive]),
-                  let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)), let r = Range(m.range(at: i), in: s) else { return nil }
-            return String(s[r])
+        let day = weekdays.first { t.contains($0) }
+        var hh: String?
+        if let re = try? NSRegularExpression(pattern: #"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b"#, options: [.caseInsensitive]),
+           let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+           let r = Range(m.range, in: text), !text[..<r.lowerBound].hasSuffix("$"),
+           let h = Int(text[Range(m.range(at: 1), in: text)!]), h < 24 {
+            let mins = Range(m.range(at: 2), in: text).map { String(text[$0]) } ?? "00"
+            let ampm = Range(m.range(at: 3), in: text).map { text[$0].lowercased() }
+            let hour = ampm == "pm" ? h % 12 + 12 : ampm == "am" ? h % 12 : (h < 7 && has("evening|night|afternoon") ? h + 12 : h)
+            hh = String(format: "%02d:%@", hour, mins)
         }
-        let amt = group(#"\$\s?([\d,.]+)"#, 1)
-        let day = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].first { t.contains($0) }
-        var hh = "09:00"
-        var timeFound = false
-        if let re = try? NSRegularExpression(pattern: #"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b"#, options: [.caseInsensitive]),
-           let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), let r = Range(m.range, in: text) {
-            timeFound = true
-            let before = r.lowerBound > text.startIndex ? text[text.index(before: r.lowerBound)] : " "
-            if before != "$" {
-                let h = Int(text[Range(m.range(at: 1), in: text)!]) ?? 9
-                let mins = Range(m.range(at: 2), in: text).map { String(text[$0]) } ?? "00"
-                let pm = Range(m.range(at: 3), in: text).map { text[$0].lowercased() == "pm" } ?? false
-                hh = String(format: "%02d:%@", h % 12 + (pm ? 12 : 0), mins)
-            }
-        }
-        let token = (group(#"\b(ETH|BTC|SOL|HYPE|PENGU|USDC)\b"#, 1) ?? "ETH").uppercased()
+        let fallback = has("evening") ? "18:00" : has("night") ? "21:00" : has("noon|lunch") ? "12:00" : has("morning") ? "08:00" : "09:00"
         let trigger: String
-        if has("funding") { trigger = "\(token) funding > \(group(#"0\.\d+%"#, 0) ?? "0.03%")/h" }
-        else if has(#"below|drops|under \$"#) && has("buy") { trigger = "\(token) below $\(amt ?? "3,200")" }
-        else if has(#"above|over \$"#) && !has("invoice") { trigger = "\(token) above $\(amt ?? "27")" }
-        else if has("invoice|bill") { trigger = "Invoice email arrives" }
-        else if let d = day { trigger = "Every \(d.prefix(1).uppercased() + d.dropFirst()) \(hh)" }
-        else if has("hour") { trigger = "Every hour" }
-        else { trigger = "Every day \(has("morning") && !timeFound ? "08:00" : hh)" }
-        let action: String
-        if has("news|digest|brief") { action = "Send a \(token) news digest\(has("telegram") ? " on Telegram" : "")" }
-        else if has("alert|tell me|notify") { action = "Send me an alert" }
-        else if has("invoice|bill|pay") { action = "Pay the invoice\(amt.map { " if under $\($0)" } ?? "") in USDC" }
-        else if has("sell|profit") { action = "Sell \(group(#"\d+%"#, 0) ?? "20%") of \(token)" }
-        else if has("buy|dca") { action = "Buy \(amt.map { "$\($0)" } ?? "$100") of \(token) with USDC" }
-        else { action = "Run the task and report back" }
-        let spends = has("buy|sell|pay|invoice")
-        var name = action
-        for cut in [" with USDC", " in USDC", " on Telegram"] { if let r = name.range(of: cut) { name.removeSubrange(r); break } }
-        name = name.replacingOccurrences(of: #"^Send (me )?(a |an )?"#, with: "", options: .regularExpression)
-        name = name.prefix(1).uppercased() + name.dropFirst()
-        return AutomationDraft(name: name, trigger: trigger, action: action, limit: spends ? "$\(amt ?? "100") per run" : "No spending",
-                               prompt: text, asks: spends && !has("under"))
+        if let d = day { trigger = "Every \(d.prefix(1).uppercased() + d.dropFirst()) \(hh ?? fallback)" }
+        else if has(#"every hour|hourly"#) { trigger = "Every hour" }
+        else if hh != nil || has(#"every|each|daily|morning|evening|night|day"#) { trigger = "Every day \(hh ?? fallback)" }
+        else { trigger = "When you run it" }
+
+        // The prompt: the sentence without its schedule words.
+        var p = text
+        for pattern in [#"(?i)\b(every|each)\s+(morning|evening|night|day|hour|week|weekday|"# + weekdays.joined(separator: "|") + #")s?\b"#,
+                        #"(?i)\b(on\s+)?("# + weekdays.joined(separator: "|") + #")s?\b"#,
+                        #"(?i)\b(daily|hourly)\b"#,
+                        #"(?i)\b(at\s+\d{1,2}(:\d{2})?\s*(am|pm)?|\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}:\d{2})\b"#] {
+            p = p.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        p = p.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespaces.union(.punctuationCharacters))
+        if p.isEmpty { p = text }
+        p = p.prefix(1).uppercased() + p.dropFirst()
+        let name = p.count > 44 ? String(p.prefix(42)).trimmingCharacters(in: .whitespaces) + "…" : p
+        return AutomationDraft(name: name, trigger: trigger, action: p, limit: "No spending", prompt: p, asks: false)
     }
 
+    /// "Mon 09:00" for a schedule, or how it runs otherwise.
     static func next(_ trigger: String) -> String {
-        if trigger.hasPrefix("Every hour") { return "in 1 hour" }
-        if trigger.hasPrefix("Every day") { return "tomorrow at \(trigger.suffix(5))" }
-        if trigger.range(of: #"^Every \w+day"#, options: .regularExpression) != nil { return trigger.replacingOccurrences(of: "Every ", with: "next ") }
-        return "when it happens"
+        guard let d = Automation.nextRun(trigger, after: Date()) else { return "when you press Run now" }
+        return d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 }
 
-/// One automation's conversation: header with its switch, the thread, and a chat box to change it.
+/// One automation's conversation: header with Run now and a menu, the thread, and a chat box to change it.
 struct AutomationThread: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
@@ -181,8 +198,8 @@ struct AutomationThread: View {
                         .scrollDismissesKeyboard(.interactively)
                 }
             }
-            Composer(placeholder: automation != nil ? "Change it, pause it, or \"run it now\"" : "Describe an automation", label: "Automation", projectPicker: false,
-                     dictation: automation != nil ? "Run it now" : "Buy $50 of ETH every Monday") { text, _ in
+            Composer(placeholder: automation != nil ? "Change the time or the prompt, or \"run it now\"" : "Describe an automation", label: "", projectPicker: false,
+                     dictation: automation != nil ? "Run it now" : AutomationsPage.examples[1]) { text, _ in
                 if !text.isEmpty { send(text) }
             }
             .frame(maxWidth: 720)
@@ -201,14 +218,21 @@ struct AutomationThread: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(automation?.name ?? "New automation").font(.system(size: 15, weight: .semibold)).lineLimit(1)
                 if let a = automation {
-                    Text(a.trigger + (a.on ? "" : ", paused")).font(.system(size: 12)).foregroundStyle(Theme.faint).lineLimit(1)
+                    Text(a.trigger).font(.system(size: 12)).foregroundStyle(Theme.faint).lineLimit(1)
                         .contentTransition(.opacity)
                 }
             }
             Spacer()
             if let a = automation {
-                Toggle("Turn automation on or off", isOn: Binding(get: { a.on }, set: { _ in model.toggleAutomation(a.name) }))
-                    .labelsHidden().toggleStyle(.switch).tint(Theme.text).controlSize(.small)
+                Button("Run now") { model.runAutomation(a.name) }.buttonStyle(OutlineButton())
+                    .keyboardShortcut("r", modifiers: .command)
+                Menu {
+                    Button("Delete", systemImage: "trash", role: .destructive) { model.deleteAutomation(a.name) }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                        .frame(width: 30, height: 30).contentShape(Rectangle())
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             }
         }
         .padding(.horizontal, compact ? 12 : 22).padding(.vertical, 10)
@@ -220,7 +244,7 @@ struct AutomationThread: View {
             if items.isEmpty && !typing {
                 VStack(spacing: 14) {
                     HermitMark(height: 18)
-                    Text("Tell Hermit what to do and when. It drafts the rule, you turn it on.")
+                    Text("Tell Hermit what to ask and when. It drafts the automation, you save it.")
                         .font(.system(size: 14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Flow(spacing: 8) {
                         ForEach(AutomationsPage.examples, id: \.self) { e in Button(e) { send(e) }.buttonStyle(ChipStyle()) }
@@ -249,22 +273,24 @@ struct AutomationThread: View {
 
     private func draftCard(_ d: AutomationDraft) -> some View {
         let done = automation != nil
+        let scheduled = Automation.nextRun(d.trigger, after: Date()) != nil
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Here is the automation. Check it, then turn it on.").font(.system(size: 14.5))
+            Text("Here is the automation. Check it, then save it.").font(.system(size: 14.5))
             ChatCard {
-                Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                Image(systemName: scheduled ? "clock" : "bolt").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 CardTitle(d.name)
             } content: {
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     TxLine("When", d.trigger)
-                    TxLine("Do", d.action)
-                    TxLine("Spending", d.limit)
-                    TxLine("Approval", d.asks ? "Ask me each time" : "Runs on its own")
+                    TxLine("Asks Hermit", d.prompt)
+                    Text(scheduled ? "Scheduled runs are coming soon. Until then it runs when you press Run now."
+                                   : "It runs when you press Run now.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 8)
                 }
             } foot: {
-                Button("Edit") { say(Message(role: .assistant, text: "Tell me what to change: the time, the amount, or what it does.", note: true), after: 300) }
+                Button("Edit") { say(Message(role: .assistant, text: "Tell me what to change: the time or what to ask.", note: true), after: 300) }
                     .buttonStyle(PlainCardButton()).disabled(done)
-                Button { turnOn(d) } label: { Label(done ? "On" : "Turn on", systemImage: "bolt.fill") }
+                Button { save(d) } label: { Label(done ? "Saved" : "Save", systemImage: "checkmark") }
                     .buttonStyle(BrandButton()).disabled(done)
             }
         }
@@ -289,7 +315,7 @@ struct AutomationThread: View {
         if let n = name, let i = model.automations.firstIndex(where: { $0.name == n }) { model.automations[i].thread.append(m) }
     }
 
-    private func say(_ m: Message, after ms: Int = 700) {
+    private func say(_ m: Message, after ms: Int = 500) {
         typing = true
         Task {
             try? await Task.sleep(for: .milliseconds(SnapshotMode.active ? 0 : ms))
@@ -311,40 +337,44 @@ struct AutomationThread: View {
             let d = AutomationDraft.from(text)
             typing = true
             Task {
-                try? await Task.sleep(for: .milliseconds(SnapshotMode.active ? 0 : 700))
+                try? await Task.sleep(for: .milliseconds(SnapshotMode.active ? 0 : 500))
                 typing = false
                 items.append(.draft(d, UUID()))
             }
             return
         }
-        if has("pause|stop|turn off") {
-            setAutomation { $0.on = false; $0.last = "Paused by you" }
-            say(Message(role: .assistant, text: "Paused. \(a.name) will not run until you turn it back on.", note: true))
-        } else if has("resume|turn on|start") {
-            setAutomation { $0.on = true }
-            say(Message(role: .assistant, text: "Back on. Next run \(AutomationDraft.next(a.trigger)).", note: true))
-        } else if has("run (it )?now|test") {
-            let text = Automation.runs[a.name]?.first?.1 ?? "Ran as planned. Nothing needed your approval."
-            setAutomation { $0.last = "Ran just now" }
-            say(Message(role: .assistant, text: text, run: "Just now"), after: 1200)
-        } else if has(#"every|daily|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(am|pm|:)"#) {
+        if has(#"^(run( it)?( now)?|test( it)?)[.!]?$"#) {
+            model.runAutomation(a.name)
+        } else if has(#"^(pause|stop|turn (it )?off|resume|turn (it )?on|start)"#) {
+            say(Message(role: .assistant, text: "Scheduled runs are coming soon, so there is nothing to pause yet. Say \"run it now\" to run it.", note: true))
+        } else if has(#"every|each|daily|hourly|morning|evening|night|\b\d{1,2}\s*(am|pm)\b|\d{1,2}:\d{2}|"# + AutomationDraft.weekdays.joined(separator: "|")) {
+            // "Make it every Tuesday at 10" changes the time; a longer sentence also replaces the prompt.
             let d = AutomationDraft.from(text)
-            setAutomation { $0.trigger = d.trigger }
-            say(Message(role: .assistant, text: "Updated. Now runs \(d.trigger.prefix(1).lowercased() + d.trigger.dropFirst()). Next run \(AutomationDraft.next(d.trigger)).", note: true))
+            let scheduled = d.trigger != "When you run it"
+            let newPrompt = d.prompt.count > 12 ? d.prompt : nil
+            setAutomation {
+                if scheduled { $0.trigger = d.trigger }
+                if let p = newPrompt { $0.prompt = p; $0.action = p }
+            }
+            let when = scheduled ? d.trigger : a.trigger
+            say(Message(role: .assistant, text: "Updated. \(when)\(newPrompt.map { ", it asks: \($0)" } ?? "").", note: true))
         } else {
-            say(Message(role: .assistant, text: "Got it. I will apply that from the next run and tell you what changed.", note: true))
+            setAutomation { $0.prompt = text; $0.action = text }
+            say(Message(role: .assistant, text: "Updated. Each run now asks: \(text)", note: true))
         }
     }
 
-    private func turnOn(_ d: AutomationDraft) {
-        var a = Automation(name: d.name, trigger: d.trigger, action: d.action, limit: d.limit, on: true, last: "Just created", prompt: d.prompt, asks: d.asks, runs: [])
+    private func save(_ d: AutomationDraft) {
+        var n = d.name, k = 2
+        while model.automations.contains(where: { $0.name == n }) { n = "\(d.name) \(k)"; k += 1 }
+        var a = Automation(name: n, trigger: d.trigger, action: d.action, limit: d.limit, on: false, last: "Not run yet", prompt: d.prompt, asks: d.asks, runs: [])
         a.thread = []
         model.addAutomation(a)
-        name = d.name
+        name = n
         // The thread so far becomes the automation's history.
         for case .message(let m) in items { model.automations[0].thread.append(m) }
-        say(Message(role: .assistant, text: "Automation on. Next run \(AutomationDraft.next(d.trigger)). \(d.asks ? "I will ask you before each one that spends money." : "Reply here to change it, or say \"run it now\" to test.")", note: true), after: 400)
-        model.toast("Automation on")
+        say(Message(role: .assistant, text: "Saved. Press Run now to send it to Hermit. Reply here to change the time or the prompt.", note: true), after: 300)
+        model.toast("Automation saved")
     }
 }
 

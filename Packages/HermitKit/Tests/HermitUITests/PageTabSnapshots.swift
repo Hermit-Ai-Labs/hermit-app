@@ -63,17 +63,25 @@ final class PageTabSnapshots: XCTestCase {
         }
         if wanted("settings") { for t in ["memory", "models", "home"] { try page(.settings, t) } }
         if wanted("connectors") {
-            for t in ["apis", "skills"] { try page(.connectors, t) }
-            try sheet(ConnectAppSheet(app: "Discord") {}, "connect-discord")
-            try sheet(ConnectAppSheet(app: "Telegram") {}, "connect-telegram")
+            for t in ["apps", "apis", "skills"] { try page(.connectors, t) }
+            try sheet(ConnectAppSheet(app: "Discord") {}, "connect-discord", height: 420)
         }
         if wanted("files") {
+            try page(.files, "empty")
+            // Real files, imported the way the file picker does.
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("hermit-shot-files")
+            try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let notes = tmp.appendingPathComponent("Launch notes.md"), table = tmp.appendingPathComponent("budget.csv")
+            try "# Launch notes\n\nShip the Mac app first, then iPhone.\nKeep every money move behind an approval.".write(to: notes, atomically: true, encoding: .utf8)
+            try "Month,Rent,Food,Savings\nAugust,2400,610,800\nSeptember,2400,580,900\nOctober,2400,640,850".write(to: table, atomically: true, encoding: .utf8)
+            FilesStore.shared.importFiles([notes, table])
+            try page(.files, "list")
             FilesStore.shared.open(FilesStore.shared.files[0])
             try page(.files, "viewer")
-            FilesStore.shared.open(FilesStore.shared.files[6])
+            FilesStore.shared.open(FilesStore.shared.files[1])
             try page(.files, "viewer-csv")
             FilesStore.shared.closeAll()
-            try sheet(FilesRecordSheet { _ in }, "record", height: 420)
+            for f in FilesStore.shared.files { FilesStore.shared.delete(f) }
         }
     }
 }

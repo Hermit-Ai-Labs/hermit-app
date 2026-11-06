@@ -53,7 +53,7 @@ final class PayCalExploreSnapshots: XCTestCase {
     }
 
     func testPagesPayments() throws {
-        try pages("payments", ["schedule", "approvals", "transfer", "bills", "apis"]) { PaymentsPage() }
+        try pages("payments", ["schedule", "payees", "transfer", "apis"]) { PaymentsPage() }
     }
 
     func testPagesCalendar() throws {
@@ -67,11 +67,18 @@ final class PayCalExploreSnapshots: XCTestCase {
     func testPagesSheets() throws {
         guard wanted("payments") || wanted("calendar") else { return }
         let m = AppModel()
-        try shoot(PayScheduleSheet(item: PaymentsData.liveSchedule[2]).environment(m), "sheet-schedule", CGSize(width: 440, height: 520))
+        let pay = ScheduledPayment(payee: "Landlord", addr: "landlord.eth", amount: 2400, token: "USDC", note: "Rent",
+                                   next: CalendarData.day(3), repeats: .monthly)
+        try shoot(PayScheduleSheet(item: pay).environment(m), "sheet-schedule", CGSize(width: 440, height: 640))
+        try shoot(PayScheduleSheet(item: nil).environment(m), "sheet-schedule-new", CGSize(width: 440, height: 600))
+        try shoot(PayeeSheet(payee: nil).environment(m), "sheet-payee", CGSize(width: 440, height: 360))
         try shoot(PayExploreSheet(label: "services", items: PaymentsData.moreServices).environment(m), "sheet-explore-more", CGSize(width: 520, height: 820))
-        let item = CalendarStore.shared.items.first { $0.id == 13 }!
+        let item = CalItem(id: 7, t: "Write the launch post", date: CalendarData.today, time: 600, dur: 60, status: .doing)
         try shoot(CalItemSheet(item: item).environment(m), "sheet-cal-item", CGSize(width: 440, height: 560))
         try shoot(CalItemSheet(item: CalItem(id: 0, t: "", date: CalendarData.today, time: 600)).environment(m), "sheet-cal-new", CGSize(width: 440, height: 520))
+        let ev = CalItem(id: -5, t: "Dentist", date: CalendarData.today, time: 900, dur: 45, event: true, hex: 0x2563EB,
+                         ekID: "x", calendar: "Home", location: "12 Main St")
+        try shoot(CalItemSheet(item: ev).environment(m), "sheet-cal-event", CGSize(width: 440, height: 400))
     }
 }
 #endif

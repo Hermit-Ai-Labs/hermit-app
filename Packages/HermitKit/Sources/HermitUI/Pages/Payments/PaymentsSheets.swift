@@ -46,73 +46,165 @@ extension PaySheet where Header == PaySheetTitle {
     }
 }
 
-/// A scheduled payment: change the amount, pause or resume, pay now (approval) or cancel it.
+/// New or existing scheduled payment: payee, address, amount, token, date, repeat and a note.
+/// Pay now stays greyed out until sending from Hermit is live.
 struct PayScheduleSheet: View {
     @Environment(AppModel.self) var model
     @Environment(\.dismiss) var dismiss
-    let item: PayScheduleItem
-    @State var amount = ""
+    @State var f: ScheduledPayment
+    @State var amount: String
+    @State var picking = false
+    let isNew: Bool
     private var store: PaymentsStore { .shared }
 
-    var body: some View {
-        let paused = store.paused.contains(item.id)
-        PaySheet(title: item.to) {
-            HStack(spacing: 12) {
-                PayLogo(name: item.to, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(PayFormat.amount(Double(amount) ?? item.amt)).font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text(paused ? "Paused" : item.live ? "Paying per call" : "Next payment \(item.when.lowercased())")
-                        .font(.system(size: 12.5)).foregroundStyle(paused ? Theme.amber : Theme.muted)
-                }
-            }
-            .padding(.bottom, 4)
-            PayLines(lines: [("For", item.what), ("Next", item.when), ("Paid with", item.rail), ("Status", paused ? "Paused" : "Scheduled")])
-            PayField(label: "Amount") {
-                HStack {
-                    Text("$").foregroundStyle(Theme.faint)
-                    TextField("0", text: $amount).textFieldStyle(.plain).monospacedDigit()
-                        .onSubmit(saveAmount)
-                    if (Double(amount) ?? item.amt) != item.amt {
-                        Button("Save", action: saveAmount).buttonStyle(.plain).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.accent)
-                            .transition(.opacity)
-                    }
-                }
-                .font(.system(size: 14))
-                .payInputBox()
-            }
-            Button("Cancel this payment") {
-                withAnimation(.snappy) { store.schedule.removeAll { $0.id == item.id } }
-                dismiss(); model.toast("Payment cancelled")
-            }
-            .buttonStyle(.plain).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.red)
-            .padding(.vertical, 4)
-        } foot: {
-            Button(paused ? "Resume" : "Pause") {
-                store.togglePause(item.id)
-                model.toast(paused ? "Resumed" : "Paused")
-            }
-            .buttonStyle(PayWideButton(kind: .plain)).frame(width: 120)
-            Button("Pay now") {
-                let amt = Double(amount) ?? item.amt
-                dismiss()
-                PayApprovalHook.shared.request(Approval(
-                    kind: "Payment", title: "Pay \(item.to) now",
-                    lines: [["For", item.what], ["Amount", PayFormat.amount(amt)], ["Route", item.rail]],
-                    checks: PayChecks.base(), success: "Paid \(item.to)",
-                    receipt: .receipt(title: "Paid \(item.to)", rows: [["Amount", PayFormat.amount(amt)], ["Route", item.rail], ["Fee", "$0.01"]])
-                ), model: model, afterSheet: true) { store.spend(amt) }
-            }
-            .buttonStyle(PayWideButton(kind: .black))
-        }
-        .animation(.snappy, value: amount)
-        .onAppear { amount = item.amt < 1 ? String(format: "%.2f", item.amt) : String(Int(item.amt)) }
+    init(item: ScheduledPayment?, isNew: Bool? = nil) {
+        let p = item ?? ScheduledPayment(payee: "", addr: "", amount: 0, token: "USDC", note: "", next: CalendarData.day(1), repeats: .monthly)
+        _f = State(initialValue: p)
+        _amount = State(initialValue: p.amount > 0 ? (p.amount.rounded() == p.amount ? String(Int(p.amount)) : String(p.amount)) : "")
+        self.isNew = isNew ?? (item == nil)
     }
 
-    private func saveAmount() {
-        guard let v = Double(amount), v > 0, let i = store.schedule.firstIndex(where: { $0.id == item.id }) else { return }
-        withAnimation(.snappy) { store.schedule[i].amt = v }
-        model.toast("Amount updated")
+    private var valid: Bool {
+        !f.payee.trimmingCharacters(in: .whitespaces).isEmpty && PayAddress.valid(f.addr) && (Double(amount) ?? 0) > 0
+    }
+
+    var body: some View {
+        PaySheet(title: isNew ? "Schedule a payment" : f.payee) {
+            PayField(label: "Pay") {
+                HStack(spacing: 8) {
+                    TextField("Name", text: $f.payee).textFieldStyle(.plain).font(.system(size: 14))
+                    if !store.payees.isEmpty {
+                        Menu {
+                            ForEach(store.payees) { p in Button(p.name) { f.payee = p.name; f.addr = p.addr } }
+                        } label: {
+                            Image(systemName: "person.crop.circle").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                        }
+                        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                        .help("Saved payees")
+                    }
+                }
+                .payInputBox()
+            }
+            PayField(label: "Address or ENS") {
+                TextField("0x…, name.eth or a Solana address", text: $f.addr).textFieldStyle(.plain)
+                    .font(.system(size: 13, design: .monospaced)).autocorrectionDisabled().payInputBox()
+            }
+            if !f.addr.isEmpty && !PayAddress.valid(f.addr) {
+                Label("That doesn't look like an address", systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                PayField(label: "Amount") {
+                    TextField("0", text: $amount).textFieldStyle(.plain).monospacedDigit().font(.system(size: 14)).payInputBox()
+                }
+                PayField(label: "Token") { PayMenuField(options: PaymentsData.tokens.map { ($0, $0) }, selection: $f.token) }
+            }
+            HStack(alignment: .top, spacing: 12) {
+                PayField(label: "Date") {
+                    Button { picking = true } label: {
+                        HStack {
+                            Text(CalendarData.format(f.next, "EEE, MMM d")).font(.system(size: 14)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 6)
+                            Image(systemName: "calendar").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                        }
+                        .payInputBox().contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $picking) {
+                        DatePicker("Date", selection: $f.next, displayedComponents: .date)
+                            .labelsHidden().datePickerStyle(.graphical)
+                            .frame(width: 280).padding(12)
+                            .presentationCompactAdaptation(.popover)
+                            .onChange(of: f.next) { _, _ in picking = false }
+                    }
+                }
+                PayField(label: "Repeat") { PayMenuField(options: PayRepeat.allCases.map { ($0, $0.label) }, selection: $f.repeats) }
+            }
+            PayField(label: "Note") {
+                TextField("Optional, e.g. November rent", text: $f.note).textFieldStyle(.plain).font(.system(size: 14)).payInputBox()
+            }
+            if !isNew {
+                HStack(spacing: 10) {
+                    Button("Pay now") {}.buttonStyle(PayPillButton(kind: .accent)).comingSoon(payNotLive)
+                    Text("\(payNotLive).").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                }
+            }
+        } foot: {
+            if !isNew {
+                Button {
+                    store.removePayment(f.id); dismiss(); model.toast("Payment deleted")
+                } label: { Image(systemName: "trash").font(.system(size: 14)) }
+                .buttonStyle(PayWideButton(kind: .plain)).frame(width: 52)
+                .accessibilityLabel("Delete")
+                Button(f.paused ? "Resume" : "Pause") {
+                    store.togglePause(f.id); f.paused.toggle()
+                    model.toast(f.paused ? "Paused" : "Resumed")
+                }
+                .buttonStyle(PayWideButton(kind: .plain)).frame(width: 110)
+            }
+            Button(isNew ? "Schedule" : "Save", action: save)
+                .buttonStyle(PayWideButton(kind: .black))
+                .disabled(!valid)
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func save() {
+        guard valid, let v = Double(amount) else { return }
+        var p = f
+        p.payee = p.payee.trimmingCharacters(in: .whitespaces)
+        p.addr = p.addr.trimmingCharacters(in: .whitespaces)
+        p.amount = v
+        p.next = CalendarData.cal.startOfDay(for: p.next)
+        store.save(p)
+        if store.payee(named: p.payee) == nil { store.save(Payee(name: p.payee, addr: p.addr)) }
+        dismiss()
+        model.toast(isNew ? "Scheduled for \(CalendarData.format(p.next, "MMM d"))" : "Saved")
+    }
+}
+
+/// Add or edit a payee: a name and an address or ENS name.
+struct PayeeSheet: View {
+    @Environment(AppModel.self) var model
+    @Environment(\.dismiss) var dismiss
+    @State var p: Payee
+    let isNew: Bool
+    private var store: PaymentsStore { .shared }
+
+    init(payee: Payee?) {
+        _p = State(initialValue: payee ?? Payee(name: "", addr: ""))
+        isNew = payee == nil
+    }
+
+    private var valid: Bool { !p.name.trimmingCharacters(in: .whitespaces).isEmpty && PayAddress.valid(p.addr) }
+
+    var body: some View {
+        PaySheet(title: isNew ? "Add payee" : p.name) {
+            PayField(label: "Name") {
+                TextField("e.g. Landlord", text: $p.name).textFieldStyle(.plain).font(.system(size: 14)).payInputBox()
+            }
+            PayField(label: "Address or ENS") {
+                TextField("0x…, name.eth or a Solana address", text: $p.addr).textFieldStyle(.plain)
+                    .font(.system(size: 13, design: .monospaced)).autocorrectionDisabled().payInputBox()
+            }
+            if !p.addr.isEmpty && !PayAddress.valid(p.addr) {
+                Label("That doesn't look like an address", systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
+            }
+            Text("Saved on this device only.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+        } foot: {
+            if !isNew {
+                Button { store.removePayee(p.id); dismiss(); model.toast("Payee deleted") } label: {
+                    Image(systemName: "trash").font(.system(size: 14))
+                }
+                .buttonStyle(PayWideButton(kind: .plain)).frame(width: 52)
+                .accessibilityLabel("Delete")
+            }
+            Button(isNew ? "Add" : "Save") {
+                var x = p
+                x.name = x.name.trimmingCharacters(in: .whitespaces); x.addr = x.addr.trimmingCharacters(in: .whitespaces)
+                store.save(x); dismiss(); model.toast(isNew ? "\(x.name) added" : "Saved")
+            }
+            .buttonStyle(PayWideButton(kind: .black)).disabled(!valid).keyboardShortcut(.defaultAction)
+        }
     }
 }
 

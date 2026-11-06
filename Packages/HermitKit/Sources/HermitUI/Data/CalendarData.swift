@@ -1,18 +1,18 @@
 import SwiftUI
 import Observation
+import EventKit
 
-// Calendar items from hermit-demo/src/data.js (todos, projectColors). Tasks and events share one list.
-// The demo pins "today" to 2026-10-26; here every item keeps its distance from that day, so the
-// calendar always looks lived-in around the real today.
+// The calendar shows three things on one grid: your own events from the device calendar (EventKit, read with
+// permission), tasks and events you add in Hermit (kept on this device), and Hermit's scheduled payments.
 
-enum CalStatus: String, CaseIterable, Hashable {
+enum CalStatus: String, CaseIterable, Hashable, Codable {
     case todo, doing, done
     var label: String {
         switch self { case .todo: "To do"; case .doing: "In progress"; case .done: "Done" }
     }
 }
 
-struct CalItem: Identifiable, Hashable {
+struct CalItem: Identifiable, Hashable, Codable {
     var id: Int
     var t: String
     var date: Date
@@ -26,9 +26,19 @@ struct CalItem: Identifiable, Hashable {
     var to: String?
     /// A prompt for Hermit, sent by "Open".
     var ask: String?
+    /// Colour (a project's, or the device calendar's).
+    var hex: UInt32?
+    /// Set on events that come from the device calendar.
+    var ekID: String?
+    var calendar: String?
+    var location: String?
 
     var isNew: Bool { id == 0 }
-    var color: Color { CalendarData.color(project, event: event) }
+    /// From the device calendar (read only here).
+    var external: Bool { ekID != nil }
+    /// One of Hermit's scheduled payments.
+    var payment: Bool { to == "payments" && id < 0 && ekID == nil }
+    var color: Color { hex.map { Color(hex: $0) } ?? (event ? Color(hex: 0x8A8A8A) : Theme.text) }
     var timeText: String? { time.map(CalendarData.clock) }
 }
 
@@ -41,21 +51,6 @@ enum CalendarData {
     }()
 
     static var today: Date { cal.startOfDay(for: Date()) }
-
-    static let projects: [(name: String, color: Color)] = [
-        ("Dev: HYPE news bot", Color(hex: 0x2563EB)),
-        ("Stablecoin yield ladder", Color(hex: 0x15803D)),
-        ("HYPE perp scripts", Color(hex: 0x4E1F96)),
-        ("Airdrop farming S3", Color(hex: 0xC2410C)),
-        ("Meme auto-trader", Color(hex: 0xA16207)),
-        ("Research: AI agent tokens", Color(hex: 0x0E7490)),
-        ("Presale tracker", Color(hex: 0xBE185D)),
-    ]
-
-    static func color(_ project: String?, event: Bool) -> Color {
-        if let p = project, let c = projects.first(where: { $0.name == p })?.color { return c }
-        return event ? Color(hex: 0x8A8A8A) : Theme.text
-    }
 
     static func short(_ project: String) -> String {
         project.replacingOccurrences(of: "Research: ", with: "").replacingOccurrences(of: "Dev: ", with: "")
@@ -75,56 +70,130 @@ enum CalendarData {
         return df.string(from: d)
     }
 
-    // (id, title, day offset from today, "HH:mm" or nil, length, project, status, event, page, ask)
-    static var seed: [CalItem] {
-        func i(_ id: Int, _ t: String, _ off: Int, _ time: String? = nil, _ dur: Int = 30, project: String? = nil,
-               status: CalStatus = .todo, event: Bool = false, to: String? = nil, ask: String? = nil) -> CalItem {
-            let mins = time.map { s -> Int in let p = s.split(separator: ":").compactMap { Int($0) }; return p[0] * 60 + p[1] }
-            return CalItem(id: id, t: t, date: day(off), time: mins, dur: dur, project: project, status: status, event: event, to: to, ask: ask)
-        }
-        return [
-            i(1, "Approve ETH DCA", 0, "09:00", 30, to: "automations"),
-            i(2, "Claim HYPE rewards", 0, to: "earn"),
-            i(3, "Standup with dev team", 0, "14:30", 30, project: "Dev: HYPE news bot", event: true),
-            i(13, "Review arb bot PnL", 0, "11:00", 60, project: "HYPE perp scripts", status: .doing),
-            i(4, "Pay Figma $45", 1, "10:00", 15, to: "payments"),
-            i(14, "MegaETH testnet tasks", 1, "16:00", 45, project: "Airdrop farming S3"),
-            i(15, "Backtest SOL funding arb", 2, "10:00", 90, project: "HYPE perp scripts"),
-            i(16, "Add SOL news to bot", 2, "15:00", 60, project: "Dev: HYPE news bot", status: .doing),
-            i(5, "Finish Monad quests", 3, "13:00", 30, project: "Airdrop farming S3", ask: "Farm the Monad airdrop for me"),
-            i(17, "Legion KYC for Hermes sale", 3, "11:00", 30, project: "Presale tracker"),
-            i(6, "Vercel renews $20", 4, event: true, to: "payments"),
-            i(18, "Write agent-token thesis", 4, "09:30", 120, project: "Research: AI agent tokens", status: .doing),
-            i(7, "Pay alice.eth $1,200", 6, to: "payments"),
-            i(9, "ETH DCA buy", 7, "09:00", 15, event: true, to: "automations"),
-            i(8, "Rent $2,400", 8, event: true, to: "payments"),
-            i(10, "Berachain claim opens", 9, project: "Airdrop farming S3", event: true),
-            i(19, "Restart meme sniper?", 10, "10:00", 30, project: "Meme auto-trader"),
-            i(11, "Presale unlock $640", 15, project: "Presale tracker", event: true),
-            i(20, "Pendle rollover plan", 25, project: "Stablecoin yield ladder"),
-            i(21, "Ship news bot v1", -2, project: "Dev: HYPE news bot", status: .done),
-            i(22, "Deploy arb bot", -14, project: "HYPE perp scripts", status: .done),
-            i(12, "Pendle PT matures", 61, project: "Stablecoin yield ladder", event: true),
-        ]
+    /// 0xRRGGBB from a CGColor (device calendar colours).
+    static func hex(_ c: CGColor?) -> UInt32? {
+        guard let c, let srgb = CGColorSpace(name: CGColorSpace.sRGB),
+              let comps = c.converted(to: srgb, intent: .defaultIntent, options: nil)?.components, comps.count >= 3 else { return nil }
+        func b(_ v: CGFloat) -> UInt32 { UInt32(max(0, min(255, (v * 255).rounded()))) }
+        return b(comps[0]) << 16 | b(comps[1]) << 8 | b(comps[2])
     }
 }
 
-/// The one list behind Week, Month and Board. Lives as long as the app, so edits survive page changes.
+/// Everything behind Week, Month and Board. Lives as long as the app, so edits survive page changes.
 @MainActor @Observable
 final class CalendarStore {
     static let shared = CalendarStore()
-    var items = CalendarData.seed
-    private var nextId = 100
+
+    /// What Hermit may do with the device calendar.
+    enum Access { case unknown, full, writeOnly, denied }
+
+    /// Tasks and events added in Hermit.
+    private(set) var local: [CalItem]
+    /// Events read from the device calendar for the visible range.
+    private(set) var events: [CalItem] = []
+    private(set) var access: Access = .unknown
+    private var nextId: Int
+    private let ek: EKEventStore? = SnapshotMode.active ? nil : EKEventStore()
+    private var range: DateInterval?
+    private var watching = false
+
+    init() {
+        let saved = LocalJSON.load("calendar.json", as: [CalItem].self) ?? []
+        local = saved
+        nextId = (saved.map(\.id).max() ?? 0) + 1
+        refreshAccess()
+    }
+
+    /// Everything on the grid: device events, your items, and scheduled payments.
+    var items: [CalItem] { events + local + PaymentsStore.shared.calendarItems }
+
+    // MARK: Device calendar
+
+    func refreshAccess() {
+        guard ek != nil else { access = .unknown; return }
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess: access = .full
+        case .writeOnly: access = .writeOnly
+        case .denied, .restricted: access = .denied
+        default: access = .unknown
+        }
+    }
+
+    /// Asks for calendar access (the system prompt), then loads events.
+    func requestAccess() async {
+        guard let ek else { return }
+        _ = try? await ek.requestFullAccessToEvents()
+        refreshAccess()
+        if let r = range { load(r) }
+    }
+
+    /// Loads device events around a date (the visible month plus a week either side).
+    func show(around d: Date) {
+        let month = CalendarData.cal.dateInterval(of: .month, for: d)!
+        let r = DateInterval(start: CalendarData.add(month.start, days: -7), end: CalendarData.add(month.end, days: 7))
+        if let old = range, old.contains(r.start), old.contains(r.end) { return }
+        load(r)
+    }
+
+    private func load(_ r: DateInterval) {
+        range = r
+        guard let ek, access == .full else { events = []; return }
+        watch()
+        let found = ek.events(matching: ek.predicateForEvents(withStart: r.start, end: r.end, calendars: nil))
+        var id = -1_000_000
+        events = found.map { e in
+            id -= 1
+            let start = e.startDate ?? r.start
+            let comps = CalendarData.cal.dateComponents([.hour, .minute], from: start)
+            let mins = Int((e.endDate ?? start).timeIntervalSince(start) / 60)
+            return CalItem(id: id, t: e.title ?? "Event", date: CalendarData.cal.startOfDay(for: start),
+                           time: e.isAllDay ? nil : (comps.hour ?? 0) * 60 + (comps.minute ?? 0), dur: max(15, mins),
+                           event: true, hex: CalendarData.hex(e.calendar?.cgColor), ekID: e.eventIdentifier,
+                           calendar: e.calendar?.title, location: e.location)
+        }
+    }
+
+    /// Reload when the calendar changes outside Hermit.
+    private func watch() {
+        guard !watching, let ek else { return }
+        watching = true
+        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) { [weak self] _ in
+            Task { @MainActor in guard let self, let r = self.range else { return }; self.load(r) }
+        }
+    }
+
+    /// Adds an event to the device's default calendar. False when there is no access.
+    func addToCalendar(_ item: CalItem) -> Bool {
+        guard let ek, access == .full || access == .writeOnly, let cal = ek.defaultCalendarForNewEvents else { return false }
+        let e = EKEvent(eventStore: ek)
+        e.calendar = cal
+        e.title = item.t
+        if let m = item.time {
+            e.startDate = item.date.addingTimeInterval(TimeInterval(m * 60))
+            e.endDate = e.startDate.addingTimeInterval(TimeInterval(item.dur * 60))
+        } else {
+            e.isAllDay = true; e.startDate = item.date; e.endDate = item.date
+        }
+        guard (try? ek.save(e, span: .thisEvent)) != nil else { return false }
+        if let r = range { load(r) }
+        return true
+    }
+
+    // MARK: Hermit items
 
     func save(_ item: CalItem) {
         var it = item
         withAnimation(.snappy) {
-            if it.isNew { it.id = nextId; nextId += 1; items.append(it) }
-            else if let i = items.firstIndex(where: { $0.id == it.id }) { items[i] = it }
+            if it.isNew { it.id = nextId; nextId += 1; local.append(it) }
+            else if let i = local.firstIndex(where: { $0.id == it.id }) { local[i] = it }
         }
+        persist()
     }
-    func remove(_ id: Int) { withAnimation(.snappy) { items.removeAll { $0.id == id } } }
+    func remove(_ id: Int) { withAnimation(.snappy) { local.removeAll { $0.id == id } }; persist() }
     func setStatus(_ id: Int, _ s: CalStatus) {
-        withAnimation(.snappy(duration: 0.35)) { if let i = items.firstIndex(where: { $0.id == id }) { items[i].status = s } }
+        withAnimation(.snappy(duration: 0.35)) { if let i = local.firstIndex(where: { $0.id == id }) { local[i].status = s } }
+        persist()
     }
+
+    private func persist() { LocalJSON.save(local, "calendar.json") }
 }

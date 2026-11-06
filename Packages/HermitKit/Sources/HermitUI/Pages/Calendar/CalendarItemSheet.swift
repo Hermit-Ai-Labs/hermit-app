@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// New or existing task / event: title, Task or Event, date, time, length, project, status,
-/// then Open project, Open, Ask, Delete and Save.
+/// then Open project, Open, Ask, Delete and Save. Device calendar events and scheduled payments open read only.
 struct CalItemSheet: View {
     @Environment(AppModel.self) var model
     @Environment(\.dismiss) var dismiss
@@ -13,9 +13,38 @@ struct CalItemSheet: View {
 
     private static let times: [(Int, String)] = [(-1, "All day")] + stride(from: 6 * 60, through: 22 * 60, by: 30).map { ($0, CalendarData.clock($0)) }
     private static let lengths: [(Int, String)] = [(15, "15 min"), (30, "30 min"), (45, "45 min"), (60, "1 h"), (90, "1.5 h"), (120, "2 h")]
-    private static let projectOptions: [(String, String)] = [("", "None")] + CalendarData.projects.map { ($0.name, $0.name) }
+    private var projectOptions: [(String, String)] { [("", "None")] + model.projectList.map { ($0.name, $0.name) } }
+    private var store: CalendarStore { .shared }
+    /// New events go to the device calendar when Hermit may write to it.
+    private var toDevice: Bool { f.isNew && f.event && (store.access == .full || store.access == .writeOnly) }
 
     var body: some View {
+        if f.external || f.payment { details } else { editor }
+    }
+
+    /// A device calendar event or a scheduled payment: what, when, where, plus Ask.
+    private var details: some View {
+        PaySheet(title: f.t) {
+            PayLines(lines: detailLines)
+            Text(f.payment ? "From your scheduled payments." : "From your calendar. Edit it in the Calendar app.")
+                .font(.system(size: 12)).foregroundStyle(Theme.faint)
+        } foot: {
+            if f.payment {
+                Button("Open Payments") { dismiss(); model.open(.payments) }.buttonStyle(PayWideButton(kind: .plain))
+            }
+            Button { ask() } label: { Label("Ask Hermit", systemImage: "sparkles") }
+                .buttonStyle(PayWideButton(kind: .accent))
+        }
+    }
+
+    private var detailLines: [(String, String)] {
+        var out: [(String, String)] = [("When", CalendarData.format(f.date, "EEE, MMM d") + (f.timeText.map { ", \($0)" } ?? ", all day"))]
+        if let c = f.calendar { out.append(("Calendar", c)) }
+        if let l = f.location, !l.isEmpty { out.append(("Where", l)) }
+        return out
+    }
+
+    private var editor: some View {
         PaySheet {
             TextField(f.isNew ? "New task or event" : "Title", text: $f.t)
                 .textFieldStyle(.plain).font(.system(size: 18, weight: .semibold)).tracking(-0.2)
@@ -23,6 +52,11 @@ struct CalItemSheet: View {
                 .onSubmit(save)
         } content: {
             CalWideSeg(options: [(false, "Task"), (true, "Event")], selection: $f.event)
+                .disabled(!f.isNew && f.event)
+            if f.isNew && f.event {
+                Text(toDevice ? "Adds it to your calendar." : "Saved in Hermit. Allow calendar access to add events to your calendar.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.faint)
+            }
             HStack(alignment: .top, spacing: 12) {
                 PayField(label: "Date") {
                     Button { picking = true } label: {
@@ -47,7 +81,7 @@ struct CalItemSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 PayField(label: "Length") { PayMenuField(options: Self.lengths, selection: $f.dur) }
                     .disabled(f.time == nil).opacity(f.time == nil ? 0.5 : 1)
-                PayField(label: "Project") { PayMenuField(options: Self.projectOptions, selection: project) }
+                PayField(label: "Project") { PayMenuField(options: projectOptions, selection: project) }
             }
             if !f.event {
                 PayField(label: "Status") { CalWideSeg(options: CalStatus.allCases.map { ($0, $0.label) }, selection: $f.status) }
@@ -56,7 +90,7 @@ struct CalItemSheet: View {
             if !f.isNew {
                 PayFlow(spacing: 8) {
                     if let p = f.project {
-                        Button { dismiss(); model.open(.projects, tab: p) } label: {
+                        Button { dismiss(); model.openProject(p) } label: {
                             HStack(spacing: 6) { Circle().fill(f.color).frame(width: 7, height: 7); Text("Open project") }
                         }
                         .buttonStyle(PayPillButton(kind: .outline))
@@ -91,7 +125,7 @@ struct CalItemSheet: View {
         Binding { f.time ?? -1 } set: { f.time = $0 < 0 ? nil : $0 }
     }
     private var project: Binding<String> {
-        Binding { f.project ?? "" } set: { f.project = $0.isEmpty ? nil : $0 }
+        Binding { f.project ?? "" } set: { f.project = $0.isEmpty ? nil : $0; f.hex = model.project(f.project)?.hex }
     }
 
     private func save() {
@@ -99,7 +133,12 @@ struct CalItemSheet: View {
         var item = f
         item.date = CalendarData.cal.startOfDay(for: f.date)
         let isNew = item.isNew
-        CalendarStore.shared.save(item)
+        if toDevice && store.addToCalendar(item) {
+            dismiss()
+            model.toast("Added to your calendar")
+            return
+        }
+        store.save(item)
         dismiss()
         model.toast(isNew ? "Added for \(CalendarData.format(item.date, "EEE, MMM d"))" : "Saved")
     }
@@ -111,6 +150,7 @@ struct CalItemSheet: View {
 
     private func ask() {
         dismiss()
+        model.newChat(project: f.project)
         model.send("Help me with \"\(f.t)\"")
     }
 }
