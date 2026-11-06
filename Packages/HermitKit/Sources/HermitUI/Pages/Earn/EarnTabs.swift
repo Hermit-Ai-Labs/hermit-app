@@ -59,6 +59,7 @@ struct EarnDeFi: View {
 /// annualized, so they move every hour. Starting a bot isn't wired up yet.
 struct EarnArbitrage: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.compact) private var compact
     private var feed: MarketFeed { .shared }
 
     var body: some View {
@@ -77,8 +78,15 @@ struct EarnArbitrage: View {
                 HStack(spacing: 12) {
                     MarketLogo(key: TradeData.logo(p.sym), name: p.sym)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(p.sym) \(p.funding >= 0 ? "cash and carry" : "reverse carry")").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                        Text("Funding \(p.fundPct.tradeTrim(4))% an hour, \(p.vol.tradeCompactUSD) volume").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                        if compact {
+                            // Phone: the coin, then the trade and its funding in a few words.
+                            Text(p.sym).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                            Text("\(p.funding >= 0 ? "Cash and carry" : "Reverse carry"), \(p.fundPct.tradeTrim(4))%/h")
+                                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
+                        } else {
+                            Text("\(p.sym) \(p.funding >= 0 ? "cash and carry" : "reverse carry")").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                            Text("Funding \(p.fundPct.tradeTrim(4))% an hour, \(p.vol.tradeCompactUSD) volume").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 2) {
@@ -88,15 +96,21 @@ struct EarnArbitrage: View {
                     .monospacedDigit()
                     Button("Ask") { model.send("Walk me through a \(p.sym) funding carry trade. Hyperliquid funding is \(p.fundPct.tradeTrim(4))% an hour right now.") }
                         .buttonStyle(TradeSmallButton())
-                    Button("Start") {}.buttonStyle(TradeSmallButton(kind: .primary)).disabled(true)
+                    if !compact { Button("Start") {}.buttonStyle(TradeSmallButton(kind: .primary)).disabled(true) }
                 }
                 .padding(.vertical, 12)
             }
             if !feed.perps.isEmpty {
-                HStack {
-                    MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume")
-                    Spacer()
-                    TradeSoon(text: "Strategies open soon").fixedSize()
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume")
+                        Spacer()
+                        TradeSoon(text: "Strategies open soon").fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume")
+                        TradeSoon(text: "Strategies open soon").fixedSize()
+                    }
                 }
                 .padding(.top, 8)
             }

@@ -56,7 +56,9 @@ struct LoginView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: width)
+        #if os(macOS)
         .clipped()
+        #endif
     }
 
     private func word(_ text: String, size: CGFloat, italic: Bool = false, delay: Double) -> some View {

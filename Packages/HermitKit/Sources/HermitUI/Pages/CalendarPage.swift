@@ -128,14 +128,18 @@ struct CalendarPage: View {
     }
 
     private func banner<B: View>(_ title: String, _ text: String, @ViewBuilder button: () -> B) -> some View {
-        HStack(spacing: 14) {
+        let label = HStack(alignment: .top, spacing: 12) {
             Image(systemName: "calendar").font(.system(size: 18)).foregroundStyle(Theme.muted)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 14, weight: .medium))
                 Text(text).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
-            button()
+        }
+        let b = button()
+        // Button beside the text on wide screens, under it on a phone.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) { label.frame(minWidth: 230, alignment: .leading); Spacer(minLength: 8); b }
+            VStack(alignment: .leading, spacing: 12) { label; b.padding(.leading, 30) }
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))

@@ -44,7 +44,7 @@ struct SettingsPage: View {
                 Text("Always on").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
             }
             Hairline()
-            SettingRow(title: "Approve with Face ID or Touch ID", sub: "Keys never leave the Secure Enclave") {
+            SettingRow(title: "Approve with Face ID or Touch ID", sub: "Your keys never leave this phone") {
                 Text("Always on").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
             }
             NoteBox(symbol: "checkmark.shield", text: askAbove == 0

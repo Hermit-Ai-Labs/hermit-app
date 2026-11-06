@@ -36,7 +36,7 @@ struct ConnectorsPage: View {
                 WalletSymbolTile(symbol: "calendar", size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Calendar").font(.system(size: 14, weight: .medium))
-                    Text("Events on this device, read on this device").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text("Your events, read on this phone").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
                 switch calendar.access {

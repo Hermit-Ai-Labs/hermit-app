@@ -160,7 +160,7 @@ struct NoWalletView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No wallet on this device yet").font(.system(size: 22, weight: .semibold))
-                Text("One recovery phrase gives you an address on every network Hermit supports. Keys stay on this device, sealed by the Secure Enclave.")
+                Text("One recovery phrase gives you an address on every network Hermit supports. Your keys are made on this phone and locked by Face ID.")
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
