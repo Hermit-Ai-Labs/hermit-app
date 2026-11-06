@@ -12,6 +12,53 @@ enum HermitGradient {
     }
 }
 
+/// A mesh gradient made the way copycat's hero is (gradient.skin style): soft elliptical blobs of colour over a base,
+/// each fading from strong to clear at 32% and 68% of its radius. Positions and radii are fractions of the view.
+struct MeshBlobs: View {
+    struct Blob { let x, y, rx, ry: CGFloat; let color: Color; let strength: Double }
+    let base: Color
+    let blobs: [Blob]
+
+    var body: some View {
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(base))
+            for b in blobs {
+                ctx.drawLayer { l in
+                    l.translateBy(x: b.x * size.width, y: b.y * size.height)
+                    l.scaleBy(x: max(b.rx * size.width, 1), y: max(b.ry * size.height, 1))
+                    let g = Gradient(stops: [.init(color: b.color.opacity(b.strength), location: 0),
+                                             .init(color: b.color.opacity(b.strength * 0.55), location: 0.32),
+                                             .init(color: b.color.opacity(0), location: 0.68)])
+                    l.fill(Path(ellipseIn: CGRect(x: -1, y: -1, width: 2, height: 2)),
+                           with: .radialGradient(g, center: .zero, startRadius: 0, endRadius: 1))
+                }
+            }
+        }
+    }
+
+    /// Light: white with lavender, lilac, peach, rose and cream. Dark text sits on it.
+    static let dawn = MeshBlobs(base: .white, blobs: [
+        Blob(x: 0.52, y: 0.30, rx: 0.34, ry: 0.75, color: .white, strength: 0.95),
+        Blob(x: 0.03, y: 0.08, rx: 0.40, ry: 0.56, color: Color(hex: 0xE4D8FF), strength: 0.95),
+        Blob(x: 0.29, y: 0.38, rx: 0.34, ry: 0.64, color: Color(hex: 0xD3C2FF), strength: 0.85),
+        Blob(x: 0.12, y: 0.63, rx: 0.50, ry: 0.50, color: Color(hex: 0xFFE2CC), strength: 0.85),
+        Blob(x: 0.25, y: 0.96, rx: 0.48, ry: 0.36, color: Color(hex: 0xFBD0E6), strength: 0.90),
+        Blob(x: 0.95, y: 0.10, rx: 0.44, ry: 0.63, color: Color(hex: 0xC9B3FF), strength: 0.90),
+        Blob(x: 0.72, y: 0.22, rx: 0.43, ry: 0.56, color: Color(hex: 0xFFE7D2), strength: 0.80),
+        Blob(x: 0.94, y: 0.55, rx: 0.44, ry: 0.60, color: Color(hex: 0xB79BFF), strength: 0.85),
+        Blob(x: 0.80, y: 1.04, rx: 0.51, ry: 0.49, color: Color(hex: 0xFFD3C2), strength: 0.90),
+    ])
+
+    /// Dark: deep violet lit from inside with violet, orchid and a touch of rose. White text sits on it.
+    static let dusk = MeshBlobs(base: Color(hex: 0x2A0D5E), blobs: [
+        Blob(x: 0.10, y: 0.05, rx: 0.55, ry: 0.90, color: Color(hex: 0x8A5CF0), strength: 0.95),
+        Blob(x: 0.55, y: 0.20, rx: 0.45, ry: 0.80, color: Color(hex: 0x6A35D1), strength: 0.90),
+        Blob(x: 0.95, y: 0.15, rx: 0.40, ry: 0.80, color: Color(hex: 0xC05CF0), strength: 0.70),
+        Blob(x: 0.80, y: 1.05, rx: 0.50, ry: 0.70, color: Color(hex: 0xF07AB4), strength: 0.45),
+        Blob(x: 0.25, y: 1.00, rx: 0.50, ry: 0.60, color: Color(hex: 0x4E1F96), strength: 0.90),
+    ])
+}
+
 /// A slow band of light that crosses the button every few seconds. Off with Reduce Motion.
 private struct Sheen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -43,27 +90,30 @@ struct GradientCTA: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 19, weight: .medium)).foregroundStyle(.white)
+                Image(systemName: symbol).font(.system(size: 19, weight: .medium)).foregroundStyle(HermitGradient.mid)
                     .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.22)))
+                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white))
+                    .shadow(color: HermitGradient.mid.opacity(0.12), radius: 6, y: 3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(.white)
-                    Text(subtitle).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.74))
+                    Text(title).font(.system(size: 16.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.text.opacity(0.62))
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(HermitGradient.mid)
-                    .frame(width: 34, height: 34).background(.white, in: Circle())
+                Image(systemName: "arrow.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(LinearGradient(colors: [Color(hex: 0x3A3A3A), Color(hex: 0x0A0A0A)], startPoint: .top, endPoint: .bottom)))
+                    .overlay(Circle().fill(LinearGradient(colors: [.white.opacity(0.25), .clear], startPoint: .top, endPoint: .center)).padding(1.5))
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(HermitGradient.fill)
-                    .overlay(Sheen().clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous)))
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom)))
-                    .shadow(color: HermitGradient.mid.opacity(0.35), radius: 18, y: 10)
+                MeshBlobs.dawn
+                    .overlay(Sheen())
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(.white.opacity(0.9), lineWidth: 1))
+                    .shadow(color: Color(hex: 0x8A5CF0).opacity(0.22), radius: 22, y: 12)
             }
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
@@ -83,8 +133,7 @@ struct GradientPill: ButtonStyle {
             .frame(maxWidth: full ? .infinity : nil)
             .background {
                 if enabled {
-                    Capsule().fill(HermitGradient.fill)
-                        .overlay(Sheen().clipShape(Capsule()))
+                    MeshBlobs.dusk.overlay(Sheen()).clipShape(Capsule())
                         .overlay(Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.05)], startPoint: .top, endPoint: .bottom)))
                         .shadow(color: HermitGradient.mid.opacity(configuration.isPressed ? 0.15 : 0.32), radius: 10, y: 5)
                 } else {
