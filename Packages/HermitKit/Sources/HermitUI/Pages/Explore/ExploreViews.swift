@@ -8,9 +8,9 @@ struct ExploreConnectButton: View {
     var body: some View {
         Button {} label: {
             Text("Connect")
-                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.faint)
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.disabledText)
                 .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
-                .background(Color(hex: 0xF2F2F0), in: RoundedRectangle(cornerRadius: 9))
+                .background(Theme.disabledFill, in: RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
         .disabled(true)

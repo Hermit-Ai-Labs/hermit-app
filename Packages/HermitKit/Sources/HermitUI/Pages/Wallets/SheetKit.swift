@@ -97,10 +97,10 @@ struct WideButton: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 14, weight: .medium))
-            .foregroundStyle(kind == .plain ? Theme.text : .white)
+            .foregroundStyle(!enabled ? Theme.disabledText : kind == .plain ? Theme.text : .white)
             .frame(maxWidth: .infinity).frame(height: 42)
-            .background(fill.opacity(enabled ? (configuration.isPressed ? 0.85 : 1) : 0.35), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(kind == .plain ? Theme.border : .clear))
+            .background(enabled ? fill.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(enabled && kind == .plain ? Theme.border : .clear))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
             .contentShape(Rectangle())

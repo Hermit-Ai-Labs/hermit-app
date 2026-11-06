@@ -56,8 +56,10 @@ struct ModelPrompt: View {
         case .failed: Button("Try again") { store.download(spec.id) }.buttonStyle(OutlineButton())
         case .verifying, .ready: EmptyView()
         case .notDownloaded:
-            Button((store.received[spec.id] ?? 0) > 0 ? "Resume" : "Download") { store.download(spec.id) }
-                .buttonStyle(AccentButton())
+            Button { store.download(spec.id) } label: {
+                Label((store.received[spec.id] ?? 0) > 0 ? "Resume" : "Download", systemImage: "arrow.down")
+            }
+            .buttonStyle(GradientPill())
         }
     }
 }

@@ -148,9 +148,9 @@ struct SheetButton: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 14, weight: .medium))
-            .foregroundStyle(primary ? .white : Theme.text)
+            .foregroundStyle(!enabled ? Theme.disabledText : primary ? .white : Theme.text)
             .frame(maxWidth: .infinity).padding(.vertical, 11)
-            .background(primary ? Theme.accent.opacity(enabled ? 1 : 0.4) : Theme.hover, in: RoundedRectangle(cornerRadius: 11))
+            .background(!enabled ? Theme.disabledFill : primary ? Theme.accent : Theme.hover, in: RoundedRectangle(cornerRadius: 11))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

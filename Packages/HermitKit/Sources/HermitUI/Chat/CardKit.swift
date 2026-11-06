@@ -150,10 +150,10 @@ struct BrandButton: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     var full = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(enabled ? .white : Theme.disabledText)
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 14).padding(.vertical, full ? 12 : 8)
-            .background(Theme.accent.opacity(!enabled ? 0.4 : configuration.isPressed ? 0.85 : 1), in: RoundedRectangle(cornerRadius: full ? 11 : 9))
+            .background(enabled ? Theme.accent.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: full ? 11 : 9))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

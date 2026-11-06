@@ -52,17 +52,20 @@ struct HomeView: View {
             Text(model.user.isEmpty ? greeting : "\(greeting), \(model.user)").font(.serif(compact ? 32 : 40)).foregroundStyle(Theme.text)
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
-            HStack(spacing: compact ? 28 : 22) {
-                if wallets.loaded && wallets.wallets.isEmpty {
-                    walletAction("Create wallet", "plus") { model.open(.wallets) }
-                } else {
+            if wallets.loaded && wallets.wallets.isEmpty {
+                GradientCTA(symbol: "wallet.bifold", title: "Create your wallet",
+                            subtitle: "Made on this phone, locked by Face ID") { model.open(.wallets, tab: "create") }
+                    .frame(maxWidth: 460)
+                    .padding(.top, 22)
+            } else {
+                HStack(spacing: compact ? 28 : 22) {
                     walletAction("Send", "arrow.up.right") { model.open(.wallets, tab: "send") }
                     walletAction("Swap", "arrow.left.arrow.right", soon: true) {}
                     walletAction("Receive", "arrow.down.left") { model.open(.wallets, tab: "receive") }
                     walletAction("Buy", "creditcard", soon: true) {}
                 }
+                .padding(.top, 22)
             }
-            .padding(.top, 22)
             Composer().padding(.top, 26)
             chips.padding(.top, 14)
             cards.padding(.top, compact ? 28 : 48)
@@ -160,7 +163,8 @@ struct HomeBalanceCard: View {
             if wallets.loaded && wallets.wallets.isEmpty {
                 Text("No wallet yet. Create one and its keys stay on this device.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Create a wallet") { model.open(.wallets) }.buttonStyle(BlackButton())
+                Button { model.open(.wallets, tab: "create") } label: { Label("Create a wallet", systemImage: "plus") }
+                    .buttonStyle(GradientPill())
             } else {
                 Button { model.open(.wallets) } label: {
                     VStack(alignment: .leading, spacing: 3) {

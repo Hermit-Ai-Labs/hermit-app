@@ -13,7 +13,8 @@ enum AllWalletsTab: String, CaseIterable, Hashable {
 struct NotYet: ViewModifier {
     let reason: String
     func body(content: Content) -> some View {
-        content.disabled(true).opacity(0.4).help(reason)
+        // Button styles draw their own readable disabled look; this only softens non-button rows a little.
+        content.disabled(true).opacity(0.7).help(reason)
     }
 }
 extension View {
@@ -168,7 +169,8 @@ struct NoWalletView: View {
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
             ButtonPair {
-                Button("Create a wallet") { open(.addWallet(.local, start: .create)) }.buttonStyle(WideButton())
+                Button { open(.addWallet(.local, start: .create)) } label: { Label("Create a wallet", systemImage: "plus") }
+                    .buttonStyle(GradientPill(full: true))
             } second: {
                 Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
             }

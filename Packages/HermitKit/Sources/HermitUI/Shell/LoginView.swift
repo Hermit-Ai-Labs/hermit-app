@@ -182,15 +182,18 @@ struct GlossyRound: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.white)
+            .foregroundStyle(enabled ? .white : Theme.disabledText)
             .frame(width: 48, height: 48)
             .background {
-                Circle().fill(LinearGradient(colors: [Color(hex: 0x3A3A3A), Color(hex: 0x0A0A0A)], startPoint: .top, endPoint: .bottom))
-                    .overlay(Circle().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center)).padding(2))
-                    .overlay(Circle().strokeBorder(.black.opacity(0.6)))
-                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                if enabled {
+                    Circle().fill(LinearGradient(colors: [Color(hex: 0x3A3A3A), Color(hex: 0x0A0A0A)], startPoint: .top, endPoint: .bottom))
+                        .overlay(Circle().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center)).padding(2))
+                        .overlay(Circle().strokeBorder(.black.opacity(0.6)))
+                        .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                } else {
+                    Circle().fill(Theme.disabledFill)
+                }
             }
-            .opacity(enabled ? 1 : 0.3)
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
             .animation(.smooth(duration: 0.2), value: enabled)
