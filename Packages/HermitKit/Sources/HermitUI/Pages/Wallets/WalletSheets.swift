@@ -122,14 +122,19 @@ struct TokenSheet: View {
 struct PhraseGrid: View {
     let words: [String]
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+        #if os(iOS)
+        let columns = 2
+        #else
+        let columns = 3
+        #endif
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns), spacing: 8) {
             ForEach(Array(words.enumerated()), id: \.offset) { i, w in
-                HStack(spacing: 6) {
-                    Text("\(i + 1)").font(.system(size: 11.5)).foregroundStyle(Theme.faint).monospacedDigit().frame(width: 18, alignment: .trailing)
-                    Text(w).font(.system(size: 13.5, design: .monospaced))
+                HStack(spacing: 8) {
+                    Text("\(i + 1)").font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit().frame(width: 20, alignment: .trailing)
+                    Text(w).font(.system(size: 15, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 8).padding(.vertical, 8)
+                .padding(.horizontal, 10).padding(.vertical, 10)
                 .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 9))
                 .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
             }
@@ -186,7 +191,7 @@ struct RecoveryPhraseSheet: View {
 // MARK: Add wallet
 
 /// Add a wallet: create one (shows the recovery phrase once, then a short check), or import a phrase.
-/// Hardware wallets and keyless (Privy) wallets aren't available yet and are shown greyed out.
+/// Keys are made on this device and never need the internet; the sheet says so, live.
 struct AddWalletSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -207,7 +212,7 @@ struct AddWalletSheet: View {
 
     init(vm: WalletsViewModel, custody: WalletAccount.Custody, start: Step = .pick, onCreated: @escaping (WalletAccount) -> Void) {
         self.vm = vm; self.custody = custody; self.onCreated = onCreated
-        _step = State(initialValue: custody == .privy ? .pick : start)
+        _step = State(initialValue: start)
         _name = State(initialValue: start == .importPhrase ? "Imported" : "Wallet \(vm.wallets.count + 1)")
     }
 
@@ -216,7 +221,7 @@ struct AddWalletSheet: View {
     var body: some View {
         Group {
             switch step {
-            case .pick: custody == .privy ? AnyView(privy) : AnyView(pick)
+            case .pick: pick
             case .create: create
             case .importPhrase: importView
             case .backup: backup
@@ -231,32 +236,14 @@ struct AddWalletSheet: View {
     private func back() { withAnimation(.smooth) { step = .pick; error = nil } }
 
     private var pick: some View {
-        SheetChrome(title: "Add local wallet") {
-            Text("Keys are created and kept on this device, sealed by the Secure Enclave.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted)
-            option("plus", "Create a new wallet", "New 12-word recovery phrase") { step = .create; name = "Wallet \(vm.wallets.count + 1)" }
-            option("key.horizontal", "Import with recovery phrase", "12 or 24 words, entered on this device only") { step = .importPhrase; name = "Imported" }
-            option("externaldrive", "Connect a hardware wallet", "Ledger or Trezor, not supported yet") {}
-                .notYet("Hardware wallets aren't supported yet")
+        SheetChrome(title: "Add a wallet") {
+            OfflineKeysBadge()
+            option("plus", "Create a new wallet", "12 new words, made on this phone") { step = .create; name = "Wallet \(vm.wallets.count + 1)" }
+            option("key.horizontal", "Import a recovery phrase", "12 or 24 words, typed on this phone only") { step = .importPhrase; name = "Imported" }
             HStack(spacing: 6) {
                 Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 ChainStack(chains: Chain.mainnets, size: 16)
             }
-        }
-    }
-
-    private var privy: some View {
-        SheetChrome(title: "Keyless wallets") {
-            Text("Keyless wallets (sign in with email, Google, Apple or a passkey) aren't available yet. Create a local wallet instead.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-            Group {
-                option("envelope", "Continue with email", "Not available yet") {}
-                option("apple.logo", "Continue with Apple", "Not available yet") {}
-                option("person.badge.key", "Use a passkey", "Not available yet") {}
-            }
-            .notYet("Keyless wallets aren't available yet")
-        } foot: {
-            Button("Close") { dismiss() }.buttonStyle(WideButton(kind: .plain))
         }
     }
 
@@ -268,11 +255,12 @@ struct AddWalletSheet: View {
 
     private var create: some View {
         SheetChrome(title: "Create a wallet", onBack: back) {
+            OfflineKeysBadge()
             FormField(label: "Name") { BoxedTextField(placeholder: "e.g. Savings", text: $name) }
-            DetailLines(lines: [("Keys", vm.service.vault.protection.label), ("Recovery phrase", "12 new words"),
-                                ("Addresses", "One EVM, one Solana"), ("Unlock", "Touch ID, Face ID or password")])
+            DetailLines(lines: [("Keys", "Made and kept on this phone"), ("Locked by", "Face ID or your passcode"),
+                                ("Recovery phrase", "12 new words"), ("Addresses", "One for EVM chains, one for Solana")])
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red) }
-            NoteBox(symbol: "checkmark.shield", text: "Next you'll see the recovery phrase once. Write it down: it is the only way to restore this wallet.")
+            NoteBox(symbol: "checkmark.shield", text: "Next you'll see your 12 words once. Write them on paper: they're the only way to restore this wallet.")
         } foot: {
             Button("Create wallet") {
                 let n = name.trimmingCharacters(in: .whitespaces)
@@ -288,8 +276,8 @@ struct AddWalletSheet: View {
     }
 
     private var backup: some View {
-        SheetChrome(title: "Write down your recovery phrase") {
-            NoteBox(symbol: "eye.slash", text: "These 12 words are the wallet. Anyone with them can take its money, and Hermit can't show them again without your Touch ID or password.", tint: Theme.amber)
+        SheetChrome(title: "Your recovery phrase", subtitle: "Write these words on paper, in order") {
+            NoteBox(symbol: "eye.slash", text: "These words are the wallet. Anyone with them can take its money. No screenshots, no cloud notes.", tint: Theme.amber)
             PhraseGrid(words: newWords)
         } foot: {
             Button("Later") { finish(backedUp: false) }.buttonStyle(WideButton(kind: .plain))
@@ -335,7 +323,8 @@ struct AddWalletSheet: View {
             }
             FormField(label: "Name") { BoxedTextField(placeholder: "Imported", text: $name) }
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red) }
-            NoteBox(symbol: "lock.shield", text: "Your words never leave this device. Hermit derives an EVM address (m/44'/60'/0'/0/0) and a Solana address (m/44'/501'/0'/0') from them, like MetaMask and Phantom.")
+            OfflineKeysBadge()
+            NoteBox(symbol: "lock.shield", text: "Your words never leave this phone. You get the same addresses as in MetaMask and Phantom.")
         } foot: {
             Button("Import") {
                 let nm = name.trimmingCharacters(in: .whitespaces)
@@ -358,14 +347,14 @@ struct AddWalletSheet: View {
                     .frame(width: 48, height: 48).background(Theme.green, in: Circle())
                     .transition(.scale.combined(with: .opacity))
                 Text(created?.name ?? "Wallet").font(.system(size: 16, weight: .semibold))
-                Text(created?.protection ?? "").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("Keys made and locked on this phone").font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 6)
             if let w = created {
                 DetailLines(lines: [w.evmAddress.map { ("EVM", shortAddr($0)) }, w.solanaAddress.map { ("Solana", shortAddr($0)) }].compactMap { $0 },
                             monoKeys: ["EVM", "Solana"])
                 if !w.backedUp && !(vm.wallet(w.id)?.backedUp ?? false) {
-                    NoteBox(symbol: "exclamationmark.triangle", text: "Not backed up yet. You can show the phrase again from the wallet's Security tab.", tint: Theme.amber)
+                    NoteBox(symbol: "exclamationmark.triangle", text: "Not backed up yet. You can show the words again from the wallet's Security tab.", tint: Theme.amber)
                 }
             }
         } foot: {

@@ -167,16 +167,13 @@ struct NoWalletView: View {
                 Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
-            HStack(spacing: 10) {
+            ButtonPair {
                 Button("Create a wallet") { open(.addWallet(.local, start: .create)) }.buttonStyle(WideButton())
+            } second: {
                 Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
             }
             .frame(maxWidth: 460)
-            HStack(spacing: 10) {
-                Label("Privy wallets", systemImage: "envelope").notYet("Keyless wallets aren't available yet")
-                Label("Hardware wallets", systemImage: "externaldrive").notYet("Ledger and Trezor aren't supported yet")
-            }
-            .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            OfflineKeysBadge().frame(maxWidth: 460)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -314,7 +311,7 @@ struct DAppsList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             EmptyNote(text: "DeFi positions (lending, perps, vaults) aren't tracked yet.")
-            Button("Connect a DApp") {}.buttonStyle(OutlineButton()).notYet("Coming after the wallet's security review")
+            Button("Connect a DApp") {}.buttonStyle(OutlineButton()).notYet("Connecting apps is coming soon")
         }
     }
 }
@@ -545,15 +542,16 @@ struct OneWalletView: View {
 
     private var security: some View {
         VStack(alignment: .leading, spacing: 14) {
-            DetailLines(lines: [("Keys", wallet.protection), ("Recovery phrase", "\(wallet.record.wordCount) words, \(wallet.backedUp ? "backed up" : "not backed up")"),
+            DetailLines(lines: [("Keys", "Made and kept on this device"), ("Recovery phrase", "\(wallet.record.wordCount) words, \(wallet.backedUp ? "backed up" : "not backed up")"),
                                 ("Created", wallet.record.created.formatted(date: .abbreviated, time: .omitted)),
                                 ("EVM path", KeyVault.evmPath), ("Solana path", KeyVault.solanaPath)],
                         monoKeys: ["EVM path", "Solana path"])
-            HStack(spacing: 10) {
+            ButtonPair {
                 Button("Show recovery phrase") { open(.phrase(wallet.id)) }.buttonStyle(WideButton())
-                Button("Remove from this device") { confirmDelete = true }.buttonStyle(WideButton(kind: .plain))
+            } second: {
+                Button("Remove from this phone", role: .destructive) { confirmDelete = true }.buttonStyle(WideButton(kind: .plain))
             }
-            NoteBox(symbol: "lock.shield", text: "Every send and every look at the phrase asks for Touch ID, Face ID or your device password. Sends work on testnets; mainnet sends unlock after our security review.")
+            NoteBox(symbol: "lock.shield", text: "Every send and every look at your words asks for Face ID, Touch ID or your passcode.")
         }
     }
 }

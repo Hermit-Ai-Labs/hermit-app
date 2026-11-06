@@ -100,6 +100,10 @@ struct ProfileSettings: View {
             SettingRow(title: "Account", sub: "None needed. Your chats, memory and keys stay on this device") {
                 Text("On this device").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
             }
+            Hairline()
+            SettingRow(title: "Welcome screen", sub: "See the first screen again. Only your name is asked again; wallets and chats stay") {
+                Button("Show") { withAnimation(.smooth(duration: 0.5)) { model.user = "" } }.buttonStyle(BlackButton())
+            }
         }
         .onAppear { draft = model.user }
     }

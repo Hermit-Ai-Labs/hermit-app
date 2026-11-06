@@ -34,7 +34,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                    Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     if let subtitle { Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1) }
                 }
                 Spacer(minLength: 8)
@@ -60,7 +60,8 @@ struct SheetChrome<Content: View, Foot: View>: View {
         #if os(macOS)
         .frame(width: width)
         #else
-        .presentationDetents(contentHeight > 520 ? [.large] : [.height(contentHeight + (hasFoot ? 150 : 80))])
+        // Content plus the title row, the button row and the home indicator. Tall content gets the full sheet.
+        .presentationDetents(contentHeight > 480 ? [.large] : [.height(contentHeight + (hasFoot ? 205 : 110))])
         .presentationDragIndicator(.visible)
         #endif
         .presentationCornerRadius(20)

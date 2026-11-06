@@ -53,7 +53,6 @@ final class PageTabSnapshots: XCTestCase {
             // Empty first: what a new user sees.
             try page(.wallets, "tokens")
             try sheet(AddWalletSheet(vm: vm, custody: .local) { _ in }, "add-local")
-            try sheet(AddWalletSheet(vm: vm, custody: .privy) { _ in }, "add-privy")
             // Then a wallet from the BIP-39 test vector phrase (in-memory vault in tests; balances are not fetched).
             if !vm.hasWallet {
                 _ = try vm.importWallet(words: Array(repeating: "abandon", count: 11) + ["about"], name: "Test wallet")

@@ -1,8 +1,7 @@
 import SwiftUI
 import HermitWallet
 
-/// Wallet switcher: All wallets, then the local wallets on this device with an add action. Keyless (Privy) wallets
-/// aren't available yet and show greyed.
+/// Wallet switcher: All wallets, then the wallets on this device with an add action.
 struct WalletPicker: View {
     let vm: WalletsViewModel
     @Binding var selected: String
@@ -45,7 +44,7 @@ struct WalletPicker: View {
 
 }
 
-/// The picker's dropdown: All wallets, Local wallets, then the greyed Privy group.
+/// The picker's dropdown: All wallets, then the wallets on this device.
 struct WalletMenu: View {
     let vm: WalletsViewModel
     @Binding var selected: String
@@ -60,15 +59,12 @@ struct WalletMenu: View {
         VStack(alignment: .leading, spacing: 0) {
             row(id: "all", symbol: "wallet.bifold", title: "All wallets", sub: "\(vm.wallets.count) wallet\(vm.wallets.count == 1 ? "" : "s")", mono: false, usd: vm.totalUSD)
             Hairline().padding(.vertical, 6)
-            header("Local wallets", "Keys stay on this device")
+            header("On this phone", "Keys never leave it")
             ForEach(vm.wallets) { w in
                 row(id: w.id, symbol: w.symbol, title: w.name, sub: w.shortAddress, mono: true, usd: vm.totalUSD == nil ? nil : vm.total(w.id),
                     chains: Chain.mainnets)
             }
             addRow("Create or import a wallet") { close(); onAdd(.local) }
-            Hairline().padding(.vertical, 6)
-            header("Privy wallets", "Keyless sign-in, not available yet")
-            addRow("Create Privy wallet") {}.notYet("Keyless wallets aren't available yet")
         }
         .padding(8)
         .frame(width: width)

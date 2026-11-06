@@ -11,7 +11,7 @@ func sendChainTitle(_ c: Chain) -> String { c.sendsEnabled ? c.name : "\(c.name)
 /// Shown under the form when a mainnet is picked: the Review button is greyed.
 struct MainnetLockedNote: View {
     var body: some View {
-        NoteBox(symbol: "lock.fill", text: "Mainnet sends unlock after our security review. Pick a testnet like Base Sepolia or Solana Devnet to make a real send now.",
+        NoteBox(symbol: "lock.fill", text: "Sends on this network are switched off in this build. Pick another network.",
                 tint: Theme.amber)
     }
 }
@@ -176,7 +176,7 @@ struct WalletSendSheet: View {
             }
             .buttonStyle(WideButton())
             .disabled(!canReview)
-            .help(chain.sendsEnabled ? "" : "Mainnet sends unlock after our security review")
+            .help(chain.sendsEnabled ? "" : "Sends on this network are switched off in this build")
             .keyboardShortcut(.defaultAction)
         }
         .animation(.smooth(duration: 0.25), value: address)

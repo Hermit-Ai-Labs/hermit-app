@@ -35,7 +35,7 @@ extension Chain {
 
 /// One wallet on this device: one recovery phrase, one EVM address for every EVM chain and one Solana address.
 struct WalletAccount: Identifiable, Hashable, Sendable {
-    /// Local wallets live on this device. Keyless (Privy) wallets aren't available yet; the UI shows them greyed.
+    /// Wallets live on this device. `privy` is reserved for a keyless option that isn't built; nothing shows it.
     enum Custody: String, Hashable, Sendable { case local, privy }
     let record: WalletRecord
     var id: String { record.id.uuidString }
