@@ -115,6 +115,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: my.hermit.ios.widgets
+        # Must match the app's version, or App Store Connect rejects the upload.
+        MARKETING_VERSION: "1.0"
         DEVELOPMENT_TEAM: 4G5YW2XP2B
         # Signed like the app; the scripts set HERMIT_WIDGET_PROFILE.
         CODE_SIGN_STYLE: Manual
