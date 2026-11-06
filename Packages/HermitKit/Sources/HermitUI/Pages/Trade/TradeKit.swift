@@ -435,17 +435,10 @@ struct MarketLogo: View {
     var remote: URL? = nil
 
     var body: some View {
-        if let key { LogoMark(key, size: size) } else if let url = remote ?? Self.coinIcon(name) {
-            AsyncImage(url: url, transaction: Transaction(animation: .smooth(duration: 0.2))) { phase in
-                if let img = phase.image {
-                    img.resizable().interpolation(.high).scaledToFill()
-                        .frame(width: size, height: size).clipShape(Circle())
-                        .overlay(Circle().strokeBorder(Theme.border.opacity(0.6)))
-                } else { letter }
-            }
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-        } else { letter }
+        if let key { LogoMark(key, size: size) } else {
+            let urls = remote.map { [$0] } ?? Self.iconCandidates(name)
+            if urls.isEmpty { letter } else { RemoteIcon(urls: urls, size: size) { letter } }
+        }
     }
 
     private var letter: some View {
@@ -463,9 +456,43 @@ struct MarketLogo: View {
         return URL(string: "https://assets.coincap.io/assets/icons/\(sym.lowercased())@2x.png")
     }
 
+    /// Where a market's icon might be, tried in order: CoinCap for crypto, then the stock logo for trade.xyz tickers (NVDA).
+    static func iconCandidates(_ name: String) -> [URL] {
+        guard let coin = coinIcon(name) else { return [] }
+        let sym = String(name.split(separator: " ").first ?? "").filter { $0.isLetter || $0.isNumber }.uppercased()
+        let stock = URL(string: "https://financialmodelingprep.com/image-stock/\(sym).png")
+        return [coin] + (stock.map { [$0] } ?? [])
+    }
+
     /// DefiLlama's icon for a protocol slug, e.g. "rocket-pool".
     static func protocolIcon(_ project: String) -> URL? {
         URL(string: "https://icons.llamao.fi/icons/protocols/\(project)?w=64&h=64")
+    }
+}
+
+/// Tries each URL in turn and shows the first image that loads; the placeholder while loading or if none does.
+private struct RemoteIcon<Placeholder: View>: View {
+    let urls: [URL]
+    let size: CGFloat
+    @ViewBuilder var placeholder: () -> Placeholder
+    @State private var index = 0
+
+    var body: some View {
+        AsyncImage(url: urls[min(index, urls.count - 1)], transaction: Transaction(animation: .smooth(duration: 0.2))) { phase in
+            switch phase {
+            case .success(let img):
+                img.resizable().interpolation(.high).scaledToFill()
+                    .frame(width: size, height: size).clipShape(Circle())
+                    .overlay(Circle().strokeBorder(Theme.border.opacity(0.6)))
+            case .failure:
+                placeholder().onAppear { if index < urls.count - 1 { index += 1 } }
+            default:
+                placeholder()
+            }
+        }
+        .id(index)
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

@@ -28,10 +28,14 @@ private struct HoloClock<Content: View>: View {
 /// The foil layer: glitter plus a rainbow that drifts slowly across the card, colour-dodged.
 struct HoloFoil: View {
     var strength: Double = 0.5
+    /// Each foil drifts on its own path and speed, so two cards never shimmer in step.
+    @State private var drift = (phase: Double.random(in: 0..<(2 * .pi)), speed: Double.random(in: 0.7...1.4),
+                                rx: Double.random(in: 0.25...0.40), ry: Double.random(in: 0.20...0.35))
     var body: some View {
         HoloClock { t in
             GeometryReader { g in
-                let x = 0.5 + 0.35 * cos(t * 0.5), y = 0.5 + 0.30 * sin(t * 0.65)
+                let k = t * 0.5 * drift.speed + drift.phase
+                let x = 0.5 + drift.rx * cos(k), y = 0.5 + drift.ry * sin(k * 1.3)
                 ZStack {
                     Image.hermit("holo-glitter").resizable(resizingMode: .tile)
                     RadialGradient(colors: Holo.colors, center: UnitPoint(x: x, y: y), startRadius: 0,
@@ -55,12 +59,14 @@ struct HoloIconButton: View {
     let label: String
     let action: () -> Void
     private static let hold = 2.6, fade = 0.9
+    /// Where in the four-look cycle this icon starts, so icons on one screen don't swap together.
+    @State private var offset = Double.random(in: 0..<(2.6 * 4))
 
     var body: some View {
         Button(action: action) {
             HoloClock { t in
                 let cycle = Self.hold * 4
-                let pos = t.truncatingRemainder(dividingBy: cycle) / Self.hold   // 0..<4
+                let pos = (t + offset).truncatingRemainder(dividingBy: cycle) / Self.hold   // 0..<4
                 let i = Int(pos), f = pos - Double(i)
                 let mix = max(0, (f - (1 - Self.fade / Self.hold)) / (Self.fade / Self.hold))   // fades in the last part
                 let spin = Angle.degrees((t * 45).truncatingRemainder(dividingBy: 360))
