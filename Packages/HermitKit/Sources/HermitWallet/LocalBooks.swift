@@ -8,6 +8,8 @@ public final class AddressBook: @unchecked Sendable {
         public var label: String?
         public var payments: Int
         public var lastPaid: Date?
+        /// When it was first saved with a label (starts the 24-hour hold on new whitelist entries).
+        public var added: Date?
     }
     let defaults: UserDefaults
     let key = "hermit.wallet.addressBook"
@@ -34,7 +36,7 @@ public final class AddressBook: @unchecked Sendable {
                 all[i].payments += 1; all[i].lastPaid = date
                 if let label { all[i].label = label }
             } else {
-                all.append(Entry(address: address, chainKind: kind, label: label, payments: 1, lastPaid: date))
+                all.append(Entry(address: address, chainKind: kind, label: label, payments: 1, lastPaid: date, added: date))
             }
             defaults.set(try? JSONEncoder().encode(all), forKey: key)
         }
@@ -45,7 +47,16 @@ public final class AddressBook: @unchecked Sendable {
             var all = (defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? []
             let n = Self.normalize(address, kind)
             if let i = all.firstIndex(where: { $0.chainKind == kind && Self.normalize($0.address, kind) == n }) { all[i].label = label }
-            else { all.append(Entry(address: address, chainKind: kind, label: label, payments: 0, lastPaid: nil)) }
+            else { all.append(Entry(address: address, chainKind: kind, label: label, payments: 0, lastPaid: nil, added: Date())) }
+            defaults.set(try? JSONEncoder().encode(all), forKey: key)
+        }
+    }
+
+    public func remove(_ address: String, kind: ChainKind) {
+        lock.withLock {
+            var all = (defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? []
+            let n = Self.normalize(address, kind)
+            all.removeAll { $0.chainKind == kind && Self.normalize($0.address, kind) == n }
             defaults.set(try? JSONEncoder().encode(all), forKey: key)
         }
     }
@@ -82,6 +93,48 @@ public final class SpendLimit: @unchecked Sendable {
             var l = ledger.filter { date.timeIntervalSince($0.date) < 86_400 * 2 }
             l.append(Spend(date: date, usd: usd))
             defaults.set(try? JSONEncoder().encode(l), forKey: ledgerKey)
+        }
+    }
+}
+
+/// Sends made from this device, newest first. Public data only (hashes, amounts, addresses), kept in the app's defaults.
+/// Chains have no cheap "history" call, so this is what the Activity list shows, with explorer links for the rest.
+public final class SendLog: @unchecked Sendable {
+    public struct Entry: Codable, Equatable, Sendable, Identifiable {
+        public var id: String { hash }
+        public let hash: String
+        public let chainID: String
+        public let walletID: UUID
+        public let amount: String
+        public let symbol: String
+        public let recipient: String
+        public let label: String?
+        public let date: Date
+        public var chain: Chain? { Chain.with(id: chainID) }
+    }
+    let defaults: UserDefaults
+    let key = "hermit.wallet.sendLog"
+    private let lock = NSLock()
+
+    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    public var entries: [Entry] {
+        lock.withLock { (defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? [] }
+    }
+
+    public func record(_ e: Entry) {
+        lock.withLock {
+            var all = (defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? []
+            all.removeAll { $0.hash == e.hash }
+            all.insert(e, at: 0)
+            defaults.set(try? JSONEncoder().encode(Array(all.prefix(500))), forKey: key)
+        }
+    }
+
+    public func remove(wallet: UUID) {
+        lock.withLock {
+            let all = ((defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? []).filter { $0.walletID != wallet }
+            defaults.set(try? JSONEncoder().encode(all), forKey: key)
         }
     }
 }

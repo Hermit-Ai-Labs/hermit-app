@@ -259,6 +259,88 @@ final class TableAndVaultTests: XCTestCase {
     }
 }
 
+/// The Secure Enclave file store, unattended: the enclave key is made without a user-presence flag so no prompt
+/// is needed. Runs on Macs and devices with an enclave; skipped elsewhere (CI VMs, the simulator).
+final class SecureEnclaveFileStoreTests: XCTestCase {
+    func testSealOpenRemoveRoundTrip() async throws {
+        try XCTSkipUnless(SecureEnclave.isAvailable, "no Secure Enclave here")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hermit-se-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SecureEnclaveFileStore(directory: dir, requireUserPresence: false)
+        let vault = KeyVault(store: store)
+        let r = try vault.importPhrase(CryptoVectorTests().abandon, name: "SE")
+        XCTAssertEqual(r.protection, .secureEnclave)
+
+        // On disk: only the enclave handle, the ephemeral key and ciphertext. The entropy is not there in the clear.
+        let file = try Data(contentsOf: store.file(r.id))
+        let entropy = try Mnemonic.entropy(fromPhrase: CryptoVectorTests().abandon)
+        XCTAssertNil(file.range(of: Data(entropy)))
+        XCTAssertFalse(String(decoding: file, as: UTF8.self).contains("abandon"))
+        let attrs = try FileManager.default.attributesOfItem(atPath: store.file(r.id).path)
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+
+        // A fresh vault over the same folder reloads the index and opens the seed through the enclave.
+        let again = KeyVault(store: SecureEnclaveFileStore(directory: dir, requireUserPresence: false))
+        XCTAssertEqual(again.wallets.map(\.evmAddress), ["0x9858EfFD232B4033E47d90003D41EC34EcaEda94"])
+        let phrase = try await again.exportPhrase(r.id)
+        XCTAssertEqual(phrase, CryptoVectorTests().abandon)
+
+        // Tampering with the box is caught by AES-GCM.
+        var sealed = try JSONDecoder().decode(SecureEnclaveFileStore.Sealed.self, from: file)
+        sealed.box[sealed.box.count - 1] ^= 1
+        try JSONEncoder().encode(sealed).write(to: store.file(r.id))
+        do { _ = try await again.exportPhrase(r.id); XCTFail("tampered seed opened") } catch {}
+
+        try again.delete(r.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.file(r.id).path))
+        XCTAssertTrue(again.wallets.isEmpty)
+    }
+
+    func testCreateWithPhraseMatchesExport() async throws {
+        let vault = KeyVault(store: MemoryStore())
+        let (r, phrase) = try vault.createWithPhrase(name: "New")
+        XCTAssertEqual(phrase.split(separator: " ").count, 12)
+        XCTAssertFalse(r.backedUp)
+        let exported = try await vault.exportPhrase(r.id)
+        XCTAssertEqual(exported, phrase)
+        XCTAssertEqual(try KeyVault.addresses(phrase: phrase).solana, r.solanaAddress)
+    }
+
+    func testSendLogAndWhitelistBook() {
+        let d = UserDefaults(suiteName: "hermit.wallet.tests.\(UUID())")!
+        let log = SendLog(defaults: d)
+        let w = UUID()
+        log.record(.init(hash: "0x01", chainID: "base-sepolia", walletID: w, amount: "0.1", symbol: "ETH", recipient: "0xabc", label: nil, date: Date()))
+        log.record(.init(hash: "0x02", chainID: "solana-devnet", walletID: UUID(), amount: "1", symbol: "SOL", recipient: "x", label: "bob", date: Date()))
+        XCTAssertEqual(log.entries.map(\.hash), ["0x02", "0x01"])
+        XCTAssertEqual(log.entries.last?.chain, .baseSepolia)
+        log.remove(wallet: w)
+        XCTAssertEqual(log.entries.map(\.hash), ["0x02"])
+
+        let book = AddressBook(defaults: d)
+        book.setLabel("Exchange", for: "0x00000000000000000000000000000000000000Aa", kind: .evm)
+        let e = book.entry(for: "0x00000000000000000000000000000000000000aa", kind: .evm)
+        XCTAssertEqual(e?.label, "Exchange")
+        XCTAssertNotNil(e?.added)
+        book.remove("0x00000000000000000000000000000000000000AA", kind: .evm)
+        XCTAssertNil(book.entry(for: "0x00000000000000000000000000000000000000aa", kind: .evm))
+    }
+
+    @MainActor
+    func testMainnetSendsStayOff() async throws {
+        let d = UserDefaults(suiteName: "hermit.wallet.tests.\(UUID())")!
+        let svc = WalletService(vault: KeyVault(store: MemoryStore()), addressBook: AddressBook(defaults: d), spendLimit: SpendLimit(defaults: d),
+                                sendLog: SendLog(defaults: d))
+        XCTAssertFalse(svc.allowMainnetSends)
+        try svc.importWallet(phrase: CryptoVectorTests().abandon)
+        for c in Chain.mainnets {
+            do { _ = try await svc.prepareSend(chain: c, to: c.kind == .evm ? "0x3535353535353535353535353535353535353535" : "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", amount: "1"); XCTFail(c.name) }
+            catch { XCTAssertTrue("\(error)".contains("beta"), c.name) }
+        }
+    }
+}
+
 /// Live reads against public RPCs. Run with HERMIT_LIVE=1. Never sends anything.
 final class LiveReadTests: XCTestCase {
     override func setUp() async throws {
@@ -340,6 +422,11 @@ final class LiveReadTests: XCTestCase {
         do { _ = try svc.approval(for: p); if !p.canSend { XCTFail("approval should be refused") } } catch {}
         do { _ = try await svc.prepareSend(chain: .base, to: "0x3535353535353535353535353535353535353535", amount: "1", token: "USDC"); XCTFail() }
         catch { XCTAssertTrue("\(error)".contains("beta")) }
+        let quotes = await PriceFeed().quotes()
+        print("LIVE prices: \(quotes.mapValues(\.usd))")
+        XCTAssertNotNil(quotes["ETH"])
+        let all = await svc.fetchBalances(for: svc.wallets[0], chains: Chain.all)
+        print("LIVE fetched \(all.balances.count) chains, failed: \(all.failed.map(\.name))")
         let ps = try await svc.prepareSend(chain: .solanaDevnet, to: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", amount: "0.01", token: "USDC")
         print("LIVE prepared solana: \(ps.lines) checks=\(ps.checks.map { "\($0.title): \($0.detail)" })")
     }

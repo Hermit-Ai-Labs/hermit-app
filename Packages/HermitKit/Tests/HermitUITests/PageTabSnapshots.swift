@@ -50,16 +50,27 @@ final class PageTabSnapshots: XCTestCase {
     func testPagesTabs() throws {
         let vm = WalletsViewModel.shared
         if wanted("wallets") {
-            for t in ["dapps", "gas", "activity", "accounts", "trading"] { try page(.wallets, t) }
-            try sheet(WalletSendSheet(vm: vm, fromID: "main", chain: nil, token: nil), "send", height: 900)
-            try sheet(WalletReceiveSheet(vm: vm, walletID: "main", title: "Deposit"), "receive")
-            try sheet(TransferSheet(vm: vm, fromID: "main"), "transfer")
-            try sheet(BridgeSheet(vm: vm, walletID: "main", token: "USDC"), "bridge")
-            try sheet(GasTopUpSheet(vm: vm, chain: .monad), "gas-topup")
+            // Empty first: what a new user sees.
+            try page(.wallets, "tokens")
+            try sheet(AddWalletSheet(vm: vm, custody: .local) { _ in }, "add-local")
             try sheet(AddWalletSheet(vm: vm, custody: .privy) { _ in }, "add-privy")
-            try sheet(TokenSheet(group: vm.tokenGroups(wallet: nil, chain: nil).first { $0.symbol == "USDC" }!, vm: vm) { _ in }, "token", height: 820)
-            try sheet(HistorySheet(vm: vm, walletID: nil), "history", height: 900)
+            // Then a wallet from the BIP-39 test vector phrase (in-memory vault in tests; balances are not fetched).
+            if !vm.hasWallet {
+                _ = try vm.importWallet(words: Array(repeating: "abandon", count: 11) + ["about"], name: "Test wallet")
+            }
+            let id = try XCTUnwrap(vm.firstWalletID)
+            for t in ["dapps", "gas", "activity", "accounts"] { try page(.wallets, t) }
+            try page(.wallets, id)
+            try sheet(WalletSendSheet(vm: vm, fromID: id, chain: nil, token: nil), "send", height: 900)
+            try sheet(WalletSendSheet(vm: vm, fromID: id, chain: .base, token: "USDC"), "send-mainnet", height: 900)
+            try sheet(WalletReceiveSheet(vm: vm, walletID: id, title: "Deposit"), "receive", height: 900)
+            try sheet(TransferSheet(vm: vm, fromID: id), "transfer")
+            try sheet(HistorySheet(vm: vm, walletID: nil), "history")
+            try sheet(RecoveryPhraseSheet(vm: vm, walletID: id), "phrase")
             try sheet(WalletPickerMenuPreview(vm: vm), "picker", height: 520)
+            try sheet(WalletActionSheet(kind: .send), "home-send", height: 600)
+            try sheet(WalletActionSheet(kind: .receive), "home-receive", height: 700)
+            try sheet(WalletActionSheet(kind: .swap), "home-swap", height: 360)
         }
         if wanted("settings") { for t in ["memory", "models", "home"] { try page(.settings, t) } }
         if wanted("connectors") {

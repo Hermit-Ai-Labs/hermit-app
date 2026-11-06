@@ -1,8 +1,10 @@
 import SwiftUI
 import CoreImage.CIFilterBuiltins
 import HermitCore
+import HermitWallet
 
-/// Phantom-style wallet actions under the home greeting: money moves sit right next to the AI.
+/// Wallet actions under the home greeting, backed by the same wallets and engine as the Wallets page.
+/// Send and Receive are real; Swap and Buy aren't connected yet and say so.
 enum HomeWalletSheet: String, Identifiable { case send, swap, receive, buy; var id: String { rawValue } }
 
 struct WalletActionSheet: View {
@@ -10,15 +12,14 @@ struct WalletActionSheet: View {
     var body: some View {
         switch kind {
         case .send: SendSheet()
-        case .swap: SwapSheet()
+        case .swap: NotAvailableSheet(title: "Swap", symbol: "arrow.left.arrow.right",
+                                      text: "Swapping from the wallet isn't available yet. It arrives after the wallet's security review.")
         case .receive: ReceiveSheet()
-        case .buy: BuySheet()
+        case .buy: NotAvailableSheet(title: "Buy", symbol: "creditcard",
+                                     text: "Buying crypto with a card or Apple Pay isn't available yet. To fund a wallet, send to its address from an exchange.")
         }
     }
 }
-
-private let prices: [String: Double] = ["USDC": 1, "ETH": 3498, "SOL": 186.6, "HYPE": 24.06]
-private let tokens = ["USDC", "ETH", "SOL", "HYPE"]
 
 /// Hands an approval to the model after the sheet has gone, so the two sheets never overlap.
 @MainActor private func approveAfterDismiss(_ model: AppModel, _ a: Approval, _ dismiss: DismissAction) {
@@ -26,201 +27,144 @@ private let tokens = ["USDC", "ETH", "SOL", "HYPE"]
     Task { try? await Task.sleep(for: .milliseconds(350)); model.approval = a }
 }
 
-private struct TokenPicker: View {
-    @Binding var token: String
-    var body: some View {
-        Menu {
-            ForEach(tokens, id: \.self) { t in Button(t) { token = t } }
-        } label: {
-            HStack(spacing: 6) {
-                LogoMark(token, size: 22)
-                Text(token).font(.system(size: 14, weight: .medium))
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(Theme.bg, in: Capsule()).overlay(Capsule().strokeBorder(Theme.border))
-        }
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-    }
-}
-
-private struct AmountBox<Trailing: View>: View {
-    let label: String
-    @ViewBuilder var amount: () -> AnyView
-    @ViewBuilder var trailing: () -> Trailing
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-            HStack(spacing: 10) { amount(); Spacer(minLength: 8); trailing() }
-        }
-        .padding(14)
-        .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
-    }
-}
-
-struct SwapSheet: View {
+/// Shown instead of a flow when there's no wallet yet: one tap to the Wallets page to create one.
+private struct NeedsWallet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var from = "USDC"
-    @State private var to = "ETH"
-    @State private var amount: Double = 500
-
-    private var out: Double { amount * (prices[from] ?? 1) / (prices[to] ?? 1) }
-    private var outText: String { out < 1 ? String(format: "%.4f", out) : out.formatted(.number.precision(.fractionLength(0...2))) }
-
+    let title: String
     var body: some View {
-        SheetScaffold(title: "Swap") {
-            AmountBox(label: "You pay") {
-                AnyView(TextField("0", value: $amount, format: .number).textFieldStyle(.plain).font(.system(size: 24, weight: .semibold)).monospacedDigit())
-            } trailing: { TokenPicker(token: $from) }
-            Button { withAnimation(.snappy) { let f = from; from = to; to = f } } label: {
-                Image(systemName: "arrow.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
-                    .frame(width: 32, height: 32).background(Theme.bg, in: Circle()).overlay(Circle().strokeBorder(Theme.border))
-            }
-            .buttonStyle(PressStyle()).frame(maxWidth: .infinity).padding(.vertical, -10).zIndex(1)
-            AmountBox(label: "You receive") {
-                AnyView(Text(outText).font(.system(size: 24, weight: .semibold)).monospacedDigit().contentTransition(.numericText()))
-            } trailing: { TokenPicker(token: $to) }
-            HStack {
-                Text("1 \(from) = \(String(format: "%.4g", (prices[from] ?? 1) / (prices[to] ?? 1))) \(to)")
-                Spacer()
-                Text("Fee $0.04")
-            }
-            .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+        SheetChrome(title: title) {
+            Text("Create or import a wallet first. It takes a few seconds, and the keys stay on this device.")
+                .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         } foot: {
-            Button("Review") {
-                approveAfterDismiss(model, Approval(kind: "Swap", title: "Swap \(amount.formatted()) \(from) to \(to)",
-                    lines: [["Pay", "\(amount.formatted()) \(from)"], ["Receive", "≈ \(outText) \(to)"], ["Route", "Best of 6 DEXs"], ["Fee", "$0.04"]],
-                    checks: Approval.checks(["Price impact under 0.1%"]), success: "Got \(outText) \(to)"), dismiss)
-            }
-            .buttonStyle(SheetButton(primary: true)).disabled(amount <= 0 || from == to)
+            Button("Import phrase") { dismiss(); model.open(.wallets, tab: "import") }.buttonStyle(WideButton(kind: .plain))
+            Button("Create a wallet") { dismiss(); model.open(.wallets, tab: "create") }.buttonStyle(WideButton())
         }
     }
 }
 
-struct BuySheet: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var usd: Double = 100
-    @State private var token = "USDC"
-    @State private var applePay = true
-
+/// A flow that isn't connected yet: an honest note and a greyed button.
+struct NotAvailableSheet: View {
+    let title: String
+    let symbol: String
+    let text: String
     var body: some View {
-        let get = usd / (prices[token] ?? 1)
-        SheetScaffold(title: "Buy") {
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text("$").font(.system(size: 36, weight: .semibold)).foregroundStyle(Theme.muted)
-                TextField("0", value: $usd, format: .number).textFieldStyle(.plain).font(.system(size: 44, weight: .semibold)).monospacedDigit()
-                    .fixedSize()
+        SheetChrome(title: title) {
+            HStack(alignment: .top, spacing: 12) {
+                WalletSymbolTile(symbol: symbol, size: 40)
+                Text(text).font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity)
-            HStack(spacing: 8) {
-                ForEach([50.0, 100, 250, 500], id: \.self) { v in
-                    Button("$\(Int(v))") { withAnimation(.snappy) { usd = v } }.buttonStyle(SmallChip(on: usd == v))
-                }
-            }
-            .frame(maxWidth: .infinity)
-            HStack(spacing: 8) {
-                ForEach(tokens, id: \.self) { t in
-                    Button { withAnimation(.snappy) { token = t } } label: {
-                        VStack(spacing: 5) { LogoMark(t, size: 24); Text(t).font(.system(size: 12, weight: .medium)) }
-                            .frame(maxWidth: .infinity).padding(.vertical, 10)
-                            .background(token == t ? Theme.hover : Theme.bg, in: RoundedRectangle(cornerRadius: 11))
-                            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(token == t ? Theme.text : Theme.border, lineWidth: token == t ? 1.5 : 1))
-                    }
-                    .buttonStyle(PressStyle())
-                }
-            }
-            VStack(spacing: 8) {
-                payRow(true, "Apple Pay", "Instant")
-                payRow(false, "Visa ending 4242", "Instant, 1% fee")
-            }
-            Text("Lands in Main. USDC has no fee.").font(.system(size: 12)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
         } foot: {
-            Button("Review") {
-                approveAfterDismiss(model, Approval(kind: "Buy crypto", title: "Buy $\(Int(usd)) of \(token)",
-                    lines: [["Pay", "$\(String(format: "%.2f", usd)) with \(applePay ? "Apple Pay" : "Visa ending 4242")"],
-                            ["Get", "≈ \(get < 1 ? String(format: "%.4f", get) : String(format: "%.2f", get)) \(token)"], ["To", "Main wallet"],
-                            ["Fee", token == "USDC" ? "$0" : String(format: "$%.2f", usd * 0.01)]],
-                    checks: Approval.checks(["Delivered to your own wallet"]), success: "\(token) is in Main"), dismiss)
-            }
-            .buttonStyle(SheetButton(primary: true)).disabled(usd <= 0)
+            Button("Review") {}.buttonStyle(WideButton()).notYet("\(title) isn't available yet")
         }
-    }
-
-    private func payRow(_ apple: Bool, _ title: String, _ detail: String) -> some View {
-        Button { withAnimation(.snappy) { applePay = apple } } label: {
-            HStack(spacing: 12) {
-                Image(systemName: apple ? "apple.logo" : "creditcard").font(.system(size: 14)).frame(width: 30, height: 30)
-                    .background(Theme.hover, in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 13.5, weight: .medium))
-                    Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                }
-                Spacer()
-                Image(systemName: applePay == apple ? "checkmark.circle.fill" : "circle").foregroundStyle(applePay == apple ? Theme.text : Theme.faint)
-            }
-            .padding(10).contentShape(Rectangle())
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(applePay == apple ? Theme.text : Theme.border))
-        }
-        .buttonStyle(.plain)
     }
 }
 
+/// Quick send from Home: wallet, network, address, amount. Review simulates and scans; Approve signs and sends.
 struct SendSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var vm = WalletsViewModel.shared
+    @State private var walletID = WalletsViewModel.shared.firstWalletID ?? ""
+    @State private var chain: Chain = Chain.defaultSend
+    @State private var token = Chain.defaultSend.nativeSymbol
     @State private var to = ""
-    @State private var amount: Double = 100
-    @State private var token = "USDC"
+    @State private var amount = ""
+    @State private var busy = false
+    @State private var error: String?
 
-    private var valid: Bool { to.hasSuffix(".eth") || (to.hasPrefix("0x") && to.count >= 10) }
+    private var held: Holding? { vm.holding(token, wallet: walletID, chain: chain) }
+    private var value: Double { AmountText.value(amount) ?? 0 }
+    private var valid: Bool { chain.accepts(to) }
 
     var body: some View {
-        SheetScaffold(title: "Send") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("To").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                TextField(text: $to, prompt: Text("Address or ENS, e.g. alice.eth").foregroundStyle(Theme.faint)) { Text("To") }.textFieldStyle(.plain).font(.system(size: 14))
-                    .autocorrectionDisabled()
-                    .padding(12).background(Theme.bg, in: RoundedRectangle(cornerRadius: 11))
-                    .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
-                HStack(spacing: 6) {
-                    ForEach(["alice.eth", "bob.base.eth", "Vault"], id: \.self) { s in
-                        Button(s) { to = s == "Vault" ? "0xF09e…13B4" : s }.buttonStyle(SmallChip())
+        if !vm.hasWallet { NeedsWallet(title: "Send") } else { form }
+    }
+
+    private var form: some View {
+        SheetChrome(title: "Send") {
+            HStack(spacing: 10) {
+                if vm.wallets.count > 1 {
+                    FormField(label: "From") {
+                        MenuField(selection: $walletID, options: vm.wallets.map(\.id), title: { vm.wallet($0)?.name ?? $0 }, symbol: { vm.wallet($0)?.symbol })
                     }
                 }
+                FormField(label: "Network") { MenuField(selection: $chain, options: sendPickerChains, title: sendChainTitle, logo: { $0.logo }) }
             }
-            AmountBox(label: "Amount") {
-                AnyView(TextField("0", value: $amount, format: .number).textFieldStyle(.plain).font(.system(size: 24, weight: .semibold)).monospacedDigit())
-            } trailing: { TokenPicker(token: $token) }
-            Text("From Main, 21,400 available. Network fee about $0.01.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            FormField(label: "To") { BoxedTextField(placeholder: chain.placeholder, text: $to, mono: true) }
+            if !to.isEmpty && !valid {
+                Label("Not a valid \(chain.name) address", systemImage: "exclamationmark.circle").font(.system(size: 12.5)).foregroundStyle(Theme.red)
+            }
+            HStack(spacing: 10) {
+                FormField(label: "Amount") { AmountTextField(text: $amount) }
+                FormField(label: "Asset", trailing: "\(held?.exact ?? "0") available") {
+                    MenuField(selection: $token, options: vm.tokens(chain: chain), title: { $0 }, logo: { $0 })
+                }
+            }
+            if !chain.sendsEnabled { MainnetLockedNote() }
+            else if value > (held?.amount ?? 0) {
+                Text(vm.loaded ? "Only \(held?.exact ?? "0") \(token) on \(chain.name)." : "Balances are still loading.")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.red)
+            } else if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
         } foot: {
-            Button("Review") {
-                approveAfterDismiss(model, Approval(kind: "Transfer", title: "Send \(amount.formatted()) \(token) to \(to)",
-                    lines: [["To", to], ["Amount", "\(amount.formatted()) \(token)"], ["From", "Main wallet"], ["Fee", "$0.01"]],
-                    checks: Approval.checks(["Address is not a known drainer"]), success: "Sent to \(to)"), dismiss)
+            Button { review() } label: {
+                HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text(busy ? "Simulating" : "Review") }
             }
-            .buttonStyle(SheetButton(primary: true)).disabled(!valid || amount <= 0)
+            .buttonStyle(WideButton())
+            .disabled(!chain.sendsEnabled || !valid || value <= 0 || value > (held?.amount ?? 0) || busy)
+            .keyboardShortcut(.defaultAction)
+        }
+        .onChange(of: chain) { _, c in if !vm.tokens(chain: c).contains(token) { token = c.nativeSymbol }; error = nil }
+        .task { if !vm.loaded && !WalletsViewModel.runningTests { await vm.refresh() } }
+    }
+
+    private func review() {
+        busy = true; error = nil
+        let (w, c, t, a, tk) = (walletID, chain, to, AmountText.clean(amount), token)
+        Task {
+            do {
+                let p = try await vm.prepareSend(from: w, chain: c, to: t, amount: a, token: tk)
+                let approval = try vm.approval(for: p)
+                busy = false
+                approveAfterDismiss(model, approval, dismiss)
+            } catch { busy = false; self.error = error.localizedDescription }
         }
     }
 }
 
+/// Quick receive from Home: the wallet's real EVM or Solana address with a QR code.
 struct ReceiveSheet: View {
     @Environment(AppModel.self) private var model
-    let address = "0x7a3F9c21B04e88d5A1f6c3E2d90Bb4e7c51A9c2E"
+    @State private var vm = WalletsViewModel.shared
+    @State private var walletID = WalletsViewModel.shared.firstWalletID ?? ""
+    @State private var kind: ChainKind = .evm
+
     var body: some View {
-        SheetScaffold(title: "Receive") {
+        if !vm.hasWallet { NeedsWallet(title: "Receive") } else { content }
+    }
+
+    private var content: some View {
+        let w = vm.wallet(walletID) ?? vm.wallets.first
+        let address = (kind == .evm ? w?.evmAddress : w?.solanaAddress) ?? ""
+        return SheetChrome(title: "Receive", subtitle: w?.name) {
+            if vm.wallets.count > 1 {
+                FormField(label: "Wallet") {
+                    MenuField(selection: $walletID, options: vm.wallets.map(\.id), title: { vm.wallet($0)?.name ?? $0 }, symbol: { vm.wallet($0)?.symbol })
+                }
+            }
+            Segmented(options: [(ChainKind.evm, "EVM networks"), (.solana, "Solana")], selection: $kind)
             VStack(spacing: 14) {
                 QRCode(text: address).frame(width: 180, height: 180)
                     .padding(14).background(.white, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
-                Text("Main wallet").font(.system(size: 14, weight: .medium))
+                    .id(address)
                 Text(address).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     .textSelection(.enabled)
-                Button { Clipboard.copy(address); model.toast("Address copied") } label: { Label("Copy address", systemImage: "doc.on.doc") }
-                    .buttonStyle(PlainCardButton())
-                Text("Send only on Base, Ethereum, Arbitrum or Polygon.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Button { Clip.copy(address); model.toast("Address copied") } label: { Label("Copy address", systemImage: "doc.on.doc") }
+                    .buttonStyle(WideButton(kind: .plain))
+                Text(kind == .evm ? "Works on \(Chain.evmMainnets.map(\.name).joined(separator: ", ")) and their testnets."
+                                  : "Solana and Solana Devnet: SOL and SPL tokens only.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.faint).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
         }

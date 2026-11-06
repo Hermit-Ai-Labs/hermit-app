@@ -1,6 +1,8 @@
 import SwiftUI
+import HermitWallet
 
-/// Binance-style wallet switcher: All wallets, then Local wallets and Privy wallets, each group with its own add action.
+/// Wallet switcher: All wallets, then the local wallets on this device with an add action. Keyless (Privy) wallets
+/// aren't available yet and show greyed.
 struct WalletPicker: View {
     let vm: WalletsViewModel
     @Binding var selected: String
@@ -35,7 +37,7 @@ struct WalletPicker: View {
 
 }
 
-/// The picker's dropdown: All wallets, Local wallets, Privy wallets.
+/// The picker's dropdown: All wallets, Local wallets, then the greyed Privy group.
 struct WalletMenu: View {
     let vm: WalletsViewModel
     @Binding var selected: String
@@ -46,37 +48,46 @@ struct WalletMenu: View {
 
     private var menu: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row(id: "all", symbol: "wallet.bifold", title: "All wallets", sub: "\(vm.wallets.count) wallets", mono: false, usd: vm.total())
-            ForEach([WalletAccount.Custody.local, .privy], id: \.self) { g in
-                Hairline().padding(.vertical, 6)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(g == .local ? "Local wallets" : "Privy wallets").font(.system(size: 12.5, weight: .semibold))
-                    Text(g == .local ? "Keys stay on this device" : "Keyless, sign in with email or passkey")
-                        .font(.system(size: 11.5)).foregroundStyle(Theme.faint)
-                }
-                .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 6)
-                ForEach(vm.wallets.filter { $0.custody == g }) { w in
-                    row(id: w.id, symbol: w.symbol, title: w.name, sub: w.shortAddress, mono: true, usd: vm.total(w.id), chains: w.chains)
-                }
-                Button { close(); onAdd(g) } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
-                            .frame(width: 30, height: 30)
-                            .overlay(RoundedRectangle(cornerRadius: 8.5).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-                        Text(g == .local ? "Create or import local wallet" : "Create Privy wallet").font(.system(size: 13.5)).foregroundStyle(Theme.muted)
-                        Spacer()
-                    }
-                    .padding(.vertical, 6).padding(.horizontal, 10)
-                }
-                .buttonStyle(WalletMenuRowStyle())
+            row(id: "all", symbol: "wallet.bifold", title: "All wallets", sub: "\(vm.wallets.count) wallet\(vm.wallets.count == 1 ? "" : "s")", mono: false, usd: vm.totalUSD)
+            Hairline().padding(.vertical, 6)
+            header("Local wallets", "Keys stay on this device")
+            ForEach(vm.wallets) { w in
+                row(id: w.id, symbol: w.symbol, title: w.name, sub: w.shortAddress, mono: true, usd: vm.totalUSD == nil ? nil : vm.total(w.id),
+                    chains: Chain.mainnets)
             }
+            addRow("Create or import a wallet") { close(); onAdd(.local) }
+            Hairline().padding(.vertical, 6)
+            header("Privy wallets", "Keyless sign-in, not available yet")
+            addRow("Create Privy wallet") {}.notYet("Keyless wallets aren't available yet")
         }
         .padding(8)
         .frame(width: 350)
         .background(Theme.bg)
     }
 
-    private func row(id: String, symbol: String, title: String, sub: String, mono: Bool, usd: Double, chains: [WalletChain] = []) -> some View {
+    private func header(_ title: String, _ sub: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 12.5, weight: .semibold))
+            Text(sub).font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+        }
+        .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 6)
+    }
+
+    private func addRow(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
+                    .frame(width: 30, height: 30)
+                    .overlay(RoundedRectangle(cornerRadius: 8.5).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                Text(title).font(.system(size: 13.5)).foregroundStyle(Theme.muted)
+                Spacer()
+            }
+            .padding(.vertical, 6).padding(.horizontal, 10)
+        }
+        .buttonStyle(WalletMenuRowStyle())
+    }
+
+    private func row(id: String, symbol: String, title: String, sub: String, mono: Bool, usd: Double?, chains: [Chain] = []) -> some View {
         Button {
             withAnimation(.smooth(duration: 0.25)) { selected = id }
             close()
@@ -91,7 +102,8 @@ struct WalletMenu: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Text(MoneyFmt.usd(usd)).font(.system(size: 13.5)).monospacedDigit().foregroundStyle(Theme.text)
+                Text(usd.map { MoneyFmt.usd($0, digits: $0 < 100 ? 2 : 0) } ?? "$—").font(.system(size: 13.5)).monospacedDigit()
+                    .foregroundStyle(usd == nil ? Theme.faint : Theme.text)
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
                     .opacity(selected == id ? 1 : 0)
             }

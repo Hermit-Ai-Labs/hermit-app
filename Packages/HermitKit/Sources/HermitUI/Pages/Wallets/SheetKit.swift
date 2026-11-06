@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreImage.CIFilterBuiltins
 import HermitCore
+import HermitWallet
 
 // Small building blocks for the Wallets, Settings, Connectors and Files pages:
 // the sheet frame, form fields, selectable rows, list rows with hover, the QR code and the approval hand-off.
@@ -422,7 +423,7 @@ extension SectionLabel where Trailing == EmptyView {
 /// Token logo with the chain's logo as a small badge.
 struct TokenLogo: View {
     let symbol: String
-    var chain: WalletChain? = nil
+    var chain: Chain? = nil
     var size: CGFloat = 32
     var body: some View {
         LogoMark(symbol, size: size)
@@ -438,7 +439,7 @@ struct TokenLogo: View {
 
 /// Overlapping chain logos ("on Base, Ethereum and Solana").
 struct ChainStack: View {
-    let chains: [WalletChain]
+    let chains: [Chain]
     var size: CGFloat = 16
     var body: some View {
         HStack(spacing: -size * 0.32) {
