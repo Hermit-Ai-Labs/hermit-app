@@ -1,5 +1,8 @@
 #if os(iOS)
 import Foundation
+import os
+
+private let log = Logger(subsystem: "my.hermit", category: "model-download")
 
 /// iPhone model downloads through a background URLSession: iOS itself moves the bytes, so a download keeps going while
 /// Hermit is in another app, the phone is locked, or the app was closed by the system. When it finishes, iOS wakes
@@ -42,6 +45,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
                 for case let t as URLSessionDownloadTask in tasks where t.state == .running || t.state == .suspended {
                     if let key = t.taskDescription { self.running[key] = t }
                 }
+                log.info("background session up, \(self.running.count) transfer(s) still running")
                 self.listed = true
                 self.listWaiters.forEach { $0.resume() }; self.listWaiters = []
             }
@@ -87,6 +91,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
         await ready()
         guard let part = part(key) else { return }
         if Self.size(part) == expected { onBytes(expected); return }   // finished while Hermit wasn't running
+        log.info("fetch \(key.replacingOccurrences(of: "\n", with: " "), privacy: .public)")
         progress[key] = onBytes
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
@@ -109,6 +114,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
                 task.countOfBytesClientExpectsToReceive = expected
                 running[key] = task
                 task.resume()
+                log.info("started transfer for \(key.replacingOccurrences(of: "\n", with: " "), privacy: .public)")
             }
         } onCancel: {
             Task { @MainActor [weak self] in self?.pause(key) }
@@ -163,6 +169,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let key = task.taskDescription else { return }
+        log.info("transfer ended for \(key.replacingOccurrences(of: "\n", with: " "), privacy: .public): \(error.map { "\($0)" } ?? "ok", privacy: .public)")
         if running[key] === task { running[key] = nil }
         reported[key] = nil
         let waiter = waiters.removeValue(forKey: key)

@@ -1,7 +1,11 @@
 import Foundation
 import Observation
+import os
+
+private let downloadLog = Logger(subsystem: "my.hermit", category: "model-download")
 #if os(iOS)
 import HermitActivity
+import UIKit
 #endif
 
 /// Downloads, checks and deletes on-device models, and says which one Hermit uses.
@@ -56,8 +60,23 @@ public final class ModelStore {
             guard let self else { return }
             for id in ids where self.state(id) != .ready { self.download(id) }
         }
+        // Back in front: a download the user started that isn't running (interrupted while Hermit was away) continues
+        // by itself, without a Try again tap.
+        resumeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                                                queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resumeInterrupted() }
+        }
         #endif
     }
+
+    #if os(iOS)
+    @ObservationIgnored private var resumeObserver: NSObjectProtocol?
+
+    private func resumeInterrupted() {
+        guard let id = UserDefaults.standard.string(forKey: Self.downloadingKey), tasks[id] == nil, state(id) != .ready else { return }
+        download(id)
+    }
+    #endif
 
     #if os(iOS)
     // MARK: App delegate hooks (iPhone)
@@ -116,21 +135,67 @@ public final class ModelStore {
         #endif
         tasks[id] = Task { [weak self] in
             guard let self else { return }
-            do {
-                try await self.fetch(id)
-                self.states[id] = .ready
-                self.clearDownloading(id)
-                self.keepAliveFinish(id, .landed)
-            } catch is CancellationError {
-                self.states[id] = .notDownloaded
-                self.clearDownloading(id)
-                self.keepAliveFinish(id, .paused)
-            } catch {
-                self.states[id] = .failed(error.localizedDescription)
-                self.clearDownloading(id)
-                self.keepAliveFinish(id, .failed)
+            // A dropped connection or a suspended app is not a failure: try again on our own, and wait for the network
+            // while there is none. "Download stopped" only shows after the retries are used up.
+            var failures = 0
+            while true {
+                do {
+                    try await self.fetch(id)
+                    self.states[id] = .ready
+                    self.clearDownloading(id)
+                    self.keepAliveFinish(id, .landed)
+                } catch is CancellationError {
+                    self.states[id] = .notDownloaded
+                    self.clearDownloading(id)
+                    self.keepAliveFinish(id, .paused)
+                } catch {
+                    downloadLog.error("download of \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    if await Self.waitForNetwork() {
+                        failures += 1
+                        if failures < Self.retryDelays.count + 1 {
+                            self.states[id] = .downloading(self.progress(id))
+                            try? await Task.sleep(for: .seconds(Self.retryDelays[failures - 1]))
+                            if !Task.isCancelled { continue }
+                        }
+                    }
+                    if Task.isCancelled {
+                        self.states[id] = .notDownloaded
+                        self.clearDownloading(id)
+                        self.keepAliveFinish(id, .paused)
+                    } else {
+                        self.states[id] = .failed(Self.explain(error))
+                        self.clearDownloading(id)
+                        self.keepAliveFinish(id, .failed)
+                    }
+                }
+                break
             }
             self.tasks[id] = nil
+        }
+    }
+
+    /// Seconds to wait before each retry; after the last one the download shows as stopped.
+    private static let retryDelays: [Double] = [2, 8, 30]
+
+    /// False if there's still no network after waiting up to a minute (the failure is then "No internet connection").
+    private static func waitForNetwork() async -> Bool {
+        for _ in 0..<30 {
+            if NetworkPath.shared.isOnline { return true }
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { return true }
+        }
+        return NetworkPath.shared.isOnline
+    }
+
+    /// What actually went wrong, in plain words. "No internet connection" only when the device really has no network.
+    private static func explain(_ error: Error) -> String {
+        if !NetworkPath.shared.isOnline { return "No internet connection." }
+        switch error {
+        case DownloadError.offline: return "The connection kept dropping. Try again on a steadier network."
+        case DownloadError.http(let code): return "Hugging Face answered \(code). Try again in a little while."
+        case DownloadError.sizeMismatch, DownloadError.checksum: return "\(error.localizedDescription) Try again."
+        case let e as URLError: return "The download kept failing: \(e.localizedDescription)"
+        default: return error.localizedDescription
         }
     }
 
