@@ -430,13 +430,42 @@ struct MarketLogo: View {
     let key: String?
     let name: String
     var size: CGFloat = 32
+    /// A logo from the web when there's no bundled one (DefiLlama's protocol icon for a pool).
+    /// Without it, coins look one up by symbol. The letter shows while it loads or if there is none.
+    var remote: URL? = nil
+
     var body: some View {
-        if let key { LogoMark(key, size: size) } else {
-            Text(String(name.filter(\.isLetter).prefix(1)).uppercased())
-                .font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(Theme.muted)
-                .frame(width: size, height: size).background(Theme.hover, in: Circle())
-                .accessibilityHidden(true)
-        }
+        if let key { LogoMark(key, size: size) } else if let url = remote ?? Self.coinIcon(name) {
+            AsyncImage(url: url, transaction: Transaction(animation: .smooth(duration: 0.2))) { phase in
+                if let img = phase.image {
+                    img.resizable().interpolation(.high).scaledToFill()
+                        .frame(width: size, height: size).clipShape(Circle())
+                        .overlay(Circle().strokeBorder(Theme.border.opacity(0.6)))
+                } else { letter }
+            }
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+        } else { letter }
+    }
+
+    private var letter: some View {
+        Text(String(name.filter(\.isLetter).prefix(1)).uppercased())
+            .font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(Theme.muted)
+            .frame(width: size, height: size).background(Theme.hover, in: Circle())
+            .accessibilityHidden(true)
+    }
+
+    /// CoinCap's icon set, by symbol. Hyperliquid's thousand-unit tokens (kPEPE, kBONK) use the plain symbol.
+    static func coinIcon(_ name: String) -> URL? {
+        var sym = String(name.split(separator: " ").first ?? "").filter { $0.isLetter || $0.isNumber }
+        if sym.count > 2, sym.first == "k", sym.dropFirst().allSatisfy(\.isUppercase) { sym.removeFirst() }
+        guard (2...10).contains(sym.count) else { return nil }
+        return URL(string: "https://assets.coincap.io/assets/icons/\(sym.lowercased())@2x.png")
+    }
+
+    /// DefiLlama's icon for a protocol slug, e.g. "rocket-pool".
+    static func protocolIcon(_ project: String) -> URL? {
+        URL(string: "https://icons.llamao.fi/icons/protocols/\(project)?w=64&h=64")
     }
 }
 

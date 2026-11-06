@@ -143,10 +143,20 @@ struct TradeTerminal: View {
         }
         .buttonStyle(TradePickerStyle())
         .fixedSize()
+        #if os(iOS)
+        // iPhone: a full sheet with every market. The popover opened upward over the bar and the keyboard hid it.
+        .sheet(isPresented: $pickOpen) {
+            TradeMarketMenu(current: coin, sheet: true) { m in pick(m.coin); pickOpen = false }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(24)
+                .presentationBackground(Theme.bg)
+        }
+        #else
         .popover(isPresented: $pickOpen, arrowEdge: .bottom) {
             TradeMarketMenu(current: coin) { m in pick(m.coin); pickOpen = false }
-                .presentationCompactAdaptation(.popover)
         }
+        #endif
     }
 
     // MARK: Hermit actions
@@ -460,6 +470,8 @@ struct TradePickerStyle: ButtonStyle {
 /// The picker's menu: the featured markets, or a search over every Hyperliquid perp. Market / Price / 24h / Funding.
 struct TradeMarketMenu: View {
     let current: String
+    /// iPhone sheet: full height, every market by volume, bigger rows, no keyboard until the field is tapped.
+    var sheet = false
     let onPick: (TradeData.Perp) -> Void
     @State private var q = ""
     @FocusState private var focused: Bool
@@ -467,17 +479,20 @@ struct TradeMarketMenu: View {
 
     var body: some View {
         let list: [TradeData.Perp] = q.isEmpty
-            ? TradeData.featuredPerps.compactMap { feed.perps[$0] }
+            ? (sheet ? Array(feed.perps.values.sorted { $0.vol > $1.vol }.prefix(80)) : TradeData.featuredPerps.compactMap { feed.perps[$0] })
             : Array(feed.perps.values.filter { $0.sym.localizedCaseInsensitiveContains(q) }.sorted { $0.vol > $1.vol }.prefix(30))
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                TextField("Search \(feed.perps.isEmpty ? "" : "\(feed.perps.count) ")markets", text: $q).textFieldStyle(.plain).font(.system(size: 13.5)).focused($focused)
+                TextField("Search \(feed.perps.isEmpty ? "" : "\(feed.perps.count) ")markets", text: $q).textFieldStyle(.plain).font(.system(size: sheet ? 16 : 13.5)).focused($focused)
+                    .autocorrectionDisabled()
                     .onSubmit { if let f = list.first { onPick(f) } }
             }
-            .padding(.horizontal, 10).padding(.vertical, 9)
-            .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
-            .padding(.bottom, 4)
+            .padding(.horizontal, sheet ? 14 : 10).padding(.vertical, sheet ? 12 : 9)
+            .background(sheet ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(alignment: .bottom) { if !sheet { Rectangle().fill(Theme.border).frame(height: 1) } }
+            .padding(.bottom, sheet ? 10 : 4)
+            .padding(.top, sheet ? 14 : 0)
             row(cells: [Text("Market"), Text("Price"), Text("24h"), Text("Funding")]).font(.system(size: 12)).foregroundStyle(Theme.faint)
             ScrollView {
                 VStack(spacing: 0) {
@@ -488,7 +503,8 @@ struct TradeMarketMenu: View {
                                 Text(m.ch.tradePct).foregroundStyle(m.ch >= 0 ? Theme.green : Theme.red),
                                 Text(m.fundPct.tradeTrim(4) + "%").foregroundStyle(Theme.muted),
                             ], lead: m)
-                            .font(.system(size: 13)).monospacedDigit()
+                            .font(.system(size: sheet ? 14.5 : 13)).monospacedDigit()
+                            .padding(.vertical, sheet ? 4 : 0)
                             .background(m.coin == current ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
                             .contentShape(Rectangle())
                         }
@@ -496,17 +512,18 @@ struct TradeMarketMenu: View {
                     }
                 }
             }
-            .frame(maxHeight: 360)
+            .frame(maxHeight: sheet ? .infinity : 360)
             if feed.perps.isEmpty {
                 MarketStatus(kind: feed.perpState == .failed ? .failed("Couldn't reach Hyperliquid") : .loading("Loading markets")).padding(.horizontal, 10)
             } else if list.isEmpty {
                 Text("No markets").font(.system(size: 13)).foregroundStyle(Theme.muted).padding(16)
             }
         }
-        .padding(6)
-        .frame(width: 380)
+        .padding(sheet ? 14 : 6)
+        .frame(width: sheet ? nil : 380)
+        .frame(maxWidth: sheet ? .infinity : nil, maxHeight: sheet ? .infinity : nil, alignment: .top)
         .background(Theme.bg)
-        .onAppear { focused = true }
+        .onAppear { if !sheet { focused = true } }
     }
 
     private func row(cells: [Text], lead: TradeData.Perp? = nil) -> some View {
@@ -514,7 +531,7 @@ struct TradeMarketMenu: View {
             Group {
                 if let m = lead {
                     HStack(spacing: 8) {
-                        MarketLogo(key: TradeData.logo(m.sym), name: m.sym, size: 18)
+                        MarketLogo(key: TradeData.logo(m.sym), name: m.sym, size: sheet ? 24 : 18)
                         Text(m.sym).foregroundStyle(Theme.text)
                         if m.coin.hasPrefix("xyz:") { Text("trade.xyz").font(.system(size: 11.5)).foregroundStyle(Theme.faint) }
                     }

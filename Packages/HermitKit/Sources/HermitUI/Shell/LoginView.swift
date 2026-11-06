@@ -32,6 +32,8 @@ struct LoginView: View {
         }
     }
 
+    private let indent: CGFloat = 44
+
     private func page(width: CGFloat) -> some View {
         // Type scales with the column: about 66pt on a 393pt iPhone, capped on wide windows.
         let size = min(max(width * 0.168, 52), 92)
@@ -46,9 +48,10 @@ struct LoginView: View {
                     word("almighty", size: size, delay: 0.08)
                     word("intern.", size: size, italic: true, delay: 0.16)
                 }
-                facts.padding(.top, 26).opacity(shown ? 1 : 0).animation(.smooth(duration: 0.8).delay(0.35), value: shown)
+                // Facts and the name sit about 1 cm in from the headline's edge, an editorial indent.
+                facts.padding(.top, 26).padding(.leading, indent).opacity(shown ? 1 : 0).animation(.smooth(duration: 0.8).delay(0.35), value: shown)
                 Spacer(minLength: 28)
-                ask.opacity(shown ? 1 : 0).offset(y: shown ? 0 : 16).animation(.smooth(duration: 0.8).delay(0.45), value: shown)
+                ask.padding(.leading, indent).opacity(shown ? 1 : 0).offset(y: shown ? 0 : 16).animation(.smooth(duration: 0.8).delay(0.45), value: shown)
                     .padding(.bottom, 22)
             }
             .padding(.horizontal, 28)

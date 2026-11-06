@@ -12,7 +12,7 @@ struct EarnPoolRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { withAnimation(.smooth(duration: 0.32)) { open.toggle() } } label: {
                 HStack(spacing: 12) {
-                    MarketLogo(key: pool.logo, name: pool.name)
+                    MarketLogo(key: pool.logo, name: pool.name, remote: MarketLogo.protocolIcon(pool.project))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(pool.name) \(pool.symbol)").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                         Text("\(pool.chainName), \(pool.tvlUsd.tradeCompactUSD) TVL" + (pool.poolMeta.map { ", \($0)" } ?? ""))
