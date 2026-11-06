@@ -1,18 +1,19 @@
 import SwiftUI
 import Observation
 
-// DApps from hermit-demo/src/data.js (dapps): the newest and most popular apps of the past year.
+// The Explore directory: apps and protocols worth knowing, newest and most used of the past year. The list itself is
+// editorial (name, category, chain, what it does). The only figures shown are TVL and its 7-day change from DefiLlama
+// (api.llama.fi/protocols), fetched live; apps DefiLlama doesn't track show none.
 
 struct ExploreDapp: Identifiable, Hashable {
     var id: String { name }
     let name: String
     let cat: String
-    let tvl: String
     let chain: String
-    let conn: Bool
-    let hot: Bool
     var isNew = false
     let desc: String
+    /// DefiLlama key: a protocol slug, or "parent#x" to sum every protocol under that parent. Nil when it isn't tracked.
+    var llama: String? = nil
 }
 
 enum ExploreData {
@@ -20,54 +21,102 @@ enum ExploreData {
                              "Prediction", "Presale", "Launchpad", "AI agents", "Wallet"]
 
     static let dapps: [ExploreDapp] = [
-        .init(name: "Hyperliquid", cat: "Perps", tvl: "$5.1B", chain: "HyperEVM", conn: true, hot: true, desc: "Perps"),
-        .init(name: "Aave", cat: "Lending", tvl: "$38.2B", chain: "Multi-chain", conn: true, hot: false, desc: "Lending"),
-        .init(name: "Pendle", cat: "Yield", tvl: "$6.4B", chain: "Multi-chain", conn: true, hot: true, desc: "Fixed yield"),
-        .init(name: "Ethena", cat: "Yield", tvl: "$11.8B", chain: "Ethereum", conn: true, hot: false, desc: "Synthetic dollar"),
-        .init(name: "Jupiter", cat: "DEX", tvl: "$2.9B", chain: "Solana", conn: true, hot: false, desc: "Swaps"),
-        .init(name: "Uniswap", cat: "DEX", tvl: "$5.6B", chain: "Multi-chain", conn: false, hot: false, desc: "Swaps and LP"),
-        .init(name: "Lido", cat: "Staking", tvl: "$27.5B", chain: "Ethereum", conn: false, hot: false, desc: "ETH staking"),
-        .init(name: "Pump.fun", cat: "Launchpad", tvl: "$0.4B", chain: "Solana", conn: false, hot: true, desc: "Meme launches"),
-        .init(name: "Morpho", cat: "Lending", tvl: "$9.3B", chain: "Multi-chain", conn: false, hot: true, desc: "Lending vaults"),
-        .init(name: "Kamino", cat: "Yield", tvl: "$2.2B", chain: "Solana", conn: false, hot: false, desc: "Liquidity vaults"),
-        .init(name: "Polymarket", cat: "Prediction", tvl: "$0.6B", chain: "Polygon", conn: false, hot: true, desc: "Predictions"),
-        .init(name: "Legion", cat: "Presale", tvl: "n/a", chain: "Multi-chain", conn: false, hot: true, desc: "Token sales"),
-        .init(name: "Lighter", cat: "Perps", tvl: "$1.4B OI", chain: "Ethereum zk", conn: false, hot: true, isNew: true, desc: "Zero-fee zk perps"),
-        .init(name: "trade.xyz", cat: "Perps", tvl: "$4B OI", chain: "Hyperliquid", conn: false, hot: true, isNew: true, desc: "Stock and gold perps"),
-        .init(name: "Aster", cat: "Perps", tvl: "15% share", chain: "BNB", conn: false, hot: false, desc: "Multichain perps"),
-        .init(name: "Paradex", cat: "Perps", tvl: "$289M / day", chain: "Starknet", conn: false, hot: false, desc: "Private perps"),
-        .init(name: "Extended", cat: "Perps", tvl: "$6.4B / mo", chain: "Starknet", conn: false, hot: false, desc: "Starknet perps"),
-        .init(name: "Variational", cat: "Perps", tvl: "$16B / mo", chain: "Arbitrum", conn: false, hot: false, desc: "Zero-fee RFQ perps"),
-        .init(name: "Kalshi", cat: "Prediction", tvl: "$5.4B / mo", chain: "Regulated", conn: false, hot: true, desc: "Regulated predictions"),
-        .init(name: "Predict.fun", cat: "Prediction", tvl: "$579M / mo", chain: "BNB", conn: false, hot: false, isNew: true, desc: "Yield-bearing bets"),
-        .init(name: "Opinion", cat: "Prediction", tvl: "$376M / mo", chain: "BNB", conn: false, hot: false, isNew: true, desc: "Macro predictions"),
-        .init(name: "Limitless", cat: "Prediction", tvl: "$205M / mo", chain: "Base", conn: false, hot: false, desc: "Short-term price markets"),
-        .init(name: "Coinbase Sales", cat: "Presale", tvl: "$188M sale", chain: "Multichain", conn: false, hot: true, isNew: true, desc: "Public token sales"),
-        .init(name: "MetaDAO", cat: "Presale", tvl: "$100M+ raised", chain: "Solana", conn: false, hot: false, desc: "Futarchy ICOs"),
-        .init(name: "Echo", cat: "Presale", tvl: "n/a", chain: "Multichain", conn: false, hot: false, desc: "Token sales"),
-        .init(name: "Jupiter Lend", cat: "Lending", tvl: "$2.6B", chain: "Solana", conn: false, hot: false, isNew: true, desc: "Solana lending"),
-        .init(name: "Curvance", cat: "Lending", tvl: "$75M", chain: "Monad", conn: false, hot: false, isNew: true, desc: "Lend yield assets"),
-        .init(name: "Kuru", cat: "DEX", tvl: "$380M / mo", chain: "Monad", conn: false, hot: false, isNew: true, desc: "Order book DEX"),
-        .init(name: "Aerodrome", cat: "DEX", tvl: "$9.5B / mo", chain: "Base", conn: false, hot: false, desc: "Base swaps and LP"),
-        .init(name: "USD.AI", cat: "Yield", tvl: "$491M", chain: "Arbitrum", conn: false, hot: true, isNew: true, desc: "Yield from GPU loans"),
-        .init(name: "Falcon", cat: "Stablecoin", tvl: "$1.8B", chain: "Ethereum", conn: false, hot: false, desc: "Synthetic dollar USDf"),
-        .init(name: "Maple", cat: "Yield", tvl: "n/a", chain: "Multichain", conn: false, hot: false, desc: "Institutional credit yield"),
-        .init(name: "Plasma", cat: "Stablecoin", tvl: "$5.7B", chain: "Plasma", conn: false, hot: false, isNew: true, desc: "Zero-fee USDT chain"),
-        .init(name: "Kinetiq", cat: "Staking", tvl: "$1.0B", chain: "HyperEVM", conn: false, hot: false, isNew: true, desc: "HYPE liquid staking"),
-        .init(name: "Infrared", cat: "Staking", tvl: "$1.5B", chain: "Berachain", conn: false, hot: false, desc: "Berachain staking"),
-        .init(name: "Ondo", cat: "RWA", tvl: "$1B", chain: "Multichain", conn: false, hot: true, isNew: true, desc: "Tokenized US stocks"),
-        .init(name: "xStocks", cat: "RWA", tvl: "$700M", chain: "Solana", conn: false, hot: false, desc: "Tokenized stocks"),
-        .init(name: "BUIDL", cat: "RWA", tvl: "$2.8B", chain: "Ethereum", conn: false, hot: false, desc: "BlackRock treasury fund"),
-        .init(name: "Virtuals", cat: "AI agents", tvl: "$621M", chain: "Base", conn: false, hot: true, desc: "AI agent launchpad"),
-        .init(name: "x402", cat: "AI agents", tvl: "100M+ payments", chain: "Base", conn: true, hot: false, isNew: true, desc: "Agent payments"),
-        .init(name: "Infinex", cat: "Wallet", tvl: "n/a", chain: "20+ chains", conn: false, hot: false, isNew: true, desc: "Passkey wallet app"),
+        .init(name: "Hyperliquid", cat: "Perps", chain: "HyperEVM", desc: "Perps", llama: "parent#hyperliquid"),
+        .init(name: "Aave", cat: "Lending", chain: "Multi-chain", desc: "Lending", llama: "parent#aave"),
+        .init(name: "Pendle", cat: "Yield", chain: "Multi-chain", desc: "Fixed yield", llama: "parent#pendle"),
+        .init(name: "Ethena", cat: "Yield", chain: "Ethereum", desc: "Synthetic dollar", llama: "parent#ethena"),
+        .init(name: "Jupiter", cat: "DEX", chain: "Solana", desc: "Swaps", llama: "parent#jupiter"),
+        .init(name: "Uniswap", cat: "DEX", chain: "Multi-chain", desc: "Swaps and LP", llama: "parent#uniswap"),
+        .init(name: "Lido", cat: "Staking", chain: "Ethereum", desc: "ETH staking", llama: "lido"),
+        .init(name: "Pump.fun", cat: "Launchpad", chain: "Solana", desc: "Meme launches"),
+        .init(name: "Morpho", cat: "Lending", chain: "Multi-chain", desc: "Lending vaults", llama: "parent#morpho"),
+        .init(name: "Kamino", cat: "Yield", chain: "Solana", desc: "Liquidity vaults", llama: "parent#kamino-finance"),
+        .init(name: "Polymarket", cat: "Prediction", chain: "Polygon", desc: "Predictions", llama: "parent#polymarket"),
+        .init(name: "Legion", cat: "Presale", chain: "Multi-chain", desc: "Token sales"),
+        .init(name: "Lighter", cat: "Perps", chain: "Ethereum zk", isNew: true, desc: "Zero-fee zk perps", llama: "parent#lighter"),
+        .init(name: "trade.xyz", cat: "Perps", chain: "Hyperliquid", isNew: true, desc: "Stock and gold perps"),
+        .init(name: "Aster", cat: "Perps", chain: "BNB", desc: "Multichain perps", llama: "parent#astherus"),
+        .init(name: "Paradex", cat: "Perps", chain: "Starknet", desc: "Private perps", llama: "parent#paradex"),
+        .init(name: "Extended", cat: "Perps", chain: "Starknet", desc: "Starknet perps", llama: "parent#extended"),
+        .init(name: "Variational", cat: "Perps", chain: "Arbitrum", desc: "Zero-fee RFQ perps"),
+        .init(name: "Kalshi", cat: "Prediction", chain: "Regulated", desc: "Regulated predictions"),
+        .init(name: "Predict.fun", cat: "Prediction", chain: "BNB", isNew: true, desc: "Yield-bearing bets", llama: "predict-fun"),
+        .init(name: "Opinion", cat: "Prediction", chain: "BNB", isNew: true, desc: "Macro predictions"),
+        .init(name: "Limitless", cat: "Prediction", chain: "Base", desc: "Short-term price markets"),
+        .init(name: "Coinbase Sales", cat: "Presale", chain: "Multichain", isNew: true, desc: "Public token sales"),
+        .init(name: "MetaDAO", cat: "Presale", chain: "Solana", desc: "Futarchy ICOs"),
+        .init(name: "Echo", cat: "Presale", chain: "Multichain", desc: "Token sales"),
+        .init(name: "Jupiter Lend", cat: "Lending", chain: "Solana", isNew: true, desc: "Solana lending", llama: "jupiter-lend"),
+        .init(name: "Curvance", cat: "Lending", chain: "Monad", isNew: true, desc: "Lend yield assets", llama: "curvance"),
+        .init(name: "Kuru", cat: "DEX", chain: "Monad", isNew: true, desc: "Order book DEX"),
+        .init(name: "Aerodrome", cat: "DEX", chain: "Base", desc: "Base swaps and LP", llama: "parent#aero-protocol"),
+        .init(name: "USD.AI", cat: "Yield", chain: "Arbitrum", isNew: true, desc: "Yield from GPU loans", llama: "usd-ai"),
+        .init(name: "Falcon", cat: "Stablecoin", chain: "Ethereum", desc: "Synthetic dollar USDf", llama: "falcon-finance"),
+        .init(name: "Maple", cat: "Yield", chain: "Multichain", desc: "Institutional credit yield", llama: "parent#maple-finance"),
+        .init(name: "Plasma", cat: "Stablecoin", chain: "Plasma", isNew: true, desc: "Zero-fee USDT chain"),
+        .init(name: "Kinetiq", cat: "Staking", chain: "HyperEVM", isNew: true, desc: "HYPE liquid staking", llama: "parent#kinetiq"),
+        .init(name: "Infrared", cat: "Staking", chain: "Berachain", desc: "Berachain staking", llama: "infrared-finance"),
+        .init(name: "Ondo", cat: "RWA", chain: "Multichain", isNew: true, desc: "Tokenized US stocks", llama: "parent#ondo-finance"),
+        .init(name: "xStocks", cat: "RWA", chain: "Solana", desc: "Tokenized stocks", llama: "xstocks"),
+        .init(name: "BUIDL", cat: "RWA", chain: "Ethereum", desc: "BlackRock treasury fund", llama: "blackrock-buidl"),
+        .init(name: "Virtuals", cat: "AI agents", chain: "Base", desc: "AI agent launchpad"),
+        .init(name: "x402", cat: "AI agents", chain: "Base", isNew: true, desc: "Agent payments"),
+        .init(name: "Infinex", cat: "Wallet", chain: "20+ chains", isNew: true, desc: "Passkey wallet app"),
     ]
 }
 
-/// Which DApps are connected. Shared so the state survives page changes.
+/// TVL now and its change over 7 days, in percent.
+struct ExploreTVL: Codable, Hashable, Sendable { let tvl: Double; let change7d: Double? }
+
+enum ExploreAPI {
+    private struct Raw: Decodable {
+        let slug: String?
+        let parentProtocol: String?
+        let tvl: Double?
+        let change_7d: Double?
+    }
+
+    /// TVL per directory key. Parents are summed over their protocols; the 7-day change is worked out from each
+    /// protocol's own change so the sum stays honest.
+    static func tvls(keys: Set<String>) async throws -> [String: ExploreTVL] {
+        let rows = try JSONDecoder().decode([Raw].self, from: try await MarketHTTP.data("https://api.llama.fi/protocols"))
+        var now: [String: Double] = [:], before: [String: Double] = [:], known: [String: Bool] = [:]
+        for r in rows {
+            guard let tvl = r.tvl, tvl > 0 else { continue }
+            for k in [r.slug, r.parentProtocol].compactMap({ $0 }) where keys.contains(k) {
+                now[k, default: 0] += tvl
+                if let c = r.change_7d, c > -100 { before[k, default: 0] += tvl / (1 + c / 100); known[k] = known[k] ?? true }
+                else { known[k] = false }
+            }
+        }
+        return now.reduce(into: [:]) { out, kv in
+            let b = before[kv.key] ?? 0
+            out[kv.key] = ExploreTVL(tvl: kv.value, change7d: known[kv.key] == true && b > 0 ? (kv.value / b - 1) * 100 : nil)
+        }
+    }
+}
+
+/// Live TVL for the directory, cached on disk for an hour (the protocols list is ~9 MB).
 @MainActor @Observable
 final class ExploreStore {
     static let shared = ExploreStore()
-    var connected: Set<String> = Set(ExploreData.dapps.filter(\.conn).map(\.name))
-    var connecting: Set<String> = []
+    var tvl: [String: ExploreTVL] = [:]
+    var state: FeedState = .loading
+    private var updated: Date?
+
+    func value(_ d: ExploreDapp) -> ExploreTVL? { d.llama.flatMap { tvl[$0] } }
+
+    func refresh(force: Bool = false) async {
+        guard !SnapshotMode.active else { return }
+        if !force, tvl.isEmpty, let cached = MarketDiskCache.load("explore-tvl", maxAge: 3600, as: [String: ExploreTVL].self), !cached.isEmpty {
+            tvl = cached; state = .ready; updated = Date()
+            return
+        }
+        if !force, let updated, Date().timeIntervalSince(updated) < 900 { return }
+        do {
+            let t = try await ExploreAPI.tvls(keys: Set(ExploreData.dapps.compactMap(\.llama)))
+            tvl = t; state = .ready; updated = Date()
+            MarketDiskCache.save("explore-tvl", t)
+        } catch { if tvl.isEmpty { state = .failed } }
+    }
 }

@@ -1,38 +1,25 @@
 import SwiftUI
 
-/// Expandable opportunity row: tap for public stats and history, then act on it or ask Hermit.
-struct EarnOppRow<Sub: View>: View {
-    let logo: String
-    let title: String
-    var isNew = false
-    let metric: String
-    let detail: EarnData.Detail?
-    let action: String
-    @ViewBuilder var sub: () -> Sub
-    let onAction: () -> Void
-
+/// Expandable opportunity row: tap for the pool's real history and stats, then ask Hermit about it.
+/// Depositing isn't wired to a wallet yet, so that button is greyed.
+struct EarnPoolRow: View {
+    let pool: EarnData.Pool
+    @Environment(AppModel.self) private var model
     @State private var open = false
-    @State private var asking = false
     @State private var width: CGFloat = 800
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button { withAnimation(.smooth(duration: 0.32)) { open.toggle() } } label: {
                 HStack(spacing: 12) {
-                    LogoMark(logo, size: 32)
+                    MarketLogo(key: pool.logo, name: pool.name)
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                            if isNew {
-                                Text("New").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.accent)
-                                    .padding(.horizontal, 6).padding(.vertical, 1.5)
-                                    .background(Color(hex: 0xF1ECFA), in: Capsule())
-                            }
-                        }
-                        sub().font(.system(size: 12.5)).lineLimit(1)
+                        Text("\(pool.name) \(pool.symbol)").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text("\(pool.chainName), \(pool.tvlUsd.tradeCompactUSD) TVL" + (pool.poolMeta.map { ", \($0)" } ?? ""))
+                            .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    Text(metric).font(.system(size: 14, weight: .medium)).monospacedDigit().foregroundStyle(Theme.text)
+                    Text(EarnPoolRow.pct(pool.apy)).font(.system(size: 14, weight: .medium)).monospacedDigit().foregroundStyle(Theme.text)
                     Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.faint)
                         .rotationEffect(.degrees(open ? 180 : 0))
                 }
@@ -41,8 +28,8 @@ struct EarnOppRow<Sub: View>: View {
             .buttonStyle(TradeRowButton())
             .accessibilityValue(open ? "Expanded" : "Collapsed")
 
-            if open, let d = detail {
-                details(d)
+            if open {
+                EarnPoolDetail(pool: pool)
                     .padding(.leading, width >= 600 ? 44 : 0)
                     .padding(.top, 2).padding(.bottom, 18)
                     .transition(.opacity.combined(with: .offset(y: -6)))
@@ -50,32 +37,60 @@ struct EarnOppRow<Sub: View>: View {
         }
         .clipped()
         .tradeWidth($width)
-        .sheet(isPresented: $asking) {
-            if let d = detail {
-                TradeAskSheet(q: "Is \(title) a good fit for me?",
-                              a: "\(title): \(d.note) 90-day average \(d.avg), worst drawdown \(d.dd.isEmpty ? "none recorded" : d.dd). With $8,200 idle, I would keep it under 20% of your stablecoins.")
-            }
-        }
     }
 
-    private func details(_ d: EarnData.Detail) -> some View {
+    /// "5.12%"; tiny rates keep two decimals, big ones one.
+    static func pct(_ v: Double?) -> String {
+        guard let v else { return "—" }
+        return v.formatted(.number.precision(.fractionLength(v >= 10 ? 1 : 2))) + "%"
+    }
+}
+
+/// The expanded part: 90 days of APY from DefiLlama, the pool's own numbers, Deposit (greyed) and Ask.
+struct EarnPoolDetail: View {
+    let pool: EarnData.Pool
+    @Environment(AppModel.self) private var model
+    @State private var failed = false
+    private var feed: YieldsFeed { .shared }
+
+    var body: some View {
+        let h = feed.history[pool.pool]
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(d.histLabel).foregroundStyle(Theme.muted)
+                Text("APY, last 90 days").foregroundStyle(Theme.muted)
                 Spacer()
-                Text("Avg \(d.avg)").monospacedDigit()
+                if let h, !h.isEmpty { Text("Avg \(EarnPoolRow.pct(h.map(\.apy).reduce(0, +) / Double(h.count)))").monospacedDigit() }
             }
             .font(.system(size: 12.5)).padding(.bottom, 6)
-            LineChart(values: d.series, color: Theme.text).frame(height: 80)
-            TradeKV(pairs: d.pairs).padding(.top, 14)
-            Text(d.note).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+            Group {
+                if let h, h.count > 1 {
+                    LineChart(values: h.map(\.apy), color: Theme.text)
+                } else if failed {
+                    MarketStatus(kind: .failed("Couldn't load history")) { failed = false; Task { await load() } }
+                } else {
+                    MarketStatus(kind: SnapshotMode.active ? .empty("History loads from DefiLlama") : .loading("Loading history"))
+                }
+            }
+            .frame(height: 80)
+            TradeKV(pairs: [("Base APY", EarnPoolRow.pct(pool.apyBase)), ("Rewards APY", EarnPoolRow.pct(pool.apyReward)),
+                            ("30-day mean", EarnPoolRow.pct(pool.apyMean30d)), ("TVL", pool.tvlUsd.tradeCompactUSD),
+                            ("Chain", pool.chainName), ("Asset", pool.stablecoin ? "Stablecoin" : pool.symbol)])
+                .padding(.top, 14)
             HStack(spacing: 8) {
-                Button(action, action: onAction).buttonStyle(TradeSmallButton(kind: .primary))
-                Button { asking = true } label: { Label("Ask", systemImage: "sparkles") }
-                    .buttonStyle(TradeSmallButton(kind: .brand))
+                Button("Deposit") {}.buttonStyle(TradeSmallButton(kind: .primary)).disabled(true)
+                Button { model.send("Is \(pool.name) \(pool.symbol) on \(pool.chainName) at \(EarnPoolRow.pct(pool.apy)) APY a good place for my money? What are the risks?") } label: {
+                    Label("Ask", systemImage: "sparkles")
+                }
+                .buttonStyle(TradeSmallButton(kind: .brand))
+                Text("Deposits open soon").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.leading, 4)
             }
             .padding(.top, 14)
-            Text("Illustrative figures for the demo").font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 10)
+            MarketSource(text: "Data from DefiLlama. Yields change; past APY isn't a promise.").padding(.top, 10)
         }
+        .task { await load() }
+    }
+
+    private func load() async {
+        if !(await feed.loadHistory(pool.pool)) && !SnapshotMode.active { failed = true }
     }
 }
