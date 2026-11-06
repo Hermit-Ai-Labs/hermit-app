@@ -24,6 +24,7 @@ private extension ModelDownloadAttributes.ContentState {
     var headline: String {
         switch phase {
         case .downloading: "Landing on your phone"
+        case .background: "Downloading in the background"
         case .verifying: "Checking the files"
         case .landed: "Landed. Hermit works offline now."
         case .paused: "Paused. Open Hermit to continue."

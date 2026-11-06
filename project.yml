@@ -59,6 +59,8 @@ targets:
     dependencies:
       - package: HermitKit
         product: HermitUI
+      - package: HermitKit
+        product: HermitModel
       - target: HermitWidgets
     info:
       path: App/iOS/Info.plist
@@ -71,7 +73,7 @@ targets:
         NSFaceIDUsageDescription: Hermit asks for Face ID before any money moves.
         ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Hermit shows your calendar events next to your tasks. They stay on this device.
-        # The model download keeps going in the background (BGContinuedProcessingTask) and shows a Live Activity.
+        # The model download runs in a background URLSession; BGContinuedProcessingTask keeps its Live Activity live.
         NSSupportsLiveActivities: true
         BGTaskSchedulerPermittedIdentifiers: [my.hermit.ios.model-download.*]
         UIBackgroundModes: [processing]

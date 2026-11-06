@@ -6,7 +6,8 @@ import Foundation
 /// on the Lock Screen and in the Dynamic Island.
 public struct ModelDownloadAttributes: ActivityAttributes {
     public enum Phase: String, Codable, Hashable, Sendable {
-        case downloading, verifying, landed, paused, failed
+        /// `background`: iOS is moving the bytes while Hermit is suspended, so the numbers are the last ones seen.
+        case downloading, background, verifying, landed, paused, failed
     }
 
     public struct ContentState: Codable, Hashable, Sendable {

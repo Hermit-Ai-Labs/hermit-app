@@ -7,10 +7,11 @@ import UIKit
 
 /// Keeps a model download running after the user leaves the app, and shows it as a Live Activity.
 ///
-/// - Background time comes from a `BGContinuedProcessingTask` (iOS 26): the user tapped Download, so the system lets
-///   the app keep running and shows its own progress. If the system ends the task early (low battery, heavy load, or
-///   the user stops it), the download pauses; the `.part` file stays and the download resumes the next time Hermit
-///   is opened.
+/// - The bytes move through a background URLSession (`BackgroundDownloads`), so the download itself never depends on
+///   Hermit running. A `BGContinuedProcessingTask` (iOS 26) is a bonus: while the system grants it, Hermit keeps
+///   running in the background and the Live Activity stays live. When it ends, or isn't granted, the activity says
+///   "Downloading in the background" with the last numbers, and is updated again when iOS wakes Hermit for the
+///   finished transfer or the user comes back.
 /// - The Live Activity (drawn by the HermitWidgets extension) is the flight: the plane crosses from the cloud to the
 ///   phone as the bytes land.
 @MainActor
@@ -18,33 +19,47 @@ final class DownloadKeepAlive {
     /// Info.plist lists "my.hermit.ios.model-download.*"; each request adds a unique suffix.
     static let taskPrefix = "my.hermit.ios.model-download"
 
-    /// Called when the system ends the background task early: the store pauses the download.
-    var onExpire: ((String) -> Void)?
-    /// Called when the app is opened again after such a pause: the store resumes it.
-    var onResume: ((String) -> Void)?
-
     private var modelID: String?
     private var modelName = ""
     private var task: BGContinuedProcessingTask?
     private var activity: Activity<ModelDownloadAttributes>?
-    private var registered = false
-    private var expired = false
-    private var resumeID: String?
     private var lastState: ModelDownloadAttributes.ContentState?
     private var lastPush = Date.distantPast
-    private var activeObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    /// The keep-alive that gets the system's background task when it starts.
+    private static weak var current: DownloadKeepAlive?
+
+    private static var registered = false
+
+    /// Registers the background task's launch handler once. The app delegate calls it from didFinishLaunching, and
+    /// submitting calls it too, because SwiftUI can build the first screen (and start a download) before that.
+    /// Submitting without a registered handler crashes, so nothing is submitted unless this returns true.
+    @discardableResult static func registerAtLaunch() -> Bool {
+        if registered { return true }
+        registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: taskPrefix + ".*", using: nil) { task in
+            guard let task = task as? BGContinuedProcessingTask else { task.setTaskCompleted(success: false); return }
+            Task { @MainActor in
+                if let keeper = current { keeper.started(task) } else { task.setTaskCompleted(success: true) }
+            }
+        }
+        return registered
+    }
 
     init() {
-        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.appBecameActive() }
-        }
+        Self.current = self
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.wentToBackground() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cameBack() }
+        })
     }
 
     /// A download started (or resumed) on the user's tap, while the app is in front.
     func begin(id: String, name: String, received: Int64, total: Int64) {
         guard modelID == nil else { return }
-        modelID = id; modelName = name; expired = false; resumeID = nil; lastState = nil
+        modelID = id; modelName = name; lastState = nil
         let state = ModelDownloadAttributes.ContentState(phase: .downloading, received: received, total: total)
         startActivity(state)
         submitTask(name)
@@ -71,30 +86,23 @@ final class DownloadKeepAlive {
     func finish(id: String, phase: ModelDownloadAttributes.Phase) {
         guard id == modelID else { return }
         let last = lastState ?? ModelDownloadAttributes.ContentState(phase: phase, received: 0, total: 0)
-        var state = last; state.phase = expired && phase == .paused ? .paused : phase
+        var state = last; state.phase = phase
         if phase == .landed { state.received = max(state.total, state.received) }
         endActivity(state)
         if let task { task.setTaskCompleted(success: phase == .landed); self.task = nil }
-        if expired && phase == .paused { resumeID = id }
         modelID = nil
     }
 
     // MARK: Background task
 
     private func submitTask(_ name: String) {
-        if !registered {
-            registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskPrefix + ".*", using: nil) { [weak self] task in
-                guard let task = task as? BGContinuedProcessingTask else { task.setTaskCompleted(success: false); return }
-                Task { @MainActor in self?.started(task) }
-            }
-            guard registered else { return }
-        }
+        guard Self.registerAtLaunch() else { return }
         let request = BGContinuedProcessingTaskRequest(identifier: "\(Self.taskPrefix).\(UUID().uuidString.prefix(8))",
                                                        title: "Downloading \(name)",
                                                        subtitle: "Keeps going if you leave Hermit")
-        // Start now or not at all: the download itself runs either way while the app is open.
+        // Start now or not at all: the background session carries the download either way.
         request.strategy = .fail
-        try? BGTaskScheduler.shared.submit(request)
+        do { try BGTaskScheduler.shared.submit(request) } catch { print("Hermit: background time not granted: \(error)") }
     }
 
     private func started(_ task: BGContinuedProcessingTask) {
@@ -104,27 +112,54 @@ final class DownloadKeepAlive {
         task.progress.completedUnitCount = lastState?.received ?? 0
         task.expirationHandler = { [weak self] in
             Task { @MainActor in
-                guard let self, self.modelID == id else { return }
-                self.expired = true
-                self.onExpire?(id)
+                // The system took the background time back. The transfer goes on in the background session; the
+                // activity just stops being live until Hermit runs again.
+                guard let self, self.modelID == id, let t = self.task else { return }
+                self.task = nil
+                t.setTaskCompleted(success: false)
+                self.showBackground()
             }
         }
     }
 
-    private func appBecameActive() {
-        guard let id = resumeID, modelID == nil else { return }
-        resumeID = nil
-        onResume?(id)
+    /// Without background time Hermit is about to be suspended: say so instead of leaving a number that looks stuck.
+    private func wentToBackground() {
+        guard modelID != nil, task == nil else { return }
+        showBackground()
+    }
+
+    private func cameBack() {
+        guard modelID != nil, var state = lastState, state.phase == .background else { return }
+        state.phase = .downloading
+        lastState = state; lastPush = Date()
+        push(state)
+    }
+
+    private func showBackground() {
+        guard var state = lastState, state.phase == .downloading else { return }
+        state.phase = .background
+        lastState = state; lastPush = Date()
+        push(state)
     }
 
     // MARK: Live Activity
 
     private func startActivity(_ state: ModelDownloadAttributes.ContentState) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        // A download from an earlier launch may have left one behind.
-        for old in Activity<ModelDownloadAttributes>.activities {
-            Task { await old.end(nil, dismissalPolicy: .immediate) }
+        // After a relaunch the activity from the earlier run is still up: keep using it (iOS doesn't allow starting a
+        // new one while Hermit runs in the background). Anything else left over is ended.
+        let existing = Activity<ModelDownloadAttributes>.activities
+        if let keep = existing.first(where: { $0.attributes.modelName == modelName && $0.activityState == .active }) {
+            activity = keep
+            for old in existing where old.id != keep.id { Task { await old.end(nil, dismissalPolicy: .immediate) } }
+            // Before the sizes are known again, keep the numbers the card already shows.
+            let shown = keep.content.state
+            if shown.total > 0 && state.total == 0 { lastState = shown; lastPush = Date(); return }
+            lastState = state; lastPush = Date()
+            push(state)
+            return
         }
+        for old in existing { Task { await old.end(nil, dismissalPolicy: .immediate) } }
         activity = try? Activity.request(attributes: ModelDownloadAttributes(modelName: modelName),
                                          content: ActivityContent(state: state, staleDate: nil), pushType: nil)
         lastState = state; lastPush = Date()

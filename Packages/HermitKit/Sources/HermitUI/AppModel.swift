@@ -130,12 +130,14 @@ public final class AppModel {
 
     #if DEBUG
     /// Debug builds only: `-hermitUser Rahul -hermitRoute trade -hermitTab markets -hermitDrawer YES` opens the app on
-    /// a given screen, so the simulator can screenshot every page (scripts/phone-shots.sh).
+    /// a given screen; `-hermitDownload YES` starts the selected model's download. Used by the simulator scripts
+    /// (scripts/phone-shots.sh screenshots every page).
     private func applyLaunchArguments() {
         let d = UserDefaults.standard
         if let u = d.string(forKey: "hermitUser") { user = u }
         if let r = d.string(forKey: "hermitRoute").flatMap(Route.init(rawValue:)) { open(r, tab: d.string(forKey: "hermitTab")) }
         if d.bool(forKey: "hermitDrawer") { drawerOpen = true }
+        if d.bool(forKey: "hermitDownload") { models.download(models.selectedID) }
     }
     #endif
 
