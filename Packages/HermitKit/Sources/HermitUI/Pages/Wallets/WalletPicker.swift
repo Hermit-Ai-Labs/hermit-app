@@ -29,10 +29,18 @@ struct WalletPicker: View {
         .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
         .animation(.snappy(duration: 0.25), value: open)
         .accessibilityLabel("Wallet: \(current?.name ?? "All wallets")")
+        #if os(iOS)
+        // iPhone: a bottom sheet. A popover here opened upwards over the navigation bar.
+        .sheet(isPresented: $open) {
+            ScrollView { WalletMenu(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd, width: nil).padding(.top, 14) }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        #else
         .popover(isPresented: $open, arrowEdge: .bottom) {
             WalletMenu(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd)
-                .presentationCompactAdaptation(.popover)
         }
+        #endif
     }
 
 }
@@ -43,6 +51,8 @@ struct WalletMenu: View {
     @Binding var selected: String
     let close: () -> Void
     let onAdd: (WalletAccount.Custody) -> Void
+    /// Fixed width in the Mac popover; nil fills the iPhone sheet.
+    var width: CGFloat? = 350
 
     var body: some View { menu }
 
@@ -61,7 +71,8 @@ struct WalletMenu: View {
             addRow("Create Privy wallet") {}.notYet("Keyless wallets aren't available yet")
         }
         .padding(8)
-        .frame(width: 350)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? .infinity : nil)
         .background(Theme.bg)
     }
 

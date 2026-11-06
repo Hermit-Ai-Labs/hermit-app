@@ -570,7 +570,7 @@ struct NetworksCard: View {
             ForEach(rows, id: \.0) { r in
                 HStack(spacing: 10) {
                     LogoMark(r.0.logo, size: 20)
-                    Text(r.0.name).font(.system(size: 13)).frame(width: 96, alignment: .leading).lineLimit(1)
+                    Text(r.0.name).font(.system(size: 13)).lineLimit(1).fixedSize().frame(minWidth: 96, alignment: .leading)
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Theme.hover)

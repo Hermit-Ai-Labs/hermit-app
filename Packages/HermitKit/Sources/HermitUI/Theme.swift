@@ -29,12 +29,16 @@ public extension Font {
     static func serif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom(weight == .medium ? "Newsreader-Medium" : "Newsreader-Regular", size: size)
     }
+    /// Newsreader cut at its display optical size, light: for oversized type only (the welcome screen).
+    static func display(_ size: CGFloat, italic: Bool = false) -> Font {
+        .custom(italic ? "NewsreaderDisplay-LightItalic" : "NewsreaderDisplay-Light", size: size)
+    }
 }
 
 public enum HermitFonts {
     /// Call once at launch. Fonts ship inside HermitUI so the apps need no Info.plist entries.
     public static func register() {
-        for name in ["Newsreader-Regular", "Newsreader-Medium"] {
+        for name in ["Newsreader-Regular", "Newsreader-Medium", "NewsreaderDisplay-Light", "NewsreaderDisplay-LightItalic"] {
             if let url = Bundle.module.url(forResource: name, withExtension: "ttf") {
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             }
