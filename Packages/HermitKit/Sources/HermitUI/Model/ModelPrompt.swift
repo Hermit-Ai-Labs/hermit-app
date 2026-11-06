@@ -56,10 +56,16 @@ struct ModelPrompt: View {
         case .failed: Button("Try again") { store.download(spec.id) }.buttonStyle(OutlineButton())
         case .verifying, .ready: EmptyView()
         case .notDownloaded:
+            // Quiet on purpose: one small icon, not a big button.
             Button { store.download(spec.id) } label: {
-                Label((store.received[spec.id] ?? 0) > 0 ? "Resume" : "Download", systemImage: "arrow.down")
+                Image(systemName: "arrow.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.accent.opacity(0.08), in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.accent.opacity(0.18)))
+                    .contentShape(Circle())
             }
-            .buttonStyle(GradientPill())
+            .buttonStyle(PressStyle())
+            .accessibilityLabel((store.received[spec.id] ?? 0) > 0 ? "Resume download" : "Download \(spec.name)")
         }
     }
 }
