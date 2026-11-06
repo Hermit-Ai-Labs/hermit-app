@@ -122,8 +122,22 @@ public final class AppModel {
             user = UserDefaults.standard.string(forKey: Self.nameKey) ?? ""
             load()
         }
+        #if DEBUG
+        applyLaunchArguments()
+        #endif
         pushContext()
     }
+
+    #if DEBUG
+    /// Debug builds only: `-hermitUser Rahul -hermitRoute trade -hermitTab markets -hermitDrawer YES` opens the app on
+    /// a given screen, so the simulator can screenshot every page (scripts/phone-shots.sh).
+    private func applyLaunchArguments() {
+        let d = UserDefaults.standard
+        if let u = d.string(forKey: "hermitUser") { user = u }
+        if let r = d.string(forKey: "hermitRoute").flatMap(Route.init(rawValue:)) { open(r, tab: d.string(forKey: "hermitTab")) }
+        if d.bool(forKey: "hermitDrawer") { drawerOpen = true }
+    }
+    #endif
 
     /// Hands the name and hermit.md to the model's system prompt (used from the next new chat).
     public func pushContext() { agent.setContext(name: user, memory: memory) }
