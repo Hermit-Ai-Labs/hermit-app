@@ -64,6 +64,7 @@ struct LoginView: View {
                 .buttonStyle(LoginButton(dark: true)).disabled(trimmed.isEmpty)
                 .padding(.top, 2)
             Text("No account. Your name, chats and keys stay on this device.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity).multilineTextAlignment(.center).padding(.top, 6)
         }
         .onAppear { if !SnapshotMode.active { focused = true } }

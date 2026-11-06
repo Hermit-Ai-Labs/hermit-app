@@ -14,7 +14,7 @@ ID=$(security find-identity -v -p codesigning "$KC" | awk -F'"' '/Developer ID A
 [[ -n "$ID" ]] || { echo "No Developer ID Application identity in $KC. Run ~/hermit/setup-signing.sh first."; exit 1; }
 echo "Signing as: $ID"
 
-~/hermit/bin/xcodegen generate -q
+~/hermit/xg/xcodegen/bin/xcodegen generate -q
 xcodebuild -project Hermit.xcodeproj -scheme Hermit -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath "$DD" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$ID" DEVELOPMENT_TEAM="$TEAM" \
   OTHER_CODE_SIGN_FLAGS="--keychain $KC --timestamp" ENABLE_HARDENED_RUNTIME=YES \

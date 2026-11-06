@@ -16,7 +16,7 @@ AUTH=(-allowProvisioningUpdates -authenticationKeyPath "${ASC_KEY_PATH/#\~/$HOME
 security unlock-keychain -p "$(cat ~/hermit/.kc)" "$KC"
 # Upload builds need a fresh build number; a timestamp is always higher than the last one.
 BUILD=$(date -u +%Y%m%d%H%M)
-~/hermit/bin/xcodegen generate -q
+~/hermit/xg/xcodegen/bin/xcodegen generate -q
 rm -rf "$OUT"; mkdir -p "$OUT"
 xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath "$DD" -archivePath "$OUT/Hermit.xcarchive" DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \

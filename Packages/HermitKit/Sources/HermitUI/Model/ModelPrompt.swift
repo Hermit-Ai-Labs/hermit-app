@@ -17,6 +17,7 @@ struct ModelPrompt: View {
                         .buttonStyle(PressStyle())
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title(state, spec)).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(subtitle(store, spec)).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                             .monospacedDigit().contentTransition(.numericText())
                             .fixedSize(horizontal: false, vertical: true)
@@ -37,7 +38,7 @@ struct ModelPrompt: View {
         case .downloading: "Downloading \(spec.name)"
         case .verifying: "Almost ready"
         case .failed: "Download stopped"
-        default: "Run Hermit on this device"
+        default: "Run Hermit offline"
         }
     }
 
