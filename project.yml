@@ -78,6 +78,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: my.hermit.ios
+        # The iPhone app's own version line in App Store Connect ("Hermit - Private AI", Apple ID 6831777640).
+        MARKETING_VERSION: "1.0"
         DEVELOPMENT_TEAM: 4G5YW2XP2B
         # Signed by scripts/run-iphone.sh and release-ios.sh with the certificates in ~/hermit/signing.keychain-db
         # (made through the App Store Connect API, so builds work over SSH). They set HERMIT_IDENTITY and HERMIT_PROFILE.
