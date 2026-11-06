@@ -97,8 +97,8 @@ extension Chain {
                                       sepolia, baseSepolia, bnbTestnet, monadTestnet, arbitrumSepolia, robinhoodTestnet, solanaDevnet]
     public static let mainnets = all.filter { !$0.isTestnet }
     public static let testnets = all.filter(\.isTestnet)
-    /// Sends default to Base Sepolia while the signer is in beta.
-    public static let defaultSend = baseSepolia
+    /// Where a new send starts: Base, or Base Sepolia when the build has mainnet sends off.
+    public static var defaultSend: Chain { WalletService.mainnetSendsEnabled ? base : baseSepolia }
 
     public static func with(id: String) -> Chain? { all.first { $0.id == id } }
     public static func with(chainId: UInt64) -> Chain? { all.first { $0.chainId == chainId } }

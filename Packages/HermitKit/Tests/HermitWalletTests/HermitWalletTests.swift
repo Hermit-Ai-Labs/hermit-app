@@ -328,11 +328,12 @@ final class SecureEnclaveFileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testMainnetSendsStayOff() async throws {
+    func testMainnetGuardBlocksWhenOff() async throws {
         let d = UserDefaults(suiteName: "hermit.wallet.tests.\(UUID())")!
         let svc = WalletService(vault: KeyVault(store: MemoryStore()), addressBook: AddressBook(defaults: d), spendLimit: SpendLimit(defaults: d),
                                 sendLog: SendLog(defaults: d))
-        XCTAssertFalse(svc.allowMainnetSends)
+        XCTAssertEqual(svc.allowMainnetSends, WalletService.mainnetSendsEnabled)
+        svc.allowMainnetSends = false
         try svc.importWallet(phrase: CryptoVectorTests().abandon)
         for c in Chain.mainnets {
             do { _ = try await svc.prepareSend(chain: c, to: c.kind == .evm ? "0x3535353535353535353535353535353535353535" : "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", amount: "1"); XCTFail(c.name) }

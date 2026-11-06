@@ -68,10 +68,17 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSFaceIDUsageDescription: Hermit asks for Face ID before any money moves.
+        ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Hermit shows your calendar events next to your tasks. They stay on this device.
+    entitlements:
+      path: App/iOS/Hermit.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+        keychain-access-groups: [$(AppIdentifierPrefix)my.hermit.ios]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: my.hermit.ios
+        DEVELOPMENT_TEAM: 4G5YW2XP2B
         PRODUCT_NAME: Hermit
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

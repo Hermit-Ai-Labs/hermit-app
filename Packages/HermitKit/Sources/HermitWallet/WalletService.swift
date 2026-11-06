@@ -71,9 +71,12 @@ public struct TxReceipt: Equatable, Sendable {
 }
 
 /// The wallet for the UI: wallets, balances on every chain from one recovery phrase, and sends that go through the
-/// approval sheet. Sends default to Base Sepolia; mainnet sends stay off until `allowMainnetSends` is set.
+/// approval sheet. Sends default to Base Sepolia; mainnet sends follow `mainnetSendsEnabled`.
 @MainActor @Observable
 public final class WalletService {
+    /// The one switch for real-money sends in this build. On for the first TestFlight beta (team decision, 2026-11-06).
+    public nonisolated static let mainnetSendsEnabled = true
+
     public let vault: KeyVault
     public let addressBook: AddressBook
     public let spendLimit: SpendLimit
@@ -82,8 +85,8 @@ public final class WalletService {
     public private(set) var wallets: [WalletRecord] = []
     public var selectedWalletID: UUID?
     public var showTestnets = true
-    /// Beta guard: only testnets can send until the signer has been reviewed.
-    public var allowMainnetSends = false
+    /// Whether mainnet sends are allowed. Testnets always are.
+    public var allowMainnetSends = WalletService.mainnetSendsEnabled
     public private(set) var balancesByChain: [String: [Balance]] = [:]
     public private(set) var refreshing = false
     public private(set) var lastError: String?

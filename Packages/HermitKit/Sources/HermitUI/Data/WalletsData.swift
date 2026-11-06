@@ -10,8 +10,8 @@ extension Chain {
     /// The coin that pays for gas.
     var gasToken: String { nativeSymbol }
     var placeholder: String { kind == .solana ? "Solana address" : "0x… address or ENS name" }
-    /// Sends from the app are testnet-only until the signer has had its security review.
-    var sendsEnabled: Bool { isTestnet }
+    /// Testnets always send; mainnets only when this build has mainnet sends switched on.
+    var sendsEnabled: Bool { isTestnet || WalletService.mainnetSendsEnabled }
 
     /// Real format check: a 0x address (or an ENS name) on EVM, a 32-byte base58 key on Solana.
     func accepts(_ raw: String) -> Bool {
