@@ -44,26 +44,31 @@ struct ModelDownloadLiveActivity: Widget {
             let s = context.state
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label(context.attributes.modelName, systemImage: "airplane")
-                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                        .labelStyle(.titleAndIcon).padding(.leading, 4)
+                    HStack(spacing: 6) {
+                        Image(systemName: s.done ? "checkmark" : "airplane").font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Palette.purpleOnBlack)
+                        Text(context.attributes.modelName).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Text(s.done ? "Landed" : "\(s.percent)%").font(.system(size: 15, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(Palette.purpleOnBlack).contentTransition(.numericText()).padding(.trailing, 4)
+                        .foregroundStyle(Palette.purpleOnBlack).contentTransition(.numericText())
+                        .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         FlightPath(fraction: s.shownFraction, ink: .white.opacity(0.45), progress: Palette.purpleOnBlack, plane: .white)
-                            .frame(height: 26)
-                        HStack {
-                            Text(s.headline)
-                            Spacer()
-                            Text(s.sizeLine).monospacedDigit()
+                            .frame(height: 22)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(s.headline).lineLimit(1).minimumScaleFactor(0.85)
+                            Spacer(minLength: 4)
+                            Text(s.sizeLine).monospacedDigit().lineLimit(1).fixedSize()
                         }
-                        .font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.7))
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
                     }
-                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
                 }
             } compactLeading: {
                 Image(systemName: s.done ? "checkmark" : "airplane").font(.system(size: 13, weight: .semibold))
@@ -77,6 +82,8 @@ struct ModelDownloadLiveActivity: Widget {
                 }
                 .progressViewStyle(.circular).tint(Palette.purpleOnBlack)
             }
+            .contentMargins(.horizontal, 18, for: .expanded)
+            .contentMargins(.bottom, 14, for: .expanded)
         }
     }
 }

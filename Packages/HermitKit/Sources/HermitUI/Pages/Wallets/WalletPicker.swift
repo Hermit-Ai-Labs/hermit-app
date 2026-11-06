@@ -31,9 +31,7 @@ struct WalletPicker: View {
         #if os(iOS)
         // iPhone: a bottom sheet. A popover here opened upwards over the navigation bar.
         .sheet(isPresented: $open) {
-            ScrollView { WalletMenu(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd, width: nil).padding(.top, 14) }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            WalletMenuSheet(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd)
         }
         #else
         .popover(isPresented: $open, arrowEdge: .bottom) {
@@ -43,6 +41,31 @@ struct WalletPicker: View {
     }
 
 }
+
+#if os(iOS)
+/// iPhone: the wallet list as a sheet exactly its own height, solid paper all the way down.
+private struct WalletMenuSheet: View {
+    let vm: WalletsViewModel
+    @Binding var selected: String
+    let close: () -> Void
+    let onAdd: (WalletAccount.Custody) -> Void
+    @State private var height: CGFloat = 300
+
+    var body: some View {
+        ScrollView {
+            WalletMenu(vm: vm, selected: $selected, close: close, onAdd: onAdd, width: nil)
+                .padding(.top, 18).padding(.bottom, 8)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Theme.bg)
+        .presentationDetents([.height(min(height + 30, 640))])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(24)
+        .presentationBackground(Theme.bg)
+    }
+}
+#endif
 
 /// The picker's dropdown: All wallets, then the wallets on this device.
 struct WalletMenu: View {

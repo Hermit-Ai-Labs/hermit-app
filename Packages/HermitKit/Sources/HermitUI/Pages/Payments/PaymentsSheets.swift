@@ -9,6 +9,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
     @ViewBuilder var content: () -> Content
     @ViewBuilder var foot: () -> Foot
     @Environment(\.dismiss) var dismiss
+    @State private var contentHeight: CGFloat = 300
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -18,9 +19,16 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.leading, 22).padding(.trailing, 14).padding(.top, 16).padding(.bottom, 10)
-            VStack(alignment: .leading, spacing: 14) { content() }
-                .padding(.horizontal, 22)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            #if os(iOS)
+            // The form scrolls on iPhone, so a tall one never squeezes the title off the top of a short sheet.
+            ScrollView {
+                paySheetContent(content)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            #else
+            paySheetContent(content)
+            #endif
             HStack(spacing: 10) { foot() }
                 .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 22)
         }
@@ -31,7 +39,8 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.bg)
-        .presentationDetents([.medium, .large])
+        // Short forms get a sheet their size; tall ones open full height.
+        .presentationDetents(contentHeight > 420 ? [.large] : [.height(contentHeight + 190), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
         .presentationBackground(Theme.bg)
@@ -39,9 +48,15 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
     }
 }
 
+private func paySheetContent<C: View>(_ content: () -> C) -> some View {
+    VStack(alignment: .leading, spacing: 14) { content() }
+        .padding(.horizontal, 22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
 struct PaySheetTitle: View {
     let text: String
-    var body: some View { Text(text).font(.system(size: 18, weight: .semibold)).lineLimit(1) }
+    var body: some View { Text(text).font(.system(size: 18, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true) }
 }
 
 extension PaySheet where Header == PaySheetTitle {
