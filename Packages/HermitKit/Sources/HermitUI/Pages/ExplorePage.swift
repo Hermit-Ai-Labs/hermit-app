@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Explore: search, then New, Trending and All. All has category chips and a list; every DApp has a
-/// Connect / Connected control.
+/// Explore: search, then New, Trending and All. All has category chips and a list. TVL comes live from DefiLlama;
+/// Trending is the biggest 7-day TVL growth. Connecting apps isn't wired up yet, so Connect is greyed.
 struct ExplorePage: View {
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = .new
@@ -9,6 +9,7 @@ struct ExplorePage: View {
     @State private var cat = "All"
     @State private var width: CGFloat = 1000
     @FocusState private var searching: Bool
+    private var store: ExploreStore { .shared }
 
     enum Tab: String, Hashable { case new, trending, all }
 
@@ -21,12 +22,14 @@ struct ExplorePage: View {
                 if compact { search.padding(.bottom, 16) }
                 switch t {
                 case .new: grid(ExploreData.dapps.filter(\.isNew), compact)
-                case .trending: grid(ExploreData.dapps.filter(\.hot), compact)
+                case .trending: trending(compact)
                 case .all: all(compact)
                 }
+                TradeSoon(text: "Connecting apps from Explore opens soon").padding(.top, 24)
             }
         }
         .payWidth($width)
+        .marketPoll(every: 900) { await store.refresh() }
         .onChange(of: q) { _, v in if !v.isEmpty && tab != .all { tab = .all } }
         .onAppear {
             if let r = model.tabRequest, let v = Tab(rawValue: r) { tab = v; model.tabRequest = nil }
@@ -52,6 +55,22 @@ struct ExplorePage: View {
     private func grid(_ list: [ExploreDapp], _ compact: Bool) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 150 : 210), spacing: 14)], spacing: 14) {
             ForEach(list) { ExploreCard(dapp: $0) }
+        }
+    }
+
+    /// Apps whose TVL grew most over the last 7 days (at least $10M deep, so tiny pools don't top the list).
+    @ViewBuilder private func trending(_ compact: Bool) -> some View {
+        let list = ExploreData.dapps.compactMap { d in store.value(d).flatMap { v in v.tvl >= 10_000_000 ? v.change7d.map { (d, $0) } : nil } }
+            .sorted { $0.1 > $1.1 }.prefix(9).map(\.0)
+        if list.isEmpty {
+            MarketStatus(kind: store.state == .failed ? .failed("Couldn't reach DefiLlama") : .loading("Loading TVL from DefiLlama")) {
+                Task { await store.refresh(force: true) }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                grid(Array(list), compact)
+                MarketSource(text: "Biggest 7-day TVL growth, from DefiLlama")
+            }
         }
     }
 

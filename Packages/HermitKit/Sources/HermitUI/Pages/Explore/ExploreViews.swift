@@ -1,66 +1,35 @@
 import SwiftUI
 
-/// Claude-style connect control: Connect, or Connected (green check) that turns into Disconnect on hover.
-/// A short spinner while it connects, so the change reads as real.
+/// Connect control. Connecting apps isn't wired up yet, so it's a greyed Connect with a tooltip, never a fake "Connected".
 struct ExploreConnectButton: View {
-    @Environment(AppModel.self) var model
     let dapp: ExploreDapp
     var block = false
-    @State var hover = false
-    private var store: ExploreStore { .shared }
 
     var body: some View {
-        let on = store.connected.contains(dapp.name)
-        let busy = store.connecting.contains(dapp.name)
-        Button(action: toggle) {
-            ZStack {
-                if busy {
-                    ProgressView().controlSize(.small).transition(.opacity)
-                } else if on && hover {
-                    Text("Disconnect").foregroundStyle(Theme.red).transition(.opacity)
-                } else if on {
-                    HStack(spacing: 5) {
-                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.green)
-                        Text("Connected")
-                    }
-                    .transition(.opacity)
-                } else {
-                    Text("Connect").transition(.opacity)
-                }
-            }
-            .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
-            .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
-            .background(bg(on: on), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? (hover ? Theme.red.opacity(0.15) : Theme.border) : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+        Button {} label: {
+            Text("Connect")
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.faint)
+                .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
+                .background(Color(hex: 0xF2F2F0), in: RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(PressStyle())
-        .onHover { hover = $0 }
-        .disabled(busy)
-        .animation(.snappy(duration: 0.18), value: hover)
-        .animation(.snappy(duration: 0.25), value: on)
-        .animation(.snappy(duration: 0.25), value: busy)
-        .accessibilityLabel(on ? "Disconnect \(dapp.name)" : "Connect \(dapp.name)")
+        .buttonStyle(.plain)
+        .disabled(true)
+        .help("Connecting apps opens soon")
+        .accessibilityLabel("Connect \(dapp.name), opens soon")
     }
+}
 
-    private func bg(on: Bool) -> Color {
-        if on { return hover ? Theme.red.opacity(0.07) : Theme.bg }
-        return hover ? Color(hex: 0xE8E8E6) : Color(hex: 0xF2F2F0)
-    }
-
-    private func toggle() {
-        let name = dapp.name
-        if store.connected.contains(name) {
-            store.connected.remove(name)
-            model.toast("\(name) disconnected")
-        } else {
-            store.connecting.insert(name)
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(650))
-                store.connecting.remove(name)
-                store.connected.insert(name)
-                model.toast("\(name) connected")
+/// "TVL $5.1B" plus the 7-day change, or nothing when DefiLlama doesn't track the app.
+struct ExploreTVLText: View {
+    let dapp: ExploreDapp
+    private var store: ExploreStore { .shared }
+    var body: some View {
+        if let v = store.value(dapp) {
+            HStack(spacing: 4) {
+                Text("TVL \(v.tvl.tradeCompactUSD)")
+                if let c = v.change7d { Text(c.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always())) + "% 7d").foregroundStyle(c >= 0 ? Theme.green : Theme.red) }
             }
+            .monospacedDigit()
         }
     }
 }
@@ -83,7 +52,7 @@ struct ExploreCard: View {
             Text(dapp.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 .lineLimit(2, reservesSpace: true).lineSpacing(2)
             HStack(spacing: 6) {
-                Text(dapp.tvl).monospacedDigit()
+                ExploreTVLText(dapp: dapp)
                 Text(dapp.chain).foregroundStyle(Theme.faint).lineLimit(1)
             }
             .font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -122,8 +91,8 @@ struct ExploreRow: View {
             }
             Spacer(minLength: 8)
             if !compact {
-                Text(dapp.tvl).font(.system(size: 12.5)).foregroundStyle(Theme.faint).monospacedDigit().lineLimit(1)
-                    .frame(width: 110, alignment: .trailing)
+                ExploreTVLText(dapp: dapp).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
+                    .frame(width: 170, alignment: .trailing)
             }
             ExploreConnectButton(dapp: dapp)
         }

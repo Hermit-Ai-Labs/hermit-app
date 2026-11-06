@@ -13,13 +13,12 @@ struct TradeCandleChart: View {
     let data: [Candle]
     var levels: [TradeLevel] = []
     var padTo: [Double] = []
-    var decimals: Int = 2
 
     var body: some View {
         Canvas { ctx, size in
             let lows = data.map(\.l) + padTo, highs = data.map(\.h) + padTo
             guard let lo = lows.min(), let hi = highs.max(), hi > lo else { return }
-            let axis: CGFloat = 46, w = size.width - axis
+            let axis: CGFloat = 58, w = size.width - axis
             let pad = (hi - lo) * 0.04, mn = lo - pad, mx = hi + pad
             func y(_ v: Double) -> CGFloat { 8 + (size.height - 22) * (1 - CGFloat((v - mn) / (mx - mn))) }
 
@@ -27,7 +26,7 @@ struct TradeCandleChart: View {
                 let v = mn + (mx - mn) * t, yy = y(v)
                 var p = Path(); p.move(to: CGPoint(x: 0, y: yy)); p.addLine(to: CGPoint(x: w, y: yy))
                 ctx.stroke(p, with: .color(Theme.border), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
-                let label = v < 10 ? String(format: "%.3f", v) : v.tradeGrouped(0)
+                let label = v.tradePx
                 ctx.draw(Text(label).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.faint),
                          at: CGPoint(x: w + 6, y: yy), anchor: .leading)
             }
@@ -60,113 +59,4 @@ struct TradeCandleChart: View {
 struct TradeMiniCandles: View {
     let data: [Candle]
     var body: some View { Candles(data: data).frame(width: 84, height: 28).accessibilityHidden(true) }
-}
-
-/// Holder bubble map: clusters of linked wallets over a field of loose holders (Charts.jsx BubbleMap).
-struct TradeBubbleMap: View {
-    struct Cluster { let x, y: Double; let n: Int; let size: Double; let color: Color; let label: String }
-    let seed: Int
-    let clusters: [Cluster]
-
-    var body: some View {
-        Canvas { ctx, size in
-            let w = 640.0, h = 220.0
-            let sx = size.width / w, sy = size.height / h
-            var r = TradeData.RNG(seed)
-            struct Node { let x, y, s: Double; let c: Color; let faint: Bool }
-            var nodes: [Node] = [], links: [(Int, Int)] = []
-            for cl in clusters {
-                let cx = cl.x * w, cy = cl.y * h, first = nodes.count
-                for i in 0..<cl.n {
-                    let a = Double(i) * 2.4 + r.next()
-                    let dist = i == 0 ? 0 : 14 + Double(i).squareRoot() * 16
-                    let s = i == 0 ? cl.size : max(4, cl.size * (0.25 + r.next() * 0.4))
-                    nodes.append(Node(x: cx + cos(a) * dist, y: cy + sin(a) * dist, s: s, c: cl.color, faint: false))
-                    if i > 0 { links.append((first, nodes.count - 1)) }
-                }
-            }
-            for _ in 0..<40 {
-                nodes.append(Node(x: 20 + r.next() * (w - 40), y: 16 + r.next() * (h - 32), s: 3 + r.next() * 6, c: Color(hex: 0xD9D4CB), faint: true))
-            }
-            let k = min(sx, sy)
-            for (a, b) in links {
-                var p = Path()
-                p.move(to: CGPoint(x: nodes[a].x * sx, y: nodes[a].y * sy)); p.addLine(to: CGPoint(x: nodes[b].x * sx, y: nodes[b].y * sy))
-                ctx.stroke(p, with: .color(nodes[a].c.opacity(0.45)), lineWidth: 1)
-            }
-            for n in nodes {
-                let rr = n.s * k
-                let rect = CGRect(x: n.x * sx - rr, y: n.y * sy - rr, width: rr * 2, height: rr * 2)
-                ctx.fill(Path(ellipseIn: rect), with: .color(n.c.opacity(n.faint ? 0.7 : 0.85)))
-                ctx.stroke(Path(ellipseIn: rect), with: .color(.white), lineWidth: 1)
-            }
-        }
-        .aspectRatio(640 / 220, contentMode: .fit)
-        .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 10))
-        .accessibilityLabel("Holder map")
-    }
-}
-
-/// How a strategy works, as a minimal timeline: a dot per step, a green shield for the safety check.
-/// Horizontal when there is room, vertical on phones.
-struct TradeFlowDiagram: View {
-    let steps: [TradeData.Step]
-    @State private var width: CGFloat = 520
-
-    var body: some View {
-        Group {
-            if width / CGFloat(max(steps.count, 1)) >= 92 { horizontal } else { vertical }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .tradeWidth($width)
-    }
-
-    private func dot(_ s: TradeData.Step) -> some View {
-        ZStack {
-            if s.guardStep {
-                Circle().fill(Theme.green)
-                Image(systemName: "checkmark.shield.fill").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-            } else {
-                Circle().fill(Theme.text).frame(width: 8, height: 8)
-            }
-        }
-        .frame(width: 18, height: 18)
-    }
-
-    private func text(_ s: TradeData.Step) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(s.t).font(.system(size: 13, weight: .medium)).foregroundStyle(s.guardStep ? Theme.green : Theme.text)
-            Text(s.d).font(.system(size: 12)).foregroundStyle(Theme.muted)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var horizontal: some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 0) {
-                        dot(s)
-                        if i < steps.count - 1 { Rectangle().fill(Color(hex: 0xD4D4D2)).frame(height: 1) } else { Spacer(minLength: 0) }
-                    }
-                    text(s).padding(.trailing, 12)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var vertical: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(spacing: 0) {
-                        dot(s)
-                        if i < steps.count - 1 { Rectangle().fill(Color(hex: 0xD4D4D2)).frame(width: 1).frame(maxHeight: .infinity) }
-                    }
-                    text(s).padding(.bottom, i < steps.count - 1 ? 16 : 0)
-                }
-            }
-        }
-    }
 }

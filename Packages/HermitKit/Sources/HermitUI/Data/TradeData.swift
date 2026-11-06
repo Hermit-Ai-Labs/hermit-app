@@ -1,182 +1,329 @@
 import SwiftUI
-import HermitCore
+import Foundation
 
-// Mock data for Trade, ported from hermit-demo/src/data.js and pages/Trade.jsx.
+// Live market data for Trade (and the funding rates in Earn > Arbitrage). All of it comes from public, keyless APIs:
+//   Hyperliquid  perps: mark price, 24h change, volume, open interest, funding, candles, order book, trades.
+//                trade.xyz stock and gold perps live on Hyperliquid too (the "xyz" dex).
+//   Binance      spot and meme tickers and candles (data-api.binance.vision when api.binance.com is blocked).
+//   CoinGecko    spot fallback when neither Binance host answers.
+//   Polymarket   prediction markets (gamma API).
+// Nothing is made up: when a fetch fails the screen says so and shows "—" with a retry.
 
 enum TradeData {
-    // MARK: Deterministic random (Park-Miller, same as data.js `rng`) so charts look the same every launch.
-    struct RNG {
-        var s: Int64
-        init(_ seed: Int) { s = Int64(seed) }
-        mutating func next() -> Double { s = (s * 16807) % 2147483647; return Double(s - 1) / 2147483646 }
+    // MARK: Markets we feature (the rest of Hyperliquid's perps are one search away)
+
+    static let featuredPerps = ["BTC", "ETH", "SOL", "HYPE", "xyz:TSLA", "xyz:GOLD"]
+
+    /// Spot and meme tokens: symbol, name, Binance pair, CoinGecko id.
+    struct Token: Hashable, Sendable { let sym, name, pair, gecko: String }
+    static let spotTokens: [Token] = [
+        Token(sym: "BTC", name: "Bitcoin", pair: "BTCUSDT", gecko: "bitcoin"),
+        Token(sym: "ETH", name: "Ethereum", pair: "ETHUSDT", gecko: "ethereum"),
+        Token(sym: "SOL", name: "Solana", pair: "SOLUSDT", gecko: "solana"),
+        Token(sym: "BNB", name: "BNB", pair: "BNBUSDT", gecko: "binancecoin"),
+        Token(sym: "HYPE", name: "Hyperliquid", pair: "HYPEUSDT", gecko: "hyperliquid"),
+        Token(sym: "XRP", name: "XRP", pair: "XRPUSDT", gecko: "ripple"),
+    ]
+    static let memeTokens: [Token] = [
+        Token(sym: "PEPE", name: "Pepe", pair: "PEPEUSDT", gecko: "pepe"),
+        Token(sym: "WIF", name: "dogwifhat", pair: "WIFUSDT", gecko: "dogwifcoin"),
+        Token(sym: "PENGU", name: "Pudgy Penguins", pair: "PENGUUSDT", gecko: "pudgy-penguins"),
+        Token(sym: "BONK", name: "Bonk", pair: "BONKUSDT", gecko: "bonk"),
+        Token(sym: "DOGE", name: "Dogecoin", pair: "DOGEUSDT", gecko: "dogecoin"),
+        Token(sym: "SHIB", name: "Shiba Inu", pair: "SHIBUSDT", gecko: "shiba-inu"),
+    ]
+
+    /// Symbols whose LogoMark is the token's real logo. Anything else gets a neutral letter, never a lookalike.
+    static let tokenLogos: Set<String> = ["BTC", "ETH", "SOL", "HYPE", "BNB", "XRP", "DOGE", "SUI", "TIA", "PEPE", "WIF", "PENGU",
+                                          "USDC", "USDT", "USDE", "ENA", "JUP", "MON", "LIT", "XPL", "ASTER", "TSLA", "NVDA", "GOLD"]
+    static func logo(_ sym: String) -> String? { tokenLogos.contains(sym.uppercased()) ? sym : nil }
+
+    /// Chart timeframes: label, interval (same spelling on Hyperliquid and Binance), seconds per candle.
+    static let timeframes: [(String, String, Double)] = [("15m", "15m", 900), ("1H", "1h", 3600), ("4H", "4h", 14400), ("1D", "1d", 86400)]
+
+    // MARK: Models
+
+    struct Perp: Identifiable, Hashable, Sendable {
+        var id: String { coin }
+        let coin: String
+        let px, prev, funding, oi, vol: Double
+        let maxLev: Int
+        var sym: String { coin.split(separator: ":").last.map(String.init) ?? coin }
+        var venue: String { coin.hasPrefix("xyz:") ? "trade.xyz" : "Hyperliquid" }
+        /// 24h change in percent, from the price a day ago.
+        var ch: Double { prev > 0 ? (px / prev - 1) * 100 : 0 }
+        var oiUSD: Double { oi * px }
+        /// Funding per hour, in percent.
+        var fundPct: Double { funding * 100 }
+        /// Hourly funding annualized, in percent (what a cash-and-carry earns while it holds).
+        var fundAPR: Double { funding * 24 * 365 * 100 }
     }
 
-    /// data.js `candles(n, start, vol, seed, drift)`.
-    static func candles(_ n: Int, _ start: Double, _ vol: Double, _ seed: Int, _ drift: Double = 0.02) -> [Candle] {
-        var r = RNG(seed), o = start
-        return (0..<n).map { _ in
-            let c = o * (1 + (r.next() - 0.5 + drift) * vol)
-            let h = max(o, c) * (1 + r.next() * vol * 0.4)
-            let l = min(o, c) * (1 - r.next() * vol * 0.4)
-            defer { o = c }
-            return Candle(o: o, h: h, l: l, c: c)
+    struct Ticker: Hashable, Sendable { let px, ch, vol, high, low: Double }
+
+    struct BookLevel: Hashable, Sendable { let px, sz: Double }
+    struct Book: Sendable { let bids, asks: [BookLevel] }
+    struct Print: Hashable, Sendable { let px, sz: Double; let buy: Bool; let time: Date }
+
+    struct Prediction: Identifiable, Hashable, Sendable {
+        let id, q, slug: String
+        let outcomes: [String]
+        let prices: [Double]
+        let vol24: Double
+        let ends: Date?
+    }
+
+    /// Explore more: every listed Hyperliquid perp, by volume. Picking one asks Hermit about it.
+    @MainActor static var moreMarkets: [TradeExploreItem] {
+        MarketFeed.shared.perps.values.sorted { $0.vol > $1.vol }.map {
+            TradeExploreItem(name: $0.sym, logo: $0.sym, sub: "\($0.venue) perp, \($0.vol.tradeCompactUSD) volume", metric: "$" + $0.px.tradePx)
+        }
+    }
+}
+
+// MARK: Networking
+
+enum MarketError: LocalizedError {
+    case http(Int), shape
+    var errorDescription: String? {
+        switch self { case .http(let c): "The server answered \(c)"; case .shape: "Unexpected response" }
+    }
+}
+
+/// Thin URLSession helpers. Everything is async and off the main actor; callers publish results on it.
+enum MarketHTTP {
+    static let session: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 20
+        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        c.waitsForConnectivity = false
+        return URLSession(configuration: c)
+    }()
+
+    static func data(_ url: String, json body: String? = nil) async throws -> Data {
+        guard let u = URL(string: url) else { throw MarketError.shape }
+        var r = URLRequest(url: u)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            r.httpMethod = "POST"
+            r.httpBody = Data(body.utf8)
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let (d, resp) = try await session.data(for: r)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else { throw MarketError.http(code) }
+        return d
+    }
+
+    static func json(_ url: String, json body: String? = nil) async throws -> Any {
+        try JSONSerialization.jsonObject(with: try await data(url, json: body))
+    }
+
+    /// Numbers arrive as strings (Hyperliquid, Binance) or numbers (CoinGecko).
+    static func num(_ v: Any?) -> Double? {
+        if let s = v as? String { return Double(s) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        return nil
+    }
+}
+
+/// The calls themselves. Each throws on failure so the screen can show an honest error.
+enum TradeAPI {
+    private static let hl = "https://api.hyperliquid.xyz/info"
+    private static let binanceHosts = ["https://api.binance.com", "https://data-api.binance.vision"]
+
+    // MARK: Hyperliquid
+
+    /// Every live perp on Hyperliquid's main dex plus trade.xyz.
+    static func perps() async throws -> [TradeData.Perp] {
+        async let main = perps(dex: nil)
+        async let xyz = try? perps(dex: "xyz")
+        return try await main + (await xyz ?? [])
+    }
+
+    private static func perps(dex: String?) async throws -> [TradeData.Perp] {
+        let body = dex.map { #"{"type":"metaAndAssetCtxs","dex":"\#($0)"}"# } ?? #"{"type":"metaAndAssetCtxs"}"#
+        guard let arr = try await MarketHTTP.json(hl, json: body) as? [Any], arr.count == 2,
+              let meta = arr[0] as? [String: Any], let universe = meta["universe"] as? [[String: Any]],
+              let ctxs = arr[1] as? [[String: Any]] else { throw MarketError.shape }
+        return zip(universe, ctxs).compactMap { u, c in
+            guard let name = u["name"] as? String, (u["isDelisted"] as? Bool) != true,
+                  let px = MarketHTTP.num(c["markPx"]), px > 0 else { return nil }
+            return TradeData.Perp(coin: name, px: px, prev: MarketHTTP.num(c["prevDayPx"]) ?? 0, funding: MarketHTTP.num(c["funding"]) ?? 0,
+                                  oi: MarketHTTP.num(c["openInterest"]) ?? 0, vol: MarketHTTP.num(c["dayNtlVlm"]) ?? 0,
+                                  maxLev: (u["maxLeverage"] as? Int) ?? 10)
         }
     }
 
-    // MARK: Markets
-
-    struct Perp: Identifiable, Hashable {
-        var id: String { sym }
-        let sym: String, px: Double, ch: Double, fund: Double, oi: String
-        var venue: String? = nil
-        var vol: String { ["BTC": "$4.2B", "ETH": "$2.1B", "SOL": "$880M", "HYPE": "$1.3B", "TSLA": "$240M", "GOLD": "$96M"][sym] ?? "—" }
-        var dp: Int { px < 100 ? 2 : 0 }
+    static func perpCandles(_ coin: String, interval: String, seconds: Double, count: Int = 60) async throws -> [Candle] {
+        let now = Date().timeIntervalSince1970
+        let start = Int64((now - seconds * Double(count)) * 1000)
+        let body = #"{"type":"candleSnapshot","req":{"coin":"\#(coin)","interval":"\#(interval)","startTime":\#(start)}}"#
+        guard let rows = try await MarketHTTP.json(hl, json: body) as? [[String: Any]] else { throw MarketError.shape }
+        let out = rows.compactMap { r -> Candle? in
+            guard let o = MarketHTTP.num(r["o"]), let h = MarketHTTP.num(r["h"]), let l = MarketHTTP.num(r["l"]), let c = MarketHTTP.num(r["c"]) else { return nil }
+            return Candle(o: o, h: h, l: l, c: c)
+        }
+        guard !out.isEmpty else { throw MarketError.shape }
+        return Array(out.suffix(count))
     }
-    static let perps: [Perp] = [
-        Perp(sym: "BTC", px: 114280, ch: 1.8, fund: 0.0012, oi: "$3.1B"),
-        Perp(sym: "ETH", px: 3498, ch: 2.4, fund: 0.0019, oi: "$1.7B"),
-        Perp(sym: "SOL", px: 186.6, ch: -1.1, fund: -0.0004, oi: "$612M"),
-        Perp(sym: "HYPE", px: 24.06, ch: 5.8, fund: 0.0031, oi: "$904M"),
-        Perp(sym: "TSLA", px: 412.5, ch: 3.1, fund: 0.0008, oi: "$620M", venue: "trade.xyz"),
-        Perp(sym: "GOLD", px: 2748, ch: 0.4, fund: 0.0002, oi: "$310M", venue: "trade.xyz"),
-    ]
-    static let venues = ["Hyperliquid", "Lighter", "Aster", "Paradex", "Extended", "trade.xyz"]
-    /// Timeframe -> (volatility, seed offset).
-    static let timeframes: [(String, Double, Int)] = [("15m", 0.012, 3), ("1H", 0.022, 5), ("4H", 0.045, 9), ("1D", 0.09, 13)]
 
-    struct Spot: Identifiable, Hashable { var id: String { sym }; let sym, name: String; let px, ch: Double }
-    static let spot: [Spot] = [
-        Spot(sym: "ETH", name: "Ethereum", px: 3498, ch: 2.4),
-        Spot(sym: "BTC", name: "Bitcoin", px: 114280, ch: 1.8),
-        Spot(sym: "SOL", name: "Solana", px: 186.6, ch: -1.1),
-        Spot(sym: "HYPE", name: "Hyperliquid", px: 24.06, ch: 5.8),
-    ]
-
-    struct Meme: Identifiable, Hashable {
-        var id: String { sym }
-        let sym, mc: String; let px, ch: Double; let holders, age: String
-        enum Score { case pass, warn, fail }
-        let score: Score
-        var label: String { switch score { case .pass: "Safe"; case .warn: "Caution"; case .fail: "Risky" } }
-        var color: Color { switch score { case .pass: Theme.green; case .warn: Theme.amber; case .fail: Theme.red } }
+    static func book(_ coin: String) async throws -> TradeData.Book {
+        guard let d = try await MarketHTTP.json(hl, json: #"{"type":"l2Book","coin":"\#(coin)"}"#) as? [String: Any],
+              let levels = d["levels"] as? [[[String: Any]]], levels.count == 2 else { throw MarketError.shape }
+        func side(_ l: [[String: Any]]) -> [TradeData.BookLevel] {
+            l.compactMap { x in MarketHTTP.num(x["px"]).flatMap { p in MarketHTTP.num(x["sz"]).map { TradeData.BookLevel(px: p, sz: $0) } } }
+        }
+        return TradeData.Book(bids: side(levels[0]), asks: side(levels[1]))
     }
-    static let memes: [Meme] = [
-        Meme(sym: "PENGU", mc: "$2.1B", px: 0.0334, ch: 18.2, holders: "712k", age: "11mo", score: .pass),
-        Meme(sym: "PEPE", mc: "$8.0B", px: 0.0000191, ch: 12.4, holders: "421k", age: "2y", score: .pass),
-        Meme(sym: "WIF", mc: "$1.4B", px: 1.42, ch: -3.2, holders: "201k", age: "1.9y", score: .pass),
-        Meme(sym: "GIGA", mc: "$312M", px: 0.031, ch: 41.0, holders: "58k", age: "1.2y", score: .warn),
-        Meme(sym: "HERM", mc: "$4.2M", px: 0.0042, ch: 212.0, holders: "1.9k", age: "6h", score: .fail),
-    ]
 
-    struct Prediction: Identifiable, Hashable { var id: String { q }; let q, venue: String; let yes: Int; let vol, ends: String }
-    static let predictions: [Prediction] = [
-        Prediction(q: "Fed cuts rates in December?", venue: "Kalshi", yes: 62, vol: "$48M", ends: "Dec 10"),
-        Prediction(q: "BTC above $120k on Dec 31?", venue: "Polymarket", yes: 41, vol: "$22M", ends: "Dec 31"),
-        Prediction(q: "ETH ETF staking inflows over $1B in November?", venue: "Opinion", yes: 55, vol: "$3.1M", ends: "Nov 30"),
-        Prediction(q: "HYPE in the top 10 by market cap this year?", venue: "Predict.fun", yes: 33, vol: "$1.2M", ends: "Dec 31"),
-        Prediction(q: "SOL above $200 this Friday?", venue: "Limitless", yes: 28, vol: "$0.4M", ends: "Fri"),
-    ]
-
-    // MARK: Positions, orders, history
-
-    struct Position: Identifiable, Hashable {
-        var id: String { title + when }
-        let sym, title, side: String
-        let entry, mark: Double
-        let liq: Double?
-        let tp: Double?
-        var sl: Double?
-        let pnl: Double
-        let by, when: String
+    static func prints(_ coin: String) async throws -> [TradeData.Print] {
+        guard let rows = try await MarketHTTP.json(hl, json: #"{"type":"recentTrades","coin":"\#(coin)"}"#) as? [[String: Any]] else { throw MarketError.shape }
+        return rows.compactMap { r in
+            guard let p = MarketHTTP.num(r["px"]), let s = MarketHTTP.num(r["sz"]), let t = MarketHTTP.num(r["time"]) else { return nil }
+            return TradeData.Print(px: p, sz: s, buy: (r["side"] as? String) == "B", time: Date(timeIntervalSince1970: t / 1000))
+        }
+        .sorted { $0.time > $1.time }
     }
-    static let positionsSeed: [Position] = [
-        Position(sym: "HYPE", title: "HYPE-PERP", side: "Long 3x", entry: 22.41, mark: 24.06, liq: 15.68, tp: 27.5, sl: 21, pnl: 530, by: "Agent", when: "Oct 24"),
-        Position(sym: "ETH", title: "ETH-PERP", side: "Short 1x", entry: 3520, mark: 3498, liq: nil, tp: nil, sl: 3650, pnl: 32, by: "Agent", when: "Oct 25"),
-        Position(sym: "SOL", title: "SOL", side: "Spot", entry: 172.4, mark: 186.6, liq: nil, tp: 220, sl: 160, pnl: 178, by: "You", when: "Oct 2"),
-    ]
 
-    struct Order: Identifiable, Hashable { var id: String { what }; let sym, what, px, by, when: String }
-    static let ordersSeed: [Order] = [
-        Order(sym: "HYPE", what: "Limit buy 120 HYPE", px: "$22.80", by: "Agent", when: "Oct 26"),
-        Order(sym: "BTC", what: "Stop sell 0.02 BTC", px: "$108,500", by: "You", when: "Oct 21"),
-    ]
+    // MARK: Binance, CoinGecko fallback
 
-    struct Fill: Identifiable, Hashable { var id: String { what }; let sym, what, px: String; let pnl: Double?; let when: String }
-    static let fills: [Fill] = [
-        Fill(sym: "HYPE", what: "Bought 210 HYPE", px: "$22.41", pnl: nil, when: "Oct 24"),
-        Fill(sym: "ETH", what: "Sold 0.6 ETH short", px: "$3,520", pnl: nil, when: "Oct 25"),
-        Fill(sym: "SOL", what: "Closed SOL long", px: "$191.20", pnl: 212, when: "Oct 19"),
-        Fill(sym: "BTC", what: "Closed BTC short", px: "$111,900", pnl: -64, when: "Oct 15"),
-    ]
-
-    // MARK: Strategies (also used by Earn's arbitrage bots)
-
-    struct Step: Hashable { let t, d: String; var guardStep = false }
-    struct Strategy: Identifiable, Hashable {
-        let id, name, sym: String
-        var running: Bool
-        let capital, pnl: Double
-        let win, source: String
-        let steps: [Step]
-        let trades: [(String, String, String)]
-        static func == (a: Strategy, b: Strategy) -> Bool { a.id == b.id && a.running == b.running }
-        func hash(into h: inout Hasher) { h.combine(id) }
-        var fromChat: Bool { source == "From chat" }
+    /// Tickers by symbol, plus which source answered.
+    static func tickers(_ tokens: [TradeData.Token]) async throws -> ([String: TradeData.Ticker], String) {
+        let syms = "[" + tokens.map { "\"\($0.pair)\"" }.joined(separator: ",") + "]"
+        let q = syms.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? syms
+        for host in binanceHosts {
+            guard let rows = try? await MarketHTTP.json("\(host)/api/v3/ticker/24hr?symbols=\(q)") as? [[String: Any]] else { continue }
+            var out: [String: TradeData.Ticker] = [:]
+            for r in rows {
+                guard let pair = r["symbol"] as? String, let t = tokens.first(where: { $0.pair == pair }),
+                      let px = MarketHTTP.num(r["lastPrice"]) else { continue }
+                out[t.sym] = TradeData.Ticker(px: px, ch: MarketHTTP.num(r["priceChangePercent"]) ?? 0, vol: MarketHTTP.num(r["quoteVolume"]) ?? 0,
+                                              high: MarketHTTP.num(r["highPrice"]) ?? px, low: MarketHTTP.num(r["lowPrice"]) ?? px)
+            }
+            if !out.isEmpty { return (out, "Binance") }
+        }
+        let ids = tokens.map(\.gecko).joined(separator: ",")
+        guard let rows = try await MarketHTTP.json("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=\(ids)") as? [[String: Any]] else { throw MarketError.shape }
+        var out: [String: TradeData.Ticker] = [:]
+        for r in rows {
+            guard let id = r["id"] as? String, let t = tokens.first(where: { $0.gecko == id }), let px = MarketHTTP.num(r["current_price"]) else { continue }
+            out[t.sym] = TradeData.Ticker(px: px, ch: MarketHTTP.num(r["price_change_percentage_24h"]) ?? 0, vol: MarketHTTP.num(r["total_volume"]) ?? 0,
+                                          high: MarketHTTP.num(r["high_24h"]) ?? px, low: MarketHTTP.num(r["low_24h"]) ?? px)
+        }
+        guard !out.isEmpty else { throw MarketError.shape }
+        return (out, "CoinGecko")
     }
-    static let strategies: [Strategy] = [
-        Strategy(id: "arb", name: "HYPE funding arb", sym: "HYPE", running: true, capital: 5200, pnl: 1204, win: "78%", source: "From HYPE perp scripts",
-                 steps: [Step(t: "Watch", d: "Every 60s"), Step(t: "Trigger", d: "Funding > 0.03%/h"), Step(t: "Spot + short", d: "Same size"), Step(t: "Hazard scan", d: "Every order", guardStep: true), Step(t: "Exit", d: "Funding < 0.01%")],
-                 trades: [("Opened hedge 2,600 HYPE", "2h ago", "+$12.60"), ("Closed hedge", "Oct 24", "+$41.20"), ("Opened hedge 2,400 HYPE", "Oct 23", "+$38.90")]),
-        Strategy(id: "breakout", name: "ETH breakout", sym: "ETH", running: true, capital: 3000, pnl: 286, win: "54%", source: "From chat",
-                 steps: [Step(t: "Watch 4H", d: "Range high"), Step(t: "Breakout", d: "Close above + volume"), Step(t: "Long 3x", d: "TP +6%, SL −2%"), Step(t: "Hazard scan", d: "Every order", guardStep: true)],
-                 trades: [("Long ETH 3x", "Oct 25", "+$182"), ("Stopped out", "Oct 21", "−$64")]),
-        Strategy(id: "dca", name: "Weekly ETH DCA", sym: "ETH", running: true, capital: 2000, pnl: 96, win: "—", source: "From chat",
-                 steps: [Step(t: "Every Monday", d: "09:00"), Step(t: "Swap 500 USDC", d: "Best route"), Step(t: "Hazard scan", d: "Every order", guardStep: true), Step(t: "Hold", d: "Vault wallet")],
-                 trades: [("Bought 0.143 ETH", "Oct 20", ""), ("Bought 0.146 ETH", "Oct 13", "")]),
-        Strategy(id: "sniper", name: "Meme sniper", sym: "PENGU", running: false, capital: 300, pnl: -118, win: "31%", source: "From Meme auto-trader",
-                 steps: [Step(t: "New pair", d: "Liquidity > $200k"), Step(t: "Holder check", d: "Bubble map"), Step(t: "Hazard scan", d: "Every order", guardStep: true), Step(t: "Buy $100", d: "Sell at 2x")],
-                 trades: [("Sold GIGA", "Oct 18", "−$42"), ("Skipped HERM: dev cluster 61%", "Oct 17", "")]),
-    ]
 
-    /// Explore more markets (stocks, gold, majors, memes, new tokens).
-    static let moreMarkets: [TradeExploreItem] = [
-        ("TSLA", "Tesla", "Stock perps on trade.xyz"), ("GOLD", "Gold", "Perps on trade.xyz"), ("NVDA", "Nvidia", "Tokenized on Ondo"),
-        ("MON", "Monad", "Spot on Kuru"), ("LIT", "Lighter", "Spot and perps"), ("ASTER", "Aster", "Spot and perps"), ("XPL", "Plasma", "Spot"),
-        ("KHYPE", "Kinetiq HYPE", "Spot"), ("BTC", "Bitcoin", "Spot and perps"), ("ETH", "Ethereum", "Spot and perps"), ("SOL", "Solana", "Spot and perps"),
-        ("HYPE", "Hyperliquid", "Spot and perps"), ("PEPE", "Pepe", "Meme"), ("WIF", "dogwifhat", "Meme"), ("PENGU", "Pudgy Penguins", "Meme"),
-        ("BNB", "BNB", "Perps"), ("XRP", "XRP", "Perps"), ("DOGE", "Dogecoin", "Perps"), ("SUI", "Sui", "Perps"), ("TIA", "Celestia", "Perps"),
-        ("JUP", "Jupiter", "Spot"), ("ENA", "Ethena", "Spot and perps"),
-    ].map { TradeExploreItem(name: $0.1, logo: $0.0, sub: $0.2, metric: $0.0) }
+    static func spotCandles(_ t: TradeData.Token, interval: String = "1h", count: Int = 60) async throws -> [Candle] {
+        for host in binanceHosts {
+            guard let rows = try? await MarketHTTP.json("\(host)/api/v3/klines?symbol=\(t.pair)&interval=\(interval)&limit=\(count)") as? [[Any]] else { continue }
+            let out = rows.compactMap { r -> Candle? in
+                guard r.count > 4, let o = MarketHTTP.num(r[1]), let h = MarketHTTP.num(r[2]), let l = MarketHTTP.num(r[3]), let c = MarketHTTP.num(r[4]) else { return nil }
+                return Candle(o: o, h: h, l: l, c: c)
+            }
+            if !out.isEmpty { return out }
+        }
+        // CoinGecko's OHLC: 30-minute candles for the last day.
+        guard let rows = try await MarketHTTP.json("https://api.coingecko.com/api/v3/coins/\(t.gecko)/ohlc?vs_currency=usd&days=1") as? [[Any]] else { throw MarketError.shape }
+        let out = rows.compactMap { r -> Candle? in
+            guard r.count > 4, let o = MarketHTTP.num(r[1]), let h = MarketHTTP.num(r[2]), let l = MarketHTTP.num(r[3]), let c = MarketHTTP.num(r[4]) else { return nil }
+            return Candle(o: o, h: h, l: l, c: c)
+        }
+        guard !out.isEmpty else { throw MarketError.shape }
+        return Array(out.suffix(count))
+    }
 
-    static let balance: Double = 14010
+    // MARK: Polymarket
+
+    /// The busiest open two-outcome markets that haven't been decided yet.
+    static func predictions(limit: Int = 8) async throws -> [TradeData.Prediction] {
+        guard let rows = try await MarketHTTP.json("https://gamma-api.polymarket.com/markets?active=true&closed=false&order=volume24hr&ascending=false&limit=40") as? [[String: Any]]
+        else { throw MarketError.shape }
+        let iso = ISO8601DateFormatter()
+        let isoFrac = ISO8601DateFormatter(); isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func list(_ v: Any?) -> [String] {
+            guard let s = v as? String, let d = s.data(using: .utf8), let a = try? JSONSerialization.jsonObject(with: d) as? [Any] else { return [] }
+            return a.map { "\($0)" }
+        }
+        let now = Date()
+        let out: [TradeData.Prediction] = rows.compactMap { r in
+            guard let q = r["question"] as? String, let id = (r["id"] as? String) ?? (r["id"] as? NSNumber)?.stringValue else { return nil }
+            let outcomes = list(r["outcomes"]), prices = list(r["outcomePrices"]).compactMap(Double.init)
+            let ends = (r["endDate"] as? String).flatMap { iso.date(from: $0) ?? isoFrac.date(from: $0) }
+            guard outcomes.count == 2, prices.count == 2, prices.allSatisfy({ $0 > 0.01 && $0 < 0.99 }) else { return nil }
+            if let ends, ends < now { return nil }
+            return TradeData.Prediction(id: id, q: q, slug: r["slug"] as? String ?? "", outcomes: outcomes, prices: prices,
+                                        vol24: MarketHTTP.num(r["volume24hr"]) ?? 0, ends: ends)
+        }
+        guard !rows.isEmpty else { throw MarketError.shape }
+        return Array(out.prefix(limit))
+    }
 }
 
-/// Live state for Trade and Earn that survives tab and page switches: positions added by approvals,
-/// cancelled orders, paused strategies. Approved money moves apply their change here.
+// MARK: Shared live state
+
+enum FeedState: Equatable { case loading, ready, failed }
+
+/// Prices shared by Trade and Earn so switching tabs doesn't refetch everything. Views poll it while they're on screen.
+/// Snapshot tests never hit the network: they leave it loading, or fill it with a test fixture.
 @MainActor @Observable
-final class TradeEarnStore {
-    static let shared = TradeEarnStore()
-    var positions = TradeData.positionsSeed
-    var orders = TradeData.ordersSeed
-    var paused: Set<String> = ["sniper"]
-    var earnPositions = EarnData.positionsSeed
+final class MarketFeed {
+    static let shared = MarketFeed()
 
-    /// What to do once the approval sheet with this success text goes through.
-    private var pending: (count: Int, toast: String?, apply: () -> Void)?
+    var perps: [String: TradeData.Perp] = [:]
+    var perpState: FeedState = .loading
+    var tickers: [String: TradeData.Ticker] = [:]
+    var minis: [String: [Candle]] = [:]
+    var tickerState: FeedState = .loading
+    var tickerSource = "Binance"
+    var predictions: [TradeData.Prediction] = []
+    var predState: FeedState = .loading
 
-    /// Open the approval sheet and remember what changes on screen once it is approved.
-    func approve(_ model: AppModel, _ a: Approval, toast: String? = nil, apply: @escaping () -> Void = {}) {
-        pending = (model.approvalCount, toast, apply)
-        model.approval = a
+    func refreshPerps() async {
+        guard !SnapshotMode.active else { return }
+        do { let list = try await TradeAPI.perps(); perps = Dictionary(list.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a }); perpState = .ready }
+        catch { if perps.isEmpty { perpState = .failed } }
     }
 
-    /// Called when the approval sheet closes; only an approval (not Cancel) applies the change.
-    func approvalClosed(_ model: AppModel) {
-        guard let p = pending else { return }
-        pending = nil
-        guard model.approvalCount > p.count else { return }
-        withAnimation(.smooth(duration: 0.35)) { p.apply() }
-        if let t = p.toast { model.toast(t) }
+    /// Spot and meme tickers in one call, then the small row candles.
+    func refreshTickers() async {
+        guard !SnapshotMode.active else { return }
+        let all = TradeData.spotTokens + TradeData.memeTokens
+        do {
+            let (t, src) = try await TradeAPI.tickers(all)
+            tickers = t; tickerSource = src; tickerState = .ready
+        } catch { if tickers.isEmpty { tickerState = .failed } }
+        guard tickerState == .ready else { return }
+        let got = await withTaskGroup(of: (String, [Candle]?).self) { g in
+            for tk in all { g.addTask { (tk.sym, try? await TradeAPI.spotCandles(tk, interval: "1h", count: 24)) } }
+            var out: [String: [Candle]] = [:]
+            for await (s, c) in g { if let c { out[s] = c } }
+            return out
+        }
+        minis.merge(got) { _, new in new }
+    }
+
+    func refreshPredictions() async {
+        guard !SnapshotMode.active else { return }
+        do { predictions = try await TradeAPI.predictions(); predState = .ready }
+        catch { if predictions.isEmpty { predState = .failed } }
     }
 }
 
+extension View {
+    /// Runs `work` now and again every `seconds` while the view is on screen (the task stops when it goes away).
+    /// Skipped in snapshot tests, which can't reach the network.
+    func marketPoll<ID: Equatable>(every seconds: Double, id: ID, _ work: @escaping @MainActor () async -> Void) -> some View {
+        task(id: id) {
+            guard !SnapshotMode.active else { return }
+            while !Task.isCancelled {
+                await work()
+                try? await Task.sleep(for: .seconds(seconds))
+            }
+        }
+    }
+    func marketPoll(every seconds: Double, _ work: @escaping @MainActor () async -> Void) -> some View {
+        marketPoll(every: seconds, id: 0, work)
+    }
+}

@@ -12,12 +12,6 @@ enum TradeColor {
     static let resistance = Color(hex: 0x7C3AED)
 }
 
-/// The checks every money move runs through (demo: baseChecks). Extras go before the daily limit.
-func tradeChecks(_ extra: [String] = []) -> [String] {
-    ["Requested by you, not by a web page or email", "Simulation matches summary", "Contract verified and audited",
-     "Exact-amount token approval"] + extra + ["Within daily limit"]
-}
-
 // MARK: Number formatting
 
 extension Double {
@@ -33,6 +27,21 @@ extension Double {
     var tradeUSD: String { (self >= 0 ? "+$" : "−$") + abs(self).tradeGrouped() }
     /// "+5.8%" / "-1.1%"
     var tradePct: String { (self > 0 ? "+" : "") + tradeTrim(2) + "%" }
+    /// A price at the precision it trades at: "81,690", "186.62", "1.4213", "0.00001912".
+    var tradePx: String {
+        let a = abs(self)
+        if a >= 1000 { return tradeGrouped(a >= 10000 ? 0 : 1) }
+        if a >= 1 { return formatted(.number.grouping(.automatic).precision(.fractionLength(2...(a >= 100 ? 2 : 4)))) }
+        return formatted(.number.precision(.significantDigits(4)))
+    }
+    /// Decimals to show for a price, for the order book and the chart axis.
+    var tradeDecimals: Int { let a = abs(self); return a >= 10000 ? 0 : a >= 1000 ? 1 : a >= 100 ? 2 : a >= 1 ? 4 : 6 }
+    /// "$4.2B", "$880M", "$12.4K"
+    var tradeCompactUSD: String {
+        let a = abs(self)
+        let (v, u): (Double, String) = a >= 1e12 ? (a / 1e12, "T") : a >= 1e9 ? (a / 1e9, "B") : a >= 1e6 ? (a / 1e6, "M") : a >= 1e3 ? (a / 1e3, "K") : (a, "")
+        return "$" + v.formatted(.number.precision(.fractionLength(0...(v < 100 ? 1 : 0)))) + u
+    }
 }
 
 // MARK: Width
@@ -278,7 +287,7 @@ struct TradeTx: View {
                 HStack(spacing: 12) {
                     Text(l.0).foregroundStyle(Theme.muted)
                     Spacer(minLength: 8)
-                    l.1.monospacedDigit()
+                    l.1.monospacedDigit().foregroundStyle(Theme.text)
                 }
                 .font(.system(size: 13)).padding(.vertical, 6)
             }
@@ -339,6 +348,8 @@ struct TradeExploreItem: Identifiable, Hashable {
     let sub: String
     var metric: String? = nil
     var tag: String? = nil
+    /// True when `logo` is a protocol name LogoMark knows; otherwise it's a token symbol checked against TradeData.tokenLogos.
+    var logoKnown = false
 }
 
 struct TradeExploreMore: View {
@@ -387,7 +398,7 @@ struct TradeExploreSheet: View {
                             dismiss(); model.send("Tell me about \(i.name)")
                         } label: {
                             HStack(spacing: 12) {
-                                LogoMark(i.logo, size: 30)
+                                MarketLogo(key: i.logoKnown ? i.logo : TradeData.logo(i.logo), name: i.name, size: 30)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(i.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
                                     Text(i.sub).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
@@ -413,52 +424,66 @@ struct TradeExploreSheet: View {
     }
 }
 
-/// "Ask" answer sheet: the question, Hermit's short answer, then continue in chat.
-struct TradeAskSheet: View {
-    let q: String
-    let a: String
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var shown = false
+// MARK: Logos and states
 
+/// A logo only when it's the right one: `key` goes to LogoMark, nil gets a neutral letter mark (never a lookalike).
+struct MarketLogo: View {
+    let key: String?
+    let name: String
+    var size: CGFloat = 32
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
-                        .frame(width: 26, height: 26).background(TradeColor.accentSoft, in: Circle())
-                    Text("Ask Hermit").font(.system(size: 15, weight: .semibold))
-                }
-                Spacer()
-                TradeSheetClose { dismiss() }
-            }
-            HStack {
-                Spacer(minLength: 60)
-                Text(q).font(.system(size: 14)).padding(.horizontal, 13).padding(.vertical, 8)
-                    .background(Theme.hover, in: RoundedRectangle(cornerRadius: 13))
-            }
-            Group {
-                if shown {
-                    Text(a).font(.system(size: 14)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                        .transition(.opacity.combined(with: .offset(y: 6)))
-                } else {
-                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Thinking").foregroundStyle(Theme.muted) }
-                        .font(.system(size: 13)).transition(.opacity)
-                }
-            }
-            .frame(minHeight: 60, alignment: .topLeading)
-            HStack(spacing: 10) {
-                Button("Close") { dismiss() }.buttonStyle(SheetButton(primary: false))
-                Button("Continue in chat") { dismiss(); model.send(q) }.buttonStyle(SheetButton(primary: true))
-            }
+        if let key { LogoMark(key, size: size) } else {
+            Text(String(name.filter(\.isLetter).prefix(1)).uppercased())
+                .font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(Theme.muted)
+                .frame(width: size, height: size).background(Theme.hover, in: Circle())
+                .accessibilityHidden(true)
         }
-        .padding(22)
-        .tradeSheet(width: 440)
-        .task {
-            try? await Task.sleep(for: .milliseconds(650))
-            withAnimation(.smooth(duration: 0.3)) { shown = true }
+    }
+}
+
+/// Loading, failed or empty: one quiet line, with Retry when a fetch failed.
+struct MarketStatus: View {
+    enum Kind { case loading(String), failed(String), empty(String) }
+    let kind: Kind
+    var retry: (() -> Void)? = nil
+    var body: some View {
+        HStack(spacing: 10) {
+            switch kind {
+            case .loading(let t):
+                ProgressView().controlSize(.small)
+                Text(t).foregroundStyle(Theme.muted)
+            case .failed(let t):
+                Image(systemName: "wifi.exclamationmark").foregroundStyle(Theme.faint)
+                Text(t).foregroundStyle(Theme.muted)
+                if let retry { Button("Retry", action: retry).buttonStyle(TradeSmallButton()) }
+            case .empty(let t):
+                Text(t).foregroundStyle(Theme.faint)
+            }
+            Spacer(minLength: 0)
         }
+        .font(.system(size: 13.5))
+        .padding(.vertical, 12)
+    }
+}
+
+/// The note under a greyed-out action: what isn't wired up yet.
+struct TradeSoon: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "clock").font(.system(size: 11.5))
+            Text(text)
+        }
+        .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// "Prices from Hyperliquid" style source line.
+struct MarketSource: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(Theme.faint)
     }
 }
 
