@@ -3,7 +3,8 @@
 #   zsh scripts/release-ios.sh            bumps the build number, archives, uploads
 # Needs an App Store Connect API key (App Manager or Admin) in ~/hermit/asc.env:
 #   ASC_KEY_ID=...  ASC_ISSUER_ID=...  ASC_KEY_PATH=~/hermit/AuthKey_<id>.p8
-# Signing is automatic: xcodebuild uses the key to create the distribution certificate and profile.
+# Signs with the Apple Distribution certificate in signing.keychain-db and the "Hermit iOS App Store" profile, both
+# made through the API (see ~/hermit/asc.py). The key also uploads the build.
 set -euo pipefail
 cd "${0:A:h}/.."
 source ~/hermit/asc.env
@@ -19,8 +20,9 @@ BUILD=$(date -u +%Y%m%d%H%M)
 ~/hermit/xg/xcodegen/bin/xcodegen generate -q
 rm -rf "$OUT"; mkdir -p "$OUT"
 xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Release -destination 'generic/platform=iOS' \
-  -derivedDataPath "$DD" -archivePath "$OUT/Hermit.xcarchive" DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \
-  CURRENT_PROJECT_VERSION="$BUILD" "${AUTH[@]}" archive | grep -E "error:|warning: .*entitlement|ARCHIVE" || true
+  -derivedDataPath "$DD" -archivePath "$OUT/Hermit.xcarchive" CURRENT_PROJECT_VERSION="$BUILD" \
+  HERMIT_IDENTITY="$(security find-identity -v -p codesigning "$KC" | awk '/Apple Distribution/ {print $2; exit}')" \
+  HERMIT_PROFILE="Hermit iOS App Store" OTHER_CODE_SIGN_FLAGS="--keychain $KC" archive | grep -E "error:|warning: .*entitlement|ARCHIVE" || true
 [[ -d "$OUT/Hermit.xcarchive" ]] || { echo "Archive failed"; exit 1; }
 
 cat > "$OUT/export.plist" <<PLIST
@@ -30,7 +32,9 @@ cat > "$OUT/export.plist" <<PLIST
   <key>method</key><string>app-store-connect</string>
   <key>destination</key><string>upload</string>
   <key>teamID</key><string>$TEAM</string>
-  <key>signingStyle</key><string>automatic</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Apple Distribution</string>
+  <key>provisioningProfiles</key><dict><key>my.hermit.ios</key><string>Hermit iOS App Store</string></dict>
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 PLIST

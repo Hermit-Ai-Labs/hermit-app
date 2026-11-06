@@ -4,11 +4,11 @@ The Mac app waits until the iPhone app is on TestFlight. Tick each item only aft
 a signed build, not just in a snapshot.
 
 ## A. Accounts and signing (team)
-- [ ] Mac build box reachable (`ssh mac`): plugged in, awake, tunnel up.
-- [ ] App Store Connect API key with the **App Manager** role: Issuer ID, Key ID, `.p8` stored on the Mac only.
-- [ ] Bundle ID `my.hermit.ios` registered on team 4G5YW2XP2B with these capabilities: Keychain Sharing, Increased Memory Limit.
+- [x] Mac build box reachable (`ssh mac`): plugged in, awake, tunnel up.
+- [x] App Store Connect API key with the **App Manager** role: Issuer ID, Key ID, `.p8` stored on the Mac only.
+- [x] Bundle ID `my.hermit.ios` registered on team 4G5YW2XP2B with these capabilities: Keychain Sharing, Increased Memory Limit.
 - [ ] App record in App Store Connect: name (e.g. "Hermit: Private AI"), SKU, primary language, category Productivity.
-- [ ] Apple Distribution certificate + App Store profile (automatic signing with the API key: `-allowProvisioningUpdates`).
+- [x] Apple Distribution certificate + App Store profile (made with scripts/asc.py; private keys only in ~/hermit/signing.keychain-db).
 - [ ] Internal testers added in App Store Connect (up to 100 team users, no Beta Review needed).
 
 ## B. App: real, no fake data
