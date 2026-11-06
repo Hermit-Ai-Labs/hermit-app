@@ -20,13 +20,17 @@ public struct WalletRecord: Codable, Identifiable, Hashable, Sendable {
     public func address(on chain: Chain) -> String { chain.kind == .evm ? evmAddress : solanaAddress }
 }
 
-/// Where the seed lives. Keychain items are device-only and never sync to iCloud.
+/// Where the seed lives. Nothing here ever syncs to iCloud.
 ///
-/// - `.secureEnclave`: the BIP-39 entropy is encrypted (ECIES, X9.63-SHA256 + AES-GCM) to a P-256 key that lives in
-///   the Secure Enclave. Decrypting needs Touch ID / Face ID (`.biometryCurrentSet`) or, on Macs without a sensor,
-///   the device password (`.userPresence`). The enclave can't do secp256k1 or ed25519 itself, hence the wrap.
-/// - `.keychain`: no Secure Enclave (the iOS simulator, some CI Macs): the entropy is a Keychain item guarded by
-///   `.userPresence`. Weaker; shown to the user.
+/// - `.secureEnclave` (`SecureEnclaveFileStore`): the BIP-39 entropy is sealed with AES-GCM under a key agreed (ECDH,
+///   then HKDF-SHA256) between a one-off ephemeral P-256 key and a P-256 key that lives in the Secure Enclave. The
+///   enclave key is created with `.privateKeyUsage + .userPresence`, so every unlock needs Touch ID / Face ID or the
+///   device password, and it only works on this device. Its opaque handle and the sealed seed sit in one file in the
+///   app's Application Support folder (the sandbox container on the Mac). No Keychain is involved, so this works in a
+///   Developer ID build without a provisioning profile. The enclave can't do secp256k1 or ed25519, hence the wrap.
+/// - `.keychain`: no Secure Enclave. On iOS (the simulator) the entropy is a data-protection Keychain item guarded by
+///   `.userPresence`. On a Mac without an enclave it is a login-keychain item limited to this app, and the Touch ID /
+///   password check before reading it is enforced by the app, not by hardware. Weaker; the label says so.
 /// - `.memoryOnly`: tests only. Nothing touches disk.
 public protocol SealedStore: Sendable {
     var protection: KeyVault.Protection { get }
@@ -43,7 +47,7 @@ public final class KeyVault: @unchecked Sendable {
         public var label: String {
             switch self {
             case .secureEnclave: "Secure Enclave"
-            case .keychain: "Keychain (no Secure Enclave on this device)"
+            case .keychain: "Keychain (no Secure Enclave here, weaker)"
             case .memoryOnly: "Memory only (test)"
             }
         }
@@ -63,9 +67,12 @@ public final class KeyVault: @unchecked Sendable {
         if let d = store.loadIndex(), let r = try? JSONDecoder().decode([WalletRecord].self, from: d) { records = r }
     }
 
-    /// The vault for this device: Secure Enclave when there is one, otherwise the Keychain.
+    /// The vault for this device: the Secure Enclave file store when there is an enclave, otherwise the Keychain.
     public static func makeDefault(service: String = "my.hermit.wallet") -> KeyVault {
-        KeyVault(store: SecureEnclave.isAvailable ? SecureEnclaveStore(service: service) as SealedStore : KeychainStore(service: service))
+        if SecureEnclave.isAvailable, let dir = try? SecureEnclaveFileStore.defaultDirectory() {
+            return KeyVault(store: SecureEnclaveFileStore(directory: dir))
+        }
+        return KeyVault(store: KeychainStore(service: service))
     }
 
     public var wallets: [WalletRecord] { lock.withLock { records } }
@@ -76,6 +83,15 @@ public final class KeyVault: @unchecked Sendable {
         var e = try Mnemonic.randomEntropy(words: words)
         defer { e.wipe() }
         return try add(entropy: e, name: name, backedUp: false)
+    }
+
+    /// New wallet, plus its recovery phrase so it can be shown once for backup without a second unlock.
+    /// The caller should drop the words as soon as the backup screen closes.
+    public func createWithPhrase(name: String, words: Int = 12) throws -> (record: WalletRecord, phrase: String) {
+        var e = try Mnemonic.randomEntropy(words: words)
+        defer { e.wipe() }
+        let r = try add(entropy: e, name: name, backedUp: false)
+        return (r, try Mnemonic.phrase(fromEntropy: e))
     }
 
     @discardableResult
@@ -169,22 +185,145 @@ private func keychainError(_ status: OSStatus, _ what: String) -> WalletError {
     return .vault("Keychain \(what) failed: \(msg)")
 }
 
-/// Shared Keychain plumbing: device-only generic passwords in the data-protection keychain.
+/// The seed sealed to a Secure Enclave key and kept as a file. See `KeyVault.Protection.secureEnclave`.
+///
+/// File `seed-<id>.sealed` (JSON): the enclave key's opaque handle (`dataRepresentation`, useless off this device),
+/// the ephemeral public key, and the AES-GCM box (nonce + ciphertext + tag) with the wallet id as associated data.
+/// `wallets.json` next to it is the public index (names and addresses only).
+public final class SecureEnclaveFileStore: SealedStore, @unchecked Sendable {
+    public var protection: KeyVault.Protection { .secureEnclave }
+    public let directory: URL
+    /// Off only in tests: the enclave key then needs no Touch ID, so sealing and opening can run unattended.
+    let requireUserPresence: Bool
+
+    public init(directory: URL, requireUserPresence: Bool = true) {
+        self.directory = directory; self.requireUserPresence = requireUserPresence
+    }
+
+    /// Application Support/Hermit/Wallet: inside the sandbox container on the Mac, the app's own folder on iOS.
+    /// Left out of backups: the sealed seed only opens on this device anyway, and the recovery phrase is the backup.
+    public static func defaultDirectory() throws -> URL {
+        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        var dir = base.appendingPathComponent("Hermit/Wallet", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        var v = URLResourceValues(); v.isExcludedFromBackup = true
+        try? dir.setResourceValues(v)
+        return dir
+    }
+
+    struct Sealed: Codable {
+        var version: Int
+        var enclaveKey: Data
+        var ephemeralPublicKey: Data
+        var box: Data
+    }
+
+    func file(_ id: UUID) -> URL { directory.appendingPathComponent("seed-\(id.uuidString).sealed") }
+    var indexFile: URL { directory.appendingPathComponent("wallets.json") }
+
+    static func symmetricKey(_ shared: SharedSecret, ephemeral: P256.KeyAgreement.PublicKey, enclave: P256.KeyAgreement.PublicKey,
+                             id: UUID) -> SymmetricKey {
+        shared.hkdfDerivedSymmetricKey(using: SHA256.self, salt: ephemeral.x963Representation + enclave.x963Representation,
+                                       sharedInfo: Data("hermit.wallet.seed.v1:\(id.uuidString)".utf8), outputByteCount: 32)
+    }
+
+    public func seal(_ secret: [UInt8], id: UUID) throws {
+        let flags: SecAccessControlCreateFlags = requireUserPresence ? [.privateKeyUsage, .userPresence] : [.privateKeyUsage]
+        var err: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, flags, &err) else {
+            throw WalletError.vault("Couldn't set up key protection.")
+        }
+        let enclave: SecureEnclave.P256.KeyAgreement.PrivateKey
+        do { enclave = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access) } catch {
+            throw WalletError.vault("Secure Enclave key creation failed: \(error.localizedDescription)")
+        }
+        // Sealing only needs the enclave's public key, so there is no prompt here.
+        let ephemeral = P256.KeyAgreement.PrivateKey()
+        let shared = try ephemeral.sharedSecretFromKeyAgreement(with: enclave.publicKey)
+        let key = Self.symmetricKey(shared, ephemeral: ephemeral.publicKey, enclave: enclave.publicKey, id: id)
+        let box = try AES.GCM.seal(secret, using: key, authenticating: Data(id.uuidString.utf8))
+        guard let combined = box.combined else { throw WalletError.vault("Couldn't seal the seed.") }
+        let sealed = Sealed(version: 1, enclaveKey: enclave.dataRepresentation, ephemeralPublicKey: ephemeral.publicKey.x963Representation,
+                            box: combined)
+        try write(try JSONEncoder().encode(sealed), to: file(id))
+    }
+
+    public func open(id: UUID, reason: String) async throws -> SecretBytes {
+        guard let data = try? Data(contentsOf: file(id)), let s = try? JSONDecoder().decode(Sealed.self, from: data) else {
+            throw WalletError.vault("This wallet's key is missing. Restore it from the recovery phrase.")
+        }
+        let ctx = LAContext()
+        if requireUserPresence {
+            // Ask once here, then hand the evaluated context to the enclave key so it doesn't ask again.
+            do { _ = try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) } catch let e as LAError {
+                if [.userCancel, .appCancel, .systemCancel].contains(e.code) { throw WalletError.cancelled }
+                throw WalletError.vault("Unlock failed: \(e.localizedDescription)")
+            }
+        }
+        let box = UncheckedBox(ctx)
+        return try await withCheckedThrowingContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let enclave = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: s.enclaveKey, authenticationContext: box.value)
+                    let ephemeral = try P256.KeyAgreement.PublicKey(x963Representation: s.ephemeralPublicKey)
+                    let shared = try enclave.sharedSecretFromKeyAgreement(with: ephemeral)
+                    let key = Self.symmetricKey(shared, ephemeral: ephemeral, enclave: enclave.publicKey, id: id)
+                    let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: s.box), using: key, authenticating: Data(id.uuidString.utf8))
+                    var bytes = [UInt8](plain)
+                    let secret = SecretBytes(bytes)
+                    bytes.wipe()
+                    cont.resume(returning: secret)
+                } catch {
+                    cont.resume(throwing: WalletError.vault("Couldn't unlock this wallet's key. If this device's Secure Enclave was reset, restore the wallet from its recovery phrase."))
+                }
+            }
+        }
+    }
+
+    public func remove(id: UUID) throws {
+        let f = file(id)
+        if FileManager.default.fileExists(atPath: f.path) { try FileManager.default.removeItem(at: f) }
+    }
+
+    public func loadIndex() -> Data? { try? Data(contentsOf: indexFile) }
+    public func saveIndex(_ data: Data) throws { try write(data, to: indexFile) }
+
+    private func write(_ data: Data, to url: URL) throws {
+        #if os(iOS)
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
+        try data.write(to: url, options: [.atomic])
+        #endif
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+}
+
+/// Keychain plumbing for the no-enclave fallback. iOS uses the data-protection keychain. A Mac uses the login keychain,
+/// because the data-protection keychain needs a provisioning profile there (errSecMissingEntitlement, -34018).
 class KeychainBase: @unchecked Sendable {
     let service: String
+    #if os(iOS)
+    static let dataProtection = true
+    #else
+    static let dataProtection = false
+    #endif
     init(service: String) { self.service = service }
 
     func baseQuery(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account,
-         kSecUseDataProtectionKeychain as String: true, kSecAttrSynchronizable as String: false]
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
+        if Self.dataProtection { q[kSecUseDataProtectionKeychain as String] = true }
+        return q
     }
 
     func put(_ data: Data, account: String, access: SecAccessControl? = nil) throws {
         SecItemDelete(baseQuery(account) as CFDictionary)
         var q = baseQuery(account)
         q[kSecValueData as String] = data
-        if let access { q[kSecAttrAccessControl as String] = access } else {
-            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        if Self.dataProtection {
+            if let access { q[kSecAttrAccessControl as String] = access } else {
+                q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            }
         }
         let st = SecItemAdd(q as CFDictionary, nil)
         guard st == errSecSuccess else { throw keychainError(st, "save") }
@@ -194,7 +333,7 @@ class KeychainBase: @unchecked Sendable {
         var q = baseQuery(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
-        if let context { q[kSecUseAuthenticationContext as String] = context }
+        if let context, Self.dataProtection { q[kSecUseAuthenticationContext as String] = context }
         var out: CFTypeRef?
         let st = SecItemCopyMatching(q as CFDictionary, &out)
         if st == errSecItemNotFound { return nil }
@@ -206,92 +345,18 @@ class KeychainBase: @unchecked Sendable {
 
     func loadIndex() -> Data? { try? get("index") }
     func saveIndex(_ data: Data) throws { try put(data, account: "index") }
-
-    /// Biometry if enrolled, otherwise the device password.
-    static func accessFlags() -> SecAccessControlCreateFlags {
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) ? .biometryCurrentSet : .userPresence
-    }
 }
 
-/// Seed wrapped by a Secure Enclave P-256 key.
-final class SecureEnclaveStore: KeychainBase, SealedStore, @unchecked Sendable {
-    var protection: KeyVault.Protection { .secureEnclave }
-    static let algorithm = SecKeyAlgorithm.eciesEncryptionCofactorVariableIVX963SHA256AESGCM
-
-    func tag(_ id: UUID) -> Data { Data("\(service).se.\(id.uuidString)".utf8) }
-
-    func seal(_ secret: [UInt8], id: UUID) throws {
-        var err: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                                           [.privateKeyUsage, Self.accessFlags()], &err) else {
-            throw WalletError.vault("Couldn't set up key protection.")
-        }
-        let attrs: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom, kSecAttrKeySizeInBits as String: 256,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: [kSecAttrIsPermanent as String: true, kSecAttrApplicationTag as String: tag(id),
-                                            kSecAttrAccessControl as String: access],
-        ]
-        guard let priv = SecKeyCreateRandomKey(attrs as CFDictionary, &err), let pub = SecKeyCopyPublicKey(priv) else {
-            throw WalletError.vault("Secure Enclave key creation failed: \(err?.takeRetainedValue().localizedDescription ?? "unknown")")
-        }
-        // Encrypting only needs the public key: no prompt.
-        guard let box = SecKeyCreateEncryptedData(pub, Self.algorithm, Data(secret) as CFData, &err) as Data? else {
-            removeKey(id); throw WalletError.vault("Couldn't encrypt the seed.")
-        }
-        do { try put(box, account: "seed.\(id.uuidString)") } catch { removeKey(id); throw error }
-    }
-
-    func open(id: UUID, reason: String) async throws -> SecretBytes {
-        guard let box = try get("seed.\(id.uuidString)") else { throw WalletError.vault("This wallet's key is missing.") }
-        let ctx = LAContext()
-        ctx.localizedReason = reason
-        ctx.touchIDAuthenticationAllowableReuseDuration = 0
-        let q: [String: Any] = [kSecClass as String: kSecClassKey, kSecAttrApplicationTag as String: tag(id),
-                                kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom, kSecReturnRef as String: true,
-                                kSecUseAuthenticationContext as String: ctx]
-        var ref: CFTypeRef?
-        let st = SecItemCopyMatching(q as CFDictionary, &ref)
-        guard st == errSecSuccess, let r = ref else {
-            if st == errSecItemNotFound { throw WalletError.vault("This wallet's Secure Enclave key is gone (biometrics changed?). Restore it from the recovery phrase.") }
-            throw keychainError(st, "key lookup")
-        }
-        let priv = UncheckedBox(r as! SecKey) // swiftlint:disable:this force_cast
-        // Decrypting is where Touch ID / Face ID is asked. It blocks, so run it off the main thread.
-        return try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var err: Unmanaged<CFError>?
-                guard let plain = SecKeyCreateDecryptedData(priv.value, Self.algorithm, box as CFData, &err) as Data? else {
-                    let e = err?.takeRetainedValue()
-                    let code = e.map { CFErrorGetCode($0) } ?? 0
-                    cont.resume(throwing: code == LAError.userCancel.rawValue || code == LAError.appCancel.rawValue || code == LAError.systemCancel.rawValue
-                                ? WalletError.cancelled : WalletError.vault("Unlock failed."))
-                    return
-                }
-                var bytes = [UInt8](plain)
-                let secret = SecretBytes(bytes)
-                bytes.wipe()
-                // `plain` is an immutable Data we can't wipe in place; it's released here.
-                cont.resume(returning: secret)
-            }
-        }
-    }
-
-    func removeKey(_ id: UUID) {
-        SecItemDelete([kSecClass as String: kSecClassKey, kSecAttrApplicationTag as String: tag(id)] as CFDictionary)
-    }
-
-    func remove(id: UUID) throws { del("seed.\(id.uuidString)"); removeKey(id) }
-}
-
-/// Fallback with no Secure Enclave: the entropy is a Keychain item that needs user presence to read.
+/// Fallback with no Secure Enclave: the entropy is a Keychain item, read only after Touch ID / Face ID or the password.
 final class KeychainStore: KeychainBase, SealedStore, @unchecked Sendable {
     var protection: KeyVault.Protection { .keychain }
 
     func seal(_ secret: [UInt8], id: UUID) throws {
-        var err: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, Self.accessFlags(), &err) else {
-            throw WalletError.vault("Couldn't set up key protection.")
+        var access: SecAccessControl?
+        if Self.dataProtection {
+            var err: Unmanaged<CFError>?
+            access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .userPresence, &err)
+            guard access != nil else { throw WalletError.vault("Couldn't set up key protection.") }
         }
         try put(Data(secret), account: "seed.\(id.uuidString)", access: access)
     }

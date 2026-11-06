@@ -77,6 +77,7 @@ public final class WalletService {
     public let vault: KeyVault
     public let addressBook: AddressBook
     public let spendLimit: SpendLimit
+    public let sendLog: SendLog
 
     public private(set) var wallets: [WalletRecord] = []
     public var selectedWalletID: UUID?
@@ -90,8 +91,9 @@ public final class WalletService {
     @ObservationIgnored private var evmClients: [String: EVMClient] = [:]
     @ObservationIgnored private var solClients: [String: SolanaClient] = [:]
 
-    public init(vault: KeyVault = .makeDefault(), addressBook: AddressBook = AddressBook(), spendLimit: SpendLimit = SpendLimit()) {
-        self.vault = vault; self.addressBook = addressBook; self.spendLimit = spendLimit
+    public init(vault: KeyVault = .makeDefault(), addressBook: AddressBook = AddressBook(), spendLimit: SpendLimit = SpendLimit(),
+                sendLog: SendLog = SendLog()) {
+        self.vault = vault; self.addressBook = addressBook; self.spendLimit = spendLimit; self.sendLog = sendLog
         wallets = vault.wallets
         selectedWalletID = wallets.first?.id
     }
@@ -113,11 +115,17 @@ public final class WalletService {
     @discardableResult public func createWallet(name: String = "Wallet", words: Int = 12) throws -> WalletRecord {
         let r = try vault.create(name: name, words: words); reload(select: r.id); return r
     }
+    /// Creates a wallet and returns its recovery phrase once, for the backup screen.
+    public func createWalletWithPhrase(name: String = "Wallet", words: Int = 12) throws -> (record: WalletRecord, phrase: String) {
+        let r = try vault.createWithPhrase(name: name, words: words); reload(select: r.record.id); return r
+    }
     @discardableResult public func importWallet(phrase: String, name: String = "Imported") throws -> WalletRecord {
         let r = try vault.importPhrase(phrase, name: name); reload(select: r.id); return r
     }
     public func exportPhrase(_ id: UUID) async throws -> String { try await vault.exportPhrase(id) }
-    public func deleteWallet(_ id: UUID) throws { try vault.delete(id); reload(select: nil) }
+    public func deleteWallet(_ id: UUID) throws {
+        try vault.delete(id); sendLog.remove(wallet: id); reload(select: nil)
+    }
     public func markBackedUp(_ id: UUID) throws { try vault.markBackedUp(id); reload(select: id) }
 
     private func reload(select: UUID?) {
@@ -155,6 +163,23 @@ public final class WalletService {
             }
         }
         lastError = failures.isEmpty ? nil : "Couldn't reach \(failures.compactMap { Chain.with(id: $0)?.name }.sorted().joined(separator: ", "))."
+    }
+
+    /// Native + known stablecoins for any wallet on the given chains, in parallel. Returns what came back and the
+    /// chains that failed (their numbers are unknown, not zero).
+    public func fetchBalances(for wallet: WalletRecord, chains: [Chain]) async -> (balances: [String: [Balance]], failed: [Chain]) {
+        var out: [String: [Balance]] = [:], failed: [Chain] = []
+        await withTaskGroup(of: (Chain, [Balance]?).self) { g in
+            for c in chains {
+                let address = wallet.address(on: c)
+                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil
+                g.addTask { (c, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc)) }
+            }
+            for await (c, b) in g {
+                if let b { out[c.id] = b } else { failed.append(c) }
+            }
+        }
+        return (out, failed)
     }
 
     nonisolated static func fetchBalances(chain: Chain, address: String, evm: EVMClient?, solana: SolanaClient?) async throws -> [Balance] {
@@ -378,6 +403,8 @@ public final class WalletService {
             receipt = TxReceipt(chain: p.chain, hash: sig, success: ok, block: slot)
         }
         if receipt.success {
+            sendLog.record(SendLog.Entry(hash: receipt.hash, chainID: p.chain.id, walletID: w.id, amount: p.amountText, symbol: p.symbol,
+                                         recipient: p.recipient, label: p.recipientInput == p.recipient ? nil : p.recipientInput, date: Date()))
             addressBook.recordPayment(to: p.recipient, kind: p.chain.kind, label: p.recipientInput == p.recipient ? nil : p.recipientInput)
             if let usd = p.usdValue { spendLimit.record(usd: usd) }
         } else {

@@ -1,5 +1,6 @@
 import SwiftUI
 import HermitCore
+import HermitWallet
 
 enum AllWalletsTab: String, CaseIterable, Hashable {
     case tokens, dapps, gas, activity, accounts
@@ -8,22 +9,46 @@ enum AllWalletsTab: String, CaseIterable, Hashable {
     }
 }
 
+/// Greys out a control that isn't connected yet and says why on hover.
+struct NotYet: ViewModifier {
+    let reason: String
+    func body(content: Content) -> some View {
+        content.disabled(true).opacity(0.4).help(reason)
+    }
+}
+extension View {
+    func notYet(_ reason: String) -> some View { modifier(NotYet(reason: reason)) }
+}
+
 // MARK: Header
 
-/// Balance, change, and the four exchange-style actions. Scoped to one wallet or all of them.
+/// Balance and the exchange-style actions. Scoped to one wallet or all of them.
 struct BalanceCard<Sub: View>: View {
+    let vm: WalletsViewModel
     let label: String
-    let usd: Double
     let oneWallet: Bool
     let open: (WalletSheet) -> Void
     var walletID: String? = nil
     @ViewBuilder var sub: () -> Sub
+
+    private var usd: Double? {
+        guard let t = vm.totalUSD else { return nil }
+        return walletID == nil ? t : vm.total(walletID)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
+                Button { Task { await vm.refresh() } } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .frame(width: 30, height: 30).contentShape(Rectangle())
+                        .rotationEffect(.degrees(vm.refreshing ? 360 : 0))
+                        .animation(vm.refreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: vm.refreshing)
+                }
+                .buttonStyle(PressStyle()).disabled(vm.refreshing)
+                .help("Refresh balances").accessibilityLabel("Refresh balances")
                 Button { open(.history(wallet: walletID)) } label: {
                     Image(systemName: "clock.arrow.circlepath").font(.system(size: 14)).foregroundStyle(Theme.muted)
                         .frame(width: 30, height: 30).contentShape(Rectangle())
@@ -32,15 +57,26 @@ struct BalanceCard<Sub: View>: View {
                 .help("Transaction history")
                 .accessibilityLabel("Transaction history")
             }
-            Text(MoneyFmt.usd(usd)).font(.system(size: 36, weight: .semibold)).tracking(-0.8).monospacedDigit()
-                .contentTransition(.numericText()).animation(.smooth, value: usd)
-                .padding(.top, 2)
+            Group {
+                if let usd {
+                    Text(MoneyFmt.usd(usd, digits: usd < 100 ? 2 : 0)).contentTransition(.numericText()).animation(.smooth, value: usd)
+                } else {
+                    Text("$—").foregroundStyle(Theme.faint)
+                }
+            }
+            .font(.system(size: 36, weight: .semibold)).tracking(-0.8).monospacedDigit()
+            .padding(.top, 2)
+            Text(status).font(.system(size: 12.5)).foregroundStyle(vm.unreachable.contains { !$0.isTestnet } ? Theme.red : Theme.muted)
+                .lineLimit(2).padding(.top, 3)
             sub().padding(.top, 3)
             HStack(spacing: 18) {
                 RoundAction(title: oneWallet ? "Add funds" : "Deposit", symbol: "arrow.down.to.line") { open(.receive(wallet: walletID)) }
                 RoundAction(title: "Send", symbol: "arrow.up.right") { open(.send(from: walletID, chain: nil, token: nil)) }
                 RoundAction(title: "Transfer", symbol: "arrow.left.arrow.right") { open(.transfer(from: walletID)) }
-                RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") { open(.bridge(token: nil)) }
+                    .disabled(vm.wallets.count < 2).opacity(vm.wallets.count < 2 ? 0.4 : 1)
+                    .help(vm.wallets.count < 2 ? "Add a second wallet to move money between them" : "Move money between your wallets")
+                RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") {}
+                    .notYet("Bridging isn't available yet")
             }
             .padding(.top, 22)
         }
@@ -48,78 +84,103 @@ struct BalanceCard<Sub: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card()
     }
+
+    private var status: String {
+        if vm.refreshing && !vm.loaded { return "Loading balances…" }
+        let down = vm.unreachable.filter { !$0.isTestnet }
+        if !down.isEmpty { return "Couldn't reach \(down.map(\.name).joined(separator: ", ")). Total unknown." }
+        if vm.loaded && vm.totalUSD == nil && vm.prices.isEmpty { return "Prices unavailable right now." }
+        if let d = vm.lastUpdated { return "Mainnet value, updated \(d.formatted(date: .omitted, time: .shortened)). Testnet coins count as $0." }
+        return "Mainnet value."
+    }
 }
 
-/// Assets the agent manages, as a pie: by token or by project. Project rows open Projects.
-struct AumCard: View {
-    @Environment(AppModel.self) private var model
-    @State private var byProject = false
+/// Where the money is, by token, from real mainnet balances and prices.
+struct AllocationCard: View {
+    let vm: WalletsViewModel
+    var walletID: String? = nil
+    static let palette: [Color] = [Color(hex: 0x121212), Color(hex: 0x4E1F96), Color(hex: 0x8E73CF), Color(hex: 0xB7A6E8),
+                                   Color(hex: 0xC9BFE6), Color(hex: 0xE4E4E2)]
 
     var body: some View {
-        let data = byProject ? WalletSeed.aumByProject : WalletSeed.aumByAsset
-        let total = data.reduce(0) { $0 + $1.1 }
+        let byToken = Dictionary(grouping: vm.holdings(wallet: walletID, chain: nil).filter { $0.priced && $0.usd >= 0.01 }, by: \.symbol)
+            .map { ($0.key, $0.value.reduce(0) { $0 + $1.usd }) }.sorted { $0.1 > $1.1 }
+        let total = byToken.reduce(0) { $0 + $1.1 }
+        let rows = Array(byToken.prefix(5)) + (byToken.count > 5 ? [("Other", byToken.dropFirst(5).reduce(0) { $0 + $1.1 })] : [])
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Managed by agent").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Spacer()
-                Segmented(options: [(false, "Assets"), (true, "Projects")], selection: $byProject)
-            }
-            HStack(alignment: .center, spacing: 18) {
-                Donut(parts: data.map { ($0.1 / total, $0.2) }).frame(width: 96, height: 96)
-                    .animation(.smooth, value: byProject)
-                VStack(spacing: 5) {
-                    ForEach(data, id: \.0) { d in
-                        Button {
-                            if byProject && d.0 != "Not in a project" { model.open(.projects, tab: d.0) }
-                        } label: {
+            Text("Allocation").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            if total <= 0 {
+                Text("Nothing with a price yet. Mainnet tokens show up here once they arrive.")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(alignment: .center, spacing: 18) {
+                    Ring(parts: rows.enumerated().map { ($1.1 / total, Self.palette[min($0, Self.palette.count - 1)]) }).frame(width: 96, height: 96)
+                    VStack(spacing: 5) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { i, d in
                             HStack(spacing: 8) {
-                                RoundedRectangle(cornerRadius: 2).fill(d.2).frame(width: 8, height: 8)
-                                Text(d.0).lineLimit(1).truncationMode(.tail)
+                                RoundedRectangle(cornerRadius: 2).fill(Self.palette[min(i, Self.palette.count - 1)]).frame(width: 8, height: 8)
+                                Text(d.0).lineLimit(1)
                                 Spacer(minLength: 6)
-                                Text(MoneyFmt.usd(d.1)).monospacedDigit()
+                                Text(MoneyFmt.usdSmart(d.1)).monospacedDigit()
                                 Text("\(Int((d.1 / total * 100).rounded()))%").foregroundStyle(Theme.faint).monospacedDigit().frame(width: 34, alignment: .trailing)
                             }
-                            .font(.system(size: 12.5)).foregroundStyle(Theme.text)
-                            .contentShape(Rectangle())
+                            .font(.system(size: 12.5))
                         }
-                        .buttonStyle(.plain)
-                        .disabled(!byProject || d.0 == "Not in a project")
                     }
                 }
             }
+            Text("Agent-managed funds: not set up yet").font(.system(size: 12)).foregroundStyle(Theme.faint)
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card()
     }
-}
 
-/// Short balance curve with 1W / 1M / 3M / 1Y.
-struct BalanceChart: View {
-    let total: Double
-    @Binding var range: String
-    static let ranges: [(String, Int)] = [("1W", 7), ("1M", 30), ("3M", 90), ("1Y", 365)]
-
-    static func series(_ total: Double, _ range: String) -> [Double] {
-        let n = ranges.first { $0.0 == range }?.1 ?? 30
-        // A wiggly walk, then bent so it ends at today's total after a believable gain for the range.
-        let raw = Candle.series(seed: 5 + n, count: min(n, 80), start: 100, vol: 0.012, drift: 0).map(\.c)
-        let growth = ["1W": 0.018, "1M": 0.086, "3M": 0.17, "1Y": 0.42][range] ?? 0.08
-        let first = raw.first ?? 100, last = raw.last ?? 100, count = Double(max(raw.count - 1, 1))
-        let start = total / (1 + growth)
-        return raw.enumerated().map { i, v in
-            let t = Double(i) / count
-            let trend = start + (total - start) * t
-            return trend * (v / (first + (last - first) * t))
+    struct Ring: View {
+        let parts: [(Double, Color)]
+        var body: some View {
+            ZStack {
+                ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
+                    let start = parts.prefix(i).reduce(0) { $0 + $1.0 }
+                    Circle().trim(from: start + (parts.count > 1 ? 0.006 : 0), to: start + part.0 - (parts.count > 1 ? 0.006 : 0))
+                        .stroke(part.1, style: StrokeStyle(lineWidth: 14))
+                        .rotationEffect(.degrees(-90))
+                }
+            }
+            .padding(7)
         }
     }
+}
 
+// MARK: No wallet yet
+
+struct NoWalletView: View {
+    let open: (WalletSheet) -> Void
     var body: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            LineChart(values: Self.series(total, range)).frame(height: 90)
-                .animation(.smooth(duration: 0.35), value: range)
-            Segmented(options: Self.ranges.map { ($0.0, $0.0) }, selection: $range)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No wallet on this device yet").font(.system(size: 22, weight: .semibold))
+                Text("One recovery phrase gives you an address on every network Hermit supports. Keys stay on this device, sealed by the Secure Enclave.")
+                    .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                ChainStack(chains: Chain.mainnets, size: 18)
+            }
+            HStack(spacing: 10) {
+                Button("Create a wallet") { open(.addWallet(.local, start: .create)) }.buttonStyle(WideButton())
+                Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
+            }
+            .frame(maxWidth: 460)
+            HStack(spacing: 10) {
+                Label("Privy wallets", systemImage: "envelope").notYet("Keyless wallets aren't available yet")
+                Label("Hardware wallets", systemImage: "externaldrive").notYet("Ledger and Trezor aren't supported yet")
+            }
+            .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 }
 
@@ -130,29 +191,25 @@ struct AllWalletsView: View {
     @Binding var tab: AllWalletsTab
     let wide: Bool
     let open: (WalletSheet) -> Void
-    @State private var range = "1M"
 
     var body: some View {
-        let total = vm.total()
-        let series = BalanceChart.series(total, range)
         VStack(alignment: .leading, spacing: 0) {
             Group {
                 if wide {
-                    HStack(alignment: .top, spacing: 14) { balance(total, series); AumCard() }
+                    HStack(alignment: .top, spacing: 14) { balance; AllocationCard(vm: vm) }
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    VStack(spacing: 14) { balance(total, series); AumCard() }
+                    VStack(spacing: 14) { balance; AllocationCard(vm: vm) }
                 }
             }
-            BalanceChart(total: total, range: $range).padding(.top, 18)
             PageTabs(tabs: AllWalletsTab.allCases.map { ($0, $0.title) }, selection: $tab).padding(.top, 22)
             Group {
                 switch tab {
                 case .tokens: TokensList(vm: vm, walletID: nil, open: open)
                 case .dapps: DAppsList()
-                case .gas: GasList(vm: vm, open: open)
+                case .gas: GasList(vm: vm, walletID: nil)
                 case .activity: ActivityList(vm: vm, walletID: nil, open: open)
-                case .accounts: AccountsList(vm: vm, open: open)
+                case .accounts: AccountsList()
                 }
             }
             .padding(.top, 14)
@@ -162,30 +219,26 @@ struct AllWalletsView: View {
         .animation(.smooth(duration: 0.22), value: tab)
     }
 
-    private func balance(_ total: Double, _ series: [Double]) -> some View {
-        let gain = total - (series.first ?? total)
-        return BalanceCard(label: "Total balance", usd: total, oneWallet: false, open: open) {
-            Text("\(MoneyFmt.signed(gain)) in \(range)").font(.system(size: 13)).foregroundStyle(gain >= 0 ? Theme.green : Theme.red)
-                .contentTransition(.numericText()).animation(.smooth, value: range)
-        }
+    private var balance: some View {
+        BalanceCard(vm: vm, label: "Total balance, \(vm.wallets.count) wallet\(vm.wallets.count == 1 ? "" : "s")", oneWallet: false, open: open) { EmptyView() }
     }
 }
 
 /// Network filter for Tokens and Activity: a native menu, not a second tab row.
 struct ChainFilter: View {
-    @Binding var chain: WalletChain?
-    var chains: [WalletChain] = WalletChain.all
+    @Binding var chain: Chain?
+    var chains: [Chain] = Chain.all
     var body: some View {
         Menu {
             Picker("Network", selection: $chain) {
-                Text("All networks").tag(WalletChain?.none)
+                Text("All networks").tag(Chain?.none)
                 Divider()
                 ForEach(chains) { c in Text(c.name).tag(Optional(c)) }
             }
             .pickerStyle(.inline)
         } label: {
             HStack(spacing: 6) {
-                if let chain { LogoMark(chain.logo, size: 16) } else { ChainStack(chains: Array(chains.prefix(4)), size: 14) }
+                if let chain { LogoMark(chain.logo, size: 16) } else { ChainStack(chains: Array(Chain.mainnets.prefix(4)), size: 14) }
                 Text(chain?.name ?? "All networks").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
             }
@@ -203,25 +256,30 @@ struct TokensList: View {
     let vm: WalletsViewModel
     let walletID: String?
     let open: (WalletSheet) -> Void
-    @State private var chain: WalletChain?
+    @State private var chain: Chain?
 
     var body: some View {
         let groups = vm.tokenGroups(wallet: walletID, chain: chain)
-        let chains = walletID.flatMap { vm.wallet($0)?.chains } ?? WalletChain.all
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("\(MoneyFmt.usd(groups.reduce(0) { $0 + $1.usd })) on \(chain?.name ?? "\(Set(groups.flatMap(\.chains)).count) networks")")
-                    .font(.system(size: 12.5)).foregroundStyle(Theme.muted).contentTransition(.numericText())
+                Text("\(groups.count) token\(groups.count == 1 ? "" : "s") on \(chain?.name ?? "\(Set(groups.flatMap(\.chains)).count) networks")")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
-                ChainFilter(chain: $chain, chains: chains)
+                ChainFilter(chain: $chain)
             }
-            if groups.isEmpty { EmptyNote(text: "No tokens on \(chain?.name ?? "any network") yet.") }
+            if groups.isEmpty {
+                EmptyNote(text: !vm.loaded ? "Loading balances…"
+                          : "No tokens on \(chain?.name ?? "any network") yet. Deposit to your address to get started; on testnets, use a faucet.")
+            }
             RowList(items: groups) { g in
                 Button { open(.token(g)) } label: {
                     HStack(spacing: 12) {
                         TokenLogo(symbol: g.symbol, chain: g.chains.count == 1 ? g.chains[0] : nil, size: 32)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(g.symbol).font(.system(size: 14, weight: .medium))
+                            HStack(spacing: 6) {
+                                Text(g.symbol).font(.system(size: 14, weight: .medium))
+                                if g.testnet { PillTag(text: "Testnet", color: Theme.muted) }
+                            }
                             HStack(spacing: 6) {
                                 Text(MoneyFmt.amount(g.amount)).monospacedDigit()
                                 if g.chains.count > 1 { ChainStack(chains: g.chains, size: 13) }
@@ -231,9 +289,15 @@ struct TokensList: View {
                         }
                         Spacer(minLength: 8)
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(MoneyFmt.usd(g.usd)).font(.system(size: 14)).monospacedDigit()
-                            Text(MoneyFmt.pct(g.change)).font(.system(size: 12.5)).monospacedDigit()
-                                .foregroundStyle(g.change > 0 ? Theme.green : g.change < 0 ? Theme.red : Theme.muted)
+                            if g.priced {
+                                Text(MoneyFmt.usd(g.usd, digits: g.usd < 10 ? 2 : 0)).font(.system(size: 14)).monospacedDigit()
+                                if let ch = g.change {
+                                    Text(MoneyFmt.pct(ch)).font(.system(size: 12.5)).monospacedDigit()
+                                        .foregroundStyle(ch > 0 ? Theme.green : ch < 0 ? Theme.red : Theme.muted)
+                                }
+                            } else {
+                                Text(g.testnet ? "No value" : "No price").font(.system(size: 13)).foregroundStyle(Theme.faint)
+                            }
                         }
                     }
                     .padding(.vertical, 10)
@@ -245,99 +309,64 @@ struct TokensList: View {
     }
 }
 
+/// DeFi positions aren't tracked yet: say so instead of showing made-up ones.
 struct DAppsList: View {
-    @Environment(AppModel.self) private var model
     var body: some View {
-        RowList(items: WalletSeed.dapps) { d in
-            Button { model.open(d.type.contains("Perps") || d.type.contains("Spot") ? .trade : .earn) } label: {
-                HStack(spacing: 12) {
-                    TokenLogo(symbol: d.name, chain: d.chain, size: 32)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(d.name).font(.system(size: 14, weight: .medium))
-                        Text("\(d.type), \(d.chain.name)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(MoneyFmt.usd(d.usd)).font(.system(size: 14)).monospacedDigit()
-                        Text(MoneyFmt.signed(d.pnl)).font(.system(size: 12.5)).monospacedDigit().foregroundStyle(d.pnl >= 0 ? Theme.green : Theme.red)
-                    }
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
-                }
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(RowButtonStyle())
+        VStack(alignment: .leading, spacing: 10) {
+            EmptyNote(text: "DeFi positions (lending, perps, vaults) aren't tracked yet.")
+            Button("Connect a DApp") {}.buttonStyle(OutlineButton()).notYet("Coming after the wallet's security review")
         }
     }
 }
 
+/// Gas is the native coin on each network, read from the chain.
 struct GasList: View {
-    @Bindable var vm: WalletsViewModel
-    let open: (WalletSheet) -> Void
+    let vm: WalletsViewModel
+    let walletID: String?
+    @State private var testnets = false
 
     var body: some View {
-        let total = vm.gas.reduce(0) { $0 + $1.usd }
+        let tanks = vm.gas(wallet: walletID).filter { $0.chain.isTestnet == testnets }
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label { Text("Gas ") + Text(MoneyFmt.usd(total)).foregroundStyle(Theme.faint) } icon: { Image(systemName: "fuelpump") }
-                    .font(.system(size: 13.5, weight: .medium))
+                Label("Gas by network", systemImage: "fuelpump").font(.system(size: 13.5, weight: .medium))
                 Spacer()
-                Text("Auto top-up").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Toggle("Auto top-up", isOn: $vm.autoTopUp).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Theme.text)
+                Segmented(options: [(false, "Mainnets"), (true, "Testnets")], selection: $testnets)
             }
-            RowList(items: vm.gas) { g in gasRow(g) }
-            HStack(spacing: 4) {
-                Text(vm.autoTopUp ? "Refills any chain below 20 transactions." : "Auto top-up is off.")
-                Button("Bridge funds") { open(.bridge(token: nil)) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
-            }
-            .font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
+            RowList(items: tanks) { g in gasRow(g) }
+            Text("Auto top-up and gas swaps aren't available yet. Send the network's coin to your address to refill.")
+                .font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
         }
     }
 
     private func gasRow(_ g: GasTank) -> some View {
         HStack(spacing: 12) {
             LogoMark(g.chain.logo, size: 32)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text(g.chain.name).font(.system(size: 14, weight: .medium))
-                    Spacer()
-                    Text("\(MoneyFmt.amount(g.amount)) \(g.chain.gasToken)").font(.system(size: 12.5)).monospacedDigit()
-                }
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Theme.hover)
-                        Capsule().fill(g.low ? Theme.red : Theme.text).frame(width: geo.size.width * g.level)
-                    }
-                }
-                .frame(height: 4)
-                HStack {
-                    Text("\(g.low ? "Low, " : "")\(g.txs.formatted(.number.locale(Locale(identifier: "en_US")))) txs left")
-                        .foregroundStyle(g.low ? Theme.red : Theme.muted).lineLimit(1)
-                    Spacer()
-                    Text(g.usd >= 10 ? MoneyFmt.usd(g.usd) : MoneyFmt.usd(g.usd, digits: 2)).foregroundStyle(Theme.muted).monospacedDigit()
-                }
-                .font(.system(size: 12))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(g.chain.name).font(.system(size: 14, weight: .medium))
+                Text(g.low ? "Empty: sends on \(g.chain.name) need \(g.chain.nativeSymbol) for fees" : "\(MoneyFmt.amount(g.amount)) \(g.chain.nativeSymbol)")
+                    .font(.system(size: 12.5)).foregroundStyle(g.low ? Theme.amber : Theme.muted).monospacedDigit().lineLimit(1)
             }
+            Spacer()
+            Text(g.usd.map { MoneyFmt.usd($0, digits: 2) } ?? (g.chain.isTestnet ? "Testnet" : "—"))
+                .font(.system(size: 13)).foregroundStyle(Theme.muted).monospacedDigit()
             HStack(spacing: 6) {
-                gasButton("arrow.down.to.line", brand: g.low, label: "Top up \(g.chain.name) gas") { open(.gasTopUp(g.chain)) }
-                gasButton("arrow.up.right", brand: false, label: "Withdraw \(g.chain.name) gas") { open(.gasWithdraw(g.chain)) }
-                    .disabled(g.usd < 1).opacity(g.usd < 1 ? 0.4 : 1)
+                gasButton("arrow.down.to.line", label: "Top up \(g.chain.name) gas")
+                gasButton("arrow.up.right", label: "Withdraw \(g.chain.name) gas")
             }
+            .notYet("Gas top-ups and withdrawals aren't available yet")
             .padding(.leading, 6)
         }
         .padding(.vertical, 11)
-        .contentShape(Rectangle())
-        .onTapGesture { open(.gasTopUp(g.chain)) }
     }
 
-    private func gasButton(_ symbol: String, brand: Bool, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .medium))
-                .foregroundStyle(brand ? .white : Theme.text)
-                .frame(width: 34, height: 34)
-                .background(brand ? Theme.accent : Theme.hover, in: Circle())
+    private func gasButton(_ symbol: String, label: String) -> some View {
+        Button {} label: {
+            Image(systemName: symbol).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
+                .frame(width: 34, height: 34).background(Theme.hover, in: Circle())
         }
         .buttonStyle(PressStyle())
-        .help(label).accessibilityLabel(label)
+        .accessibilityLabel(label)
     }
 }
 
@@ -345,20 +374,46 @@ struct ActivityList: View {
     let vm: WalletsViewModel
     let walletID: String?
     let open: (WalletSheet) -> Void
-    @State private var chain: WalletChain?
+    @State private var chain: Chain?
 
     var body: some View {
         let items = vm.activity(wallet: walletID, chain: chain)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("\(items.count) transactions").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text("\(items.count) send\(items.count == 1 ? "" : "s") from this device").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
                 ChainFilter(chain: $chain)
             }
-            if items.isEmpty { EmptyNote(text: "Nothing on \(chain?.name ?? "any network") yet.") }
+            if items.isEmpty { EmptyNote(text: "Nothing sent from Hermit\(chain.map { " on \($0.name)" } ?? "") yet.") }
             RowList(items: items) { a in ActivityRow(item: a, wallet: walletID == nil ? vm.wallet(a.walletID)?.name : nil) { open(.activity(a)) } }
+            ExplorerLinks(vm: vm, walletID: walletID, chain: chain)
         }
         .animation(.smooth(duration: 0.25), value: chain)
+    }
+}
+
+/// Incoming transfers and older history live on the block explorers; one tap opens your address there.
+struct ExplorerLinks: View {
+    @Environment(\.openURL) private var openURL
+    let vm: WalletsViewModel
+    let walletID: String?
+    var chain: Chain?
+    var body: some View {
+        if let w = vm.wallet(walletID) ?? vm.wallets.first {
+            let chains = chain.map { [$0] } ?? [Chain.ethereum, .base, .solana]
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Received transfers and older history are on the explorer\(walletID == nil && vm.wallets.count > 1 ? " (\(w.name))" : ""):")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                WrapRow {
+                    ForEach(chains) { c in
+                        if let a = w.address(on: c), let url = c.explorerURL(address: a) {
+                            SelectChip(title: c.name, logo: c.logo, on: false) { openURL(url) }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
+        }
     }
 }
 
@@ -369,19 +424,18 @@ struct ActivityRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: item.usd > 0 ? "arrow.down.left" : "arrow.up.right").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(item.usd > 0 ? Theme.green : Theme.muted)
-                    .frame(width: 32, height: 32).background(item.usd > 0 ? Theme.green.opacity(0.1) : Theme.hover, in: Circle())
+                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+                    .frame(width: 32, height: 32).background(Theme.hover, in: Circle())
                     .overlay(alignment: .bottomTrailing) {
                         LogoMark(item.chain.logo, size: 14).padding(1).background(Theme.bg, in: Circle()).offset(x: 3, y: 3)
                     }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.what).font(.system(size: 14)).lineLimit(1)
-                    Text([item.when, item.via, wallet].compactMap { $0 }.joined(separator: ", ")).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text([item.when, item.chain.name, wallet].compactMap { $0 }.joined(separator: ", ")).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Text(item.usd == 0 ? "$0" : MoneyFmt.signed(item.usd)).font(.system(size: 14)).monospacedDigit()
-                    .foregroundStyle(item.usd > 0 ? Theme.green : Theme.text)
+                Text(item.amountText).font(.system(size: 14)).monospacedDigit().lineLimit(1)
             }
             .padding(.vertical, 10)
         }
@@ -389,28 +443,25 @@ struct ActivityRow: View {
     }
 }
 
+/// Linked social accounts aren't connected to anything yet.
 struct AccountsList: View {
-    @Environment(AppModel.self) private var model
-    @Bindable var vm: WalletsViewModel
-    let open: (WalletSheet) -> Void
+    static let apps = [("X", "Quests and posts"), ("Discord", "Airdrop roles"), ("Telegram", "Alerts and alpha groups")]
     var body: some View {
-        RowList(items: WalletSeed.accounts) { a in
-            let on = vm.linked.contains(a.app)
-            HStack(spacing: 12) {
-                LogoMark(a.app, size: 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(on ? a.handle : a.app).font(.system(size: 14, weight: .medium))
-                    Text(on ? a.on : a.off).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Self.apps, id: \.0) { a in
+                HStack(spacing: 12) {
+                    LogoMark(a.0, size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(a.0).font(.system(size: 14, weight: .medium))
+                        Text(a.1).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    Button("Connect") {}.buttonStyle(BlackButton()).notYet("Linking accounts isn't available yet")
                 }
-                Spacer()
-                if on {
-                    Button("Disconnect") { withAnimation(.snappy) { _ = vm.linked.remove(a.app) }; model.toast("\(a.app) disconnected") }
-                        .buttonStyle(OutlineButton())
-                } else {
-                    Button("Connect") { open(.connect(a.app)) }.buttonStyle(BlackButton())
-                }
+                .padding(.vertical, 11)
+                Hairline()
             }
-            .padding(.vertical, 11)
+            Text("Linking social accounts to wallets is coming later.").font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
         }
     }
 }
@@ -424,10 +475,19 @@ struct OneWalletView: View {
     let wide: Bool
     let open: (WalletSheet) -> Void
     @State private var tab = "tokens"
+    @State private var confirmDelete = false
 
     var body: some View {
-        let l = WalletSeed.links[wallet.id] ?? WalletLinks()
         VStack(alignment: .leading, spacing: 0) {
+            if !wallet.backedUp {
+                Button { open(.phrase(wallet.id)) } label: {
+                    Label("This wallet's recovery phrase isn't backed up. Back it up now.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.amber)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12).background(Theme.amber.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain).padding(.bottom, 14)
+            }
             Group {
                 if wide {
                     HStack(alignment: .top, spacing: 14) { header; NetworksCard(vm: vm, wallet: wallet) }
@@ -436,17 +496,13 @@ struct OneWalletView: View {
                     VStack(spacing: 14) { header; NetworksCard(vm: vm, wallet: wallet) }
                 }
             }
-            PageTabs(tabs: [("tokens", "Tokens"), ("projects", count("Projects", l.projects.count)), ("trading", count("Trading", l.trades.count)),
-                            ("payments", count("Payments", l.payments.count)), ("defi", count("DeFi", l.defi.count)), ("activity", "Activity")],
-                     selection: $tab)
+            PageTabs(tabs: [("tokens", "Tokens"), ("gas", "Gas"), ("activity", "Activity"), ("security", "Security")], selection: $tab)
                 .padding(.top, 24)
             Group {
                 switch tab {
                 case "tokens": TokensList(vm: vm, walletID: wallet.id, open: open)
-                case "projects": projects(l)
-                case "trading": trading(l)
-                case "payments": payments(l)
-                case "defi": defi(l)
+                case "gas": GasList(vm: vm, walletID: wallet.id)
+                case "security": security
                 default: ActivityList(vm: vm, walletID: wallet.id, open: open)
                 }
             }
@@ -455,21 +511,26 @@ struct OneWalletView: View {
             .transition(.opacity)
         }
         .animation(.smooth(duration: 0.22), value: tab)
+        .confirmationDialog("Remove \(wallet.name) from this device?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Remove wallet", role: .destructive) {
+                do { try vm.deleteWallet(wallet.id); model.toast("\(wallet.name) removed") } catch { model.toast(error.localizedDescription) }
+            }
+        } message: {
+            Text("Its keys are deleted from this device. Any money on it can only be recovered with its recovery phrase.")
+        }
     }
 
-    private func count(_ s: String, _ n: Int) -> String { n > 0 ? "\(s) \(n)" : s }
-
     private var header: some View {
-        BalanceCard(label: "\(wallet.kind), \(wallet.source.lowercased().hasPrefix("privy") ? "keyless" : wallet.source)", usd: vm.total(wallet.id), oneWallet: true, open: open, walletID: wallet.id) {
+        BalanceCard(vm: vm, label: "\(wallet.name), \(wallet.source.lowercased())", oneWallet: true, open: open, walletID: wallet.id) {
             VStack(alignment: .leading, spacing: 4) {
-                if let a = wallet.evmAddress { addressLine(a, chains: WalletChain.evm, name: "EVM") }
+                if let a = wallet.evmAddress { addressLine(a, chains: Chain.evmMainnets, name: "EVM") }
                 if let a = wallet.solanaAddress { addressLine(a, chains: [.solana], name: "Solana") }
             }
             .padding(.top, 4)
         }
     }
 
-    private func addressLine(_ a: String, chains: [WalletChain], name: String) -> some View {
+    private func addressLine(_ a: String, chains: [Chain], name: String) -> some View {
         Button { Clip.copy(a); model.toast("\(name) address copied") } label: {
             HStack(spacing: 7) {
                 ChainStack(chains: chains, size: 15)
@@ -482,101 +543,34 @@ struct OneWalletView: View {
         .help("Copy \(name) address: \(a)")
     }
 
-    private func linkRow<T: View>(_ action: @escaping () -> Void, @ViewBuilder _ content: () -> T) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                content()
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
+    private var security: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            DetailLines(lines: [("Keys", wallet.protection), ("Recovery phrase", "\(wallet.record.wordCount) words, \(wallet.backedUp ? "backed up" : "not backed up")"),
+                                ("Created", wallet.record.created.formatted(date: .abbreviated, time: .omitted)),
+                                ("EVM path", KeyVault.evmPath), ("Solana path", KeyVault.solanaPath)],
+                        monoKeys: ["EVM path", "Solana path"])
+            HStack(spacing: 10) {
+                Button("Show recovery phrase") { open(.phrase(wallet.id)) }.buttonStyle(WideButton())
+                Button("Remove from this device") { confirmDelete = true }.buttonStyle(WideButton(kind: .plain))
             }
-            .padding(.vertical, 11)
-        }
-        .buttonStyle(RowButtonStyle())
-    }
-
-    @ViewBuilder private func projects(_ l: WalletLinks) -> some View {
-        if l.projects.isEmpty { EmptyNote(text: "No projects use this wallet.") }
-        VStack(spacing: 0) {
-            ForEach(Array(l.projects.enumerated()), id: \.offset) { i, p in
-                linkRow({ model.open(.projects, tab: p.0) }) {
-                    Circle().fill(WalletSeed.projectColors[p.0] ?? Theme.faint).frame(width: 10, height: 10)
-                    Text(p.0).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                    Spacer()
-                    Text(MoneyFmt.usd(p.1)).font(.system(size: 14)).monospacedDigit()
-                }
-                if i < l.projects.count - 1 { Hairline() }
-            }
-        }
-    }
-
-    @ViewBuilder private func trading(_ l: WalletLinks) -> some View {
-        if l.trades.isEmpty { EmptyNote(text: "No open trades.") }
-        VStack(spacing: 0) {
-            ForEach(Array(l.trades.enumerated()), id: \.offset) { i, t in
-                linkRow({ model.open(.trade) }) {
-                    LogoMark(t.0, size: 30)
-                    Text(t.1).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                    Spacer()
-                    Text(MoneyFmt.signed(t.2)).font(.system(size: 14)).monospacedDigit().foregroundStyle(t.2 >= 0 ? Theme.green : Theme.red)
-                }
-                if i < l.trades.count - 1 { Hairline() }
-            }
-        }
-    }
-
-    @ViewBuilder private func payments(_ l: WalletLinks) -> some View {
-        if l.payments.isEmpty { EmptyNote(text: "No payments from this wallet.") }
-        VStack(spacing: 0) {
-            ForEach(Array(l.payments.enumerated()), id: \.offset) { i, p in
-                linkRow({ model.open(.payments) }) {
-                    LogoMark(p.0, size: 30)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(p.0).font(.system(size: 14, weight: .medium))
-                        Text(p.1).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                    }
-                    .lineLimit(1)
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(MoneyFmt.usd(p.2)).font(.system(size: 14)).monospacedDigit()
-                        Text(p.3).font(.system(size: 12)).foregroundStyle(Theme.faint)
-                    }
-                }
-                if i < l.payments.count - 1 { Hairline() }
-            }
-        }
-    }
-
-    @ViewBuilder private func defi(_ l: WalletLinks) -> some View {
-        if l.defi.isEmpty { EmptyNote(text: "No DeFi positions.") }
-        VStack(spacing: 0) {
-            ForEach(Array(l.defi.enumerated()), id: \.offset) { i, d in
-                linkRow({ model.open(.earn) }) {
-                    LogoMark(d.0, size: 30)
-                    Text("\(d.0) \(d.1)").font(.system(size: 14, weight: .medium)).lineLimit(1)
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(MoneyFmt.usd(d.2)).font(.system(size: 14)).monospacedDigit()
-                        Text("\(d.3.formatted(.number.precision(.fractionLength(1))))%").font(.system(size: 12)).foregroundStyle(Theme.green)
-                    }
-                }
-                if i < l.defi.count - 1 { Hairline() }
-            }
+            NoteBox(symbol: "lock.shield", text: "Every send and every look at the phrase asks for Touch ID, Face ID or your device password. Sends work on testnets; mainnet sends unlock after our security review.")
         }
     }
 }
 
-/// Where one wallet's money sits, by network.
+/// Where one wallet's money sits, by network (mainnet dollars).
 struct NetworksCard: View {
     let vm: WalletsViewModel
     let wallet: WalletAccount
     var body: some View {
-        let total = max(vm.total(wallet.id), 0.01)
-        let rows = wallet.chains.map { c in (c, vm.holdings(wallet: wallet.id, chain: c).reduce(0) { $0 + $1.usd }) }.sorted { $0.1 > $1.1 }
+        let rows = Chain.mainnets.map { c in (c, vm.holdings(wallet: wallet.id, chain: c).reduce(0) { $0 + $1.usd }) }.sorted { $0.1 > $1.1 }
+        let total = max(rows.reduce(0) { $0 + $1.1 }, 0.01)
         VStack(alignment: .leading, spacing: 12) {
             Text("Networks").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
             ForEach(rows, id: \.0) { r in
                 HStack(spacing: 10) {
                     LogoMark(r.0.logo, size: 20)
-                    Text(r.0.name).font(.system(size: 13)).frame(width: 82, alignment: .leading).lineLimit(1)
+                    Text(r.0.name).font(.system(size: 13)).frame(width: 96, alignment: .leading).lineLimit(1)
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Theme.hover)
@@ -584,7 +578,8 @@ struct NetworksCard: View {
                         }
                     }
                     .frame(height: 4)
-                    Text(MoneyFmt.usd(r.1)).font(.system(size: 12.5)).monospacedDigit().frame(width: 64, alignment: .trailing)
+                    Text(vm.unreachable.contains(r.0) ? "—" : MoneyFmt.usd(r.1, digits: r.1 > 0 && r.1 < 10 ? 2 : 0))
+                        .font(.system(size: 12.5)).monospacedDigit().frame(width: 64, alignment: .trailing)
                 }
             }
         }
