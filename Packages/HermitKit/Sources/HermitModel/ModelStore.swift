@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if os(iOS)
+import HermitActivity
+#endif
 
 /// Downloads, checks and deletes on-device models, and says which one Hermit uses.
 /// Files live in Application Support/Hermit/Models/<repo id>, are kept out of backups and resume after a quit.
@@ -25,6 +28,10 @@ public final class ModelStore {
     public let root: URL
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var deleteObservers: [(String) -> Void] = []
+    #if os(iOS)
+    /// Background time and the Live Activity while a download runs.
+    @ObservationIgnored private let keepAlive = DownloadKeepAlive()
+    #endif
     private static let selectedKey = "hermit.model.selected"
     private static let readyMarker = ".hermit-ready"
 
@@ -35,6 +42,10 @@ public final class ModelStore {
         selectedID = spec.supported && ModelCatalog.fits(spec) ? saved : ModelCatalog.defaultID
         for spec in ModelCatalog.all { states[spec.id] = isComplete(spec.id) ? .ready : .notDownloaded }
         if states[selectedID] == nil { states[selectedID] = isComplete(selectedID) ? .ready : .notDownloaded }
+        #if os(iOS)
+        keepAlive.onExpire = { [weak self] id in self?.cancel(id) }
+        keepAlive.onResume = { [weak self] id in self?.download(id) }
+        #endif
     }
 
     // MARK: Reading
@@ -69,15 +80,21 @@ public final class ModelStore {
     public func download(_ id: String) {
         guard tasks[id] == nil, state(id) != .ready else { return }
         states[id] = .downloading(progress(id))
+        #if os(iOS)
+        keepAlive.begin(id: id, name: ModelCatalog.spec(id).name, received: received[id] ?? 0, total: totals[id] ?? 0)
+        #endif
         tasks[id] = Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.fetch(id)
                 self.states[id] = .ready
+                self.keepAliveFinish(id, .landed)
             } catch is CancellationError {
                 self.states[id] = .notDownloaded
+                self.keepAliveFinish(id, .paused)
             } catch {
                 self.states[id] = .failed(error.localizedDescription)
+                self.keepAliveFinish(id, .failed)
             }
             self.tasks[id] = nil
         }
@@ -140,6 +157,7 @@ public final class ModelStore {
             guard size == file.size else { try? FileManager.default.removeItem(at: part); throw DownloadError.sizeMismatch(file.path) }
             if let sha = file.sha256 {
                 states[id] = .verifying
+                keepAliveUpdate(id)
                 let actual = try await Task.detached(priority: .utility) { try FileDownload.sha256(of: part) }.value
                 guard actual == sha else { try? FileManager.default.removeItem(at: part); throw DownloadError.checksum(file.path) }
             }
@@ -155,7 +173,19 @@ public final class ModelStore {
     private func report(_ id: String, _ bytes: Int64) {
         received[id] = bytes
         if case .downloading = state(id) { states[id] = .downloading(progress(id)) }
+        keepAliveUpdate(id)
     }
+
+    #if os(iOS)
+    private func keepAliveUpdate(_ id: String) {
+        keepAlive.update(id: id, phase: state(id) == .verifying ? .verifying : .downloading, received: received[id] ?? 0, total: totals[id] ?? 0)
+    }
+    private func keepAliveFinish(_ id: String, _ phase: ModelDownloadAttributes.Phase) { keepAlive.finish(id: id, phase: phase) }
+    #else
+    private func keepAliveUpdate(_ id: String) {}
+    private enum FinishPhase { case landed, paused, failed }
+    private func keepAliveFinish(_ id: String, _ phase: FinishPhase) {}
+    #endif
 
     /// The files to fetch, with sizes and checksums, from the Hugging Face tree API.
     nonisolated static func listFiles(_ id: String) async throws -> [RepoFile] {

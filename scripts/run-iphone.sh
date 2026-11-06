@@ -11,7 +11,7 @@ security unlock-keychain -p "$(cat ~/hermit/.kc)" "$KC"
 ~/hermit/xg/xcodegen/bin/xcodegen generate -q
 xcodebuild -project Hermit.xcodeproj -scheme HermitiOS -configuration Release -destination "generic/platform=iOS" \
   -derivedDataPath "$DD" HERMIT_IDENTITY="$(security find-identity -v -p codesigning "$KC" | awk '/Apple Development/ {print $2; exit}')" \
-  HERMIT_PROFILE="Hermit iOS Dev" OTHER_CODE_SIGN_FLAGS="--keychain $KC" build | grep -E "error:|BUILD" || true
+  HERMIT_PROFILE="Hermit iOS Dev" HERMIT_WIDGET_PROFILE="Hermit Widgets Dev" OTHER_CODE_SIGN_FLAGS="--keychain $KC" build | grep -E "error:|BUILD" || true
 APP="$DD/Build/Products/Release-iphoneos/Hermit.app"
 codesign --verify "$APP" 2>/dev/null || { echo "Build failed"; exit 1; }
 xcrun devicectl device install app --device "$DEV" "$APP"
