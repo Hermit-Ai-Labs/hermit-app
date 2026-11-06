@@ -148,3 +148,44 @@ struct HoloBar: View {
         .accessibilityValue("\(Int(value * 100)) percent")
     }
 }
+
+/// A first-step card in the Fly offline style: crab tile, title and one line, the live holo icon, foil over a pale violet
+/// card. The whole card is the button. Used for Create your wallet (design A from the wallet round).
+struct HoloPromptCard: View {
+    let image: String
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image.hermit(image).resizable().interpolation(.high).scaledToFit()
+                    .frame(width: 40).offset(y: 3)
+                    .frame(width: 44, height: 44)
+                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
+                }
+                Spacer(minLength: 8)
+                HoloIconButton(symbol: symbol, label: title, action: action).accessibilityHidden(true)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                ZStack {
+                    LinearGradient(colors: [.white, Color(hex: 0xF7F4FF), .white], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    HoloFoil(strength: 0.5)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("\(title). \(subtitle)")
+    }
+}

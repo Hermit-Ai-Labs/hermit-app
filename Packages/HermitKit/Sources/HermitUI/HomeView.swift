@@ -53,8 +53,8 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
             if wallets.loaded && wallets.wallets.isEmpty {
-                GradientCTA(symbol: "wallet.bifold", title: "Create your wallet",
-                            subtitle: "Made on this phone, locked by Face ID") { model.open(.wallets, tab: "create") }
+                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on this phone",
+                               symbol: "plus") { model.open(.wallets, tab: "create") }
                     .frame(maxWidth: 460)
                     .padding(.top, 22)
             } else {

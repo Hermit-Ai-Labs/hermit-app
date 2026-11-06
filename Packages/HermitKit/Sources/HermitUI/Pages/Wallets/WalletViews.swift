@@ -168,10 +168,10 @@ struct NoWalletView: View {
                 Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
-            ButtonPair {
-                Button { open(.addWallet(.local, start: .create)) } label: { Label("Create a wallet", systemImage: "plus") }
-                    .buttonStyle(GradientPill(full: true))
-            } second: {
+            VStack(spacing: 10) {
+                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on this phone", symbol: "plus") {
+                    open(.addWallet(.local, start: .create))
+                }
                 Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
             }
             .frame(maxWidth: 460)
