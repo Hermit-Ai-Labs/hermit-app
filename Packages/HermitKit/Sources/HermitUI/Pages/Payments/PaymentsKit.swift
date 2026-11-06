@@ -9,47 +9,67 @@ import UIKit
 // Small building blocks shared by Payments, Calendar and Explore. Prefixed Pay* so they never clash
 // with the shared design system in Components.swift.
 
-// MARK: Approvals
+// MARK: Empty states and unbuilt controls
 
-enum PayChecks {
-    /// The hazard scan every money move runs (demo: baseChecks in Approval.jsx).
-    static func base(_ extra: [String] = []) -> [String] {
-        ["Requested by you, not by a web page or email", "Simulation matches summary",
-         "Contract verified and audited", "Exact-amount token approval"] + extra + ["Within daily limit"]
+/// A clean empty state: icon, one line, a short note and a single action.
+struct EmptyState<Action: View>: View {
+    let symbol: String
+    let title: String
+    var text: String? = nil
+    @ViewBuilder var action: () -> Action
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 26, weight: .light)).foregroundStyle(Theme.faint)
+                .padding(.bottom, 4)
+            Text(title).font(.system(size: 15, weight: .medium))
+            if let text {
+                Text(text).font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    .frame(maxWidth: 380).fixedSize(horizontal: false, vertical: true)
+            }
+            action().padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 52)
     }
 }
 
-/// Opens the approval sheet and runs `then` only once it went through (Cancel does nothing).
-/// AppModel.approved() posts "<success>." into the thread, which is how we know.
-@MainActor final class PayApprovalHook {
-    static let shared = PayApprovalHook()
-    private var pending: (success: String, count: Int, then: () -> Void)?
-
-    /// `afterSheet`: the caller just dismissed its own sheet, so wait for it to leave before presenting.
-    func request(_ a: Approval, model: AppModel, afterSheet: Bool = false, then: @escaping () -> Void = {}) {
-        pending = (a.success, model.approvalCount, then)
-        if afterSheet {
-            Task { @MainActor in try? await Task.sleep(for: .milliseconds(380)); model.approval = a }
-        } else {
-            model.approval = a
-        }
-    }
-
-    func settle(model: AppModel) {
-        guard model.approval == nil, let p = pending else { return }
-        pending = nil
-        if model.approvalCount > p.count { p.then() }
+extension EmptyState where Action == EmptyView {
+    init(symbol: String, title: String, text: String? = nil) {
+        self.init(symbol: symbol, title: title, text: text) { EmptyView() }
     }
 }
 
 extension View {
-    /// Attach once per page so approval results reach the page state.
-    func payApprovalWatch(_ model: AppModel) -> some View {
-        onChange(of: model.approval?.id) { _, new in
-            if new == nil { PayApprovalHook.shared.settle(model: model) }
-        }
+    /// Greys out a control whose feature isn't built yet. The reason shows on hover.
+    func comingSoon(_ note: String = "Coming soon") -> some View {
+        disabled(true).opacity(0.45).help(note)
+    }
+}
+
+// MARK: Saving
+
+/// Small JSON files in Application Support/Hermit for page state (payees, calendar tasks, the files index).
+/// Snapshot runs never read or write them.
+enum LocalJSON {
+    static var dir: URL? {
+        guard !SnapshotMode.active,
+              let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("Hermit") else { return nil }
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
     }
 
+    static func load<T: Decodable>(_ name: String, as: T.Type) -> T? {
+        guard let url = dir?.appendingPathComponent(name), let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    static func save<T: Encodable>(_ value: T, _ name: String) {
+        guard let url = dir?.appendingPathComponent(name), let data = try? JSONEncoder().encode(value) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
+extension View {
     /// Reports the width this view gets, for adaptive (iPhone) layouts.
     func payWidth(_ w: Binding<CGFloat>) -> some View {
         onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w.wrappedValue = $0 }

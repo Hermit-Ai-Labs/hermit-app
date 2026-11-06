@@ -1,8 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import HermitCore
 
 /// Projects, Claude-style: a grid of projects; each opens a page with a chat box above its tabs
-/// (Overview, Chats, Instructions, Files).
+/// (Chats, Instructions, Files). Everything here is made by the user and kept on the device.
 struct ProjectsPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
@@ -31,6 +32,12 @@ struct ProjectsPage: View {
                     .buttonStyle(BlackButton())
                     .keyboardShortcut("n", modifiers: [.command, .shift])
             }
+            if model.projectList.isEmpty {
+                EmptyState(symbol: "folder", title: "No projects yet",
+                           text: "A project keeps its own chats, files and instructions together.") {
+                    Button { creating = true } label: { Label("New project", systemImage: "plus") }.buttonStyle(BlackButton())
+                }
+            }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 280 : 230), spacing: 14)], spacing: 14) {
                 ForEach(model.projectList) { p in ProjectTile(project: p, chats: model.chats(in: p.name).count) }
             }
@@ -43,27 +50,19 @@ struct ProjectTile: View {
     let project: Project
     let chats: Int
     @State private var hover = false
+    @State private var renaming = false
+    @State private var deleting = false
 
     var body: some View {
         Button { model.openProject(project.name) } label: {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Image(systemName: project.symbol).font(.system(size: 16)).foregroundStyle(Theme.text)
-                    Spacer()
-                    if project.status != "Running" { Text(project.status).font(.system(size: 12)).foregroundStyle(Theme.faint) }
-                }
+                Image(systemName: project.symbol).font(.system(size: 16)).foregroundStyle(Theme.text)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(project.name).font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                     Text(project.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                HStack {
-                    Text(project.pnl).monospacedDigit()
-                        .foregroundStyle(project.gain > 0 ? Theme.green : project.gain < 0 ? Theme.red : Theme.faint)
-                    Spacer()
-                    Text("\(chats) chats").foregroundStyle(Theme.faint)
-                }
-                .font(.system(size: 12.5))
+                Text(chats == 1 ? "1 chat" : "\(chats) chats").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
             }
             .padding(16).frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
             .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radius))
@@ -76,17 +75,21 @@ struct ProjectTile: View {
         .contextMenu {
             Button("Open", systemImage: "folder") { model.openProject(project.name) }
             Button("New chat in project", systemImage: "square.and.pencil") { model.newChat(project: project.name) }
+            Button("Rename", systemImage: "pencil") { renaming = true }
+            Divider()
+            Button("Delete", systemImage: "trash", role: .destructive) { deleting = true }
         }
+        .projectActions(project, renaming: $renaming, deleting: $deleting)
     }
 }
 
 /// One project: chat box above the tabs; sending starts a chat inside the project.
 struct ProjectDetail: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.compact) private var compact
     let project: Project
-    @State private var tab = "overview"
-    @State private var file: Attachment?
+    @State private var tab = "chats"
+    @State private var renaming = false
+    @State private var deleting = false
 
     var body: some View {
         ScrollPage(maxWidth: 760) {
@@ -98,22 +101,31 @@ struct ProjectDetail: View {
                     }
                     .buttonStyle(ToolStyle()).help("All projects").keyboardShortcut("[", modifiers: .command)
                     Text(project.name).font(.system(size: 24, weight: .semibold)).tracking(-0.4).lineLimit(1)
+                    Spacer()
+                    Menu {
+                        Button("Rename", systemImage: "pencil") { renaming = true }
+                        Button("Delete project", systemImage: "trash", role: .destructive) { deleting = true }
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .frame(width: 32, height: 32).contentShape(Rectangle())
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help("Project options")
                 }
                 .padding(.leading, -8)
-                Composer(placeholder: "Start a chat in \(project.name)", label: "Uses this project's files", projectPicker: false, minLines: 2, autoFocus: false) { text, f in
+                Composer(placeholder: "Start a chat in \(project.name)", label: "", projectPicker: false, minLines: 2, autoFocus: false) { text, f in
                     model.newChat(project: project.name)
                     model.send(text, attachment: f)
                 }
                 .padding(.top, 16)
-                PageTabs(tabs: [("overview", "Overview"), ("chats", "Chats \(model.chats(in: project.name).count)"), ("instructions", "Instructions"), ("files", "Files")],
+                PageTabs(tabs: [("chats", "Chats \(model.chats(in: project.name).count)"), ("instructions", "Instructions"), ("files", "Files")],
                          selection: $tab)
                     .padding(.top, 22)
                 Group {
                     switch tab {
-                    case "chats": chats
                     case "instructions": ProjectInstructions(project: project)
-                    case "files": files
-                    default: overview
+                    case "files": ProjectFiles(project: project.name)
+                    default: chats
                     }
                 }
                 .padding(.top, 20)
@@ -122,130 +134,17 @@ struct ProjectDetail: View {
             }
             .animation(.smooth(duration: 0.2), value: tab)
         }
-        .sheet(item: $file) { f in FileSheet(file: f, source: project.name) }
-    }
-
-    // MARK: Overview
-
-    private var overview: some View {
-        let burn = model.burn(of: project)
-        let net = project.gain - project.cost
-        return VStack(alignment: .leading, spacing: 16) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 130 : 120), spacing: 12, alignment: .leading)], alignment: .leading, spacing: 14) {
-                stat("In operation", Money.usd(project.money), nil)
-                stat("Cost", Money.usd(project.cost), nil)
-                stat(project.gainLabel, Money.usd(project.gain, signed: true), project.gain == 0 ? nil : project.gain > 0)
-                stat("Net", Money.usd(net, signed: true), net >= 0)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Gains").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                    Spacer()
-                    Text(Money.usd(project.gain, signed: true)).font(.system(size: 14, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(project.gain > 0 ? Theme.green : project.gain < 0 ? Theme.red : Theme.text)
-                }
-                if project.gain != 0 {
-                    LineChart(values: gainSeries, color: project.gain < 0 ? Theme.red : Theme.text).frame(height: 96).padding(.vertical, 8)
-                } else {
-                    Text(project.gainNote).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                }
-                ForEach(project.gains) { g in
-                    HStack {
-                        Text(g.what).foregroundStyle(Theme.muted)
-                        Spacer()
-                        Text(Money.usd(g.amount, signed: true)).monospacedDigit()
-                            .foregroundStyle(g.amount > 0 ? Theme.green : g.amount < 0 ? Theme.red : Theme.faint)
-                    }
-                    .font(.system(size: 12.5))
-                }
-            }
-            .padding(18).frame(maxWidth: .infinity, alignment: .leading).card()
-            if !project.burn.isEmpty || project.forecast != nil {
-                let layout = compact ? AnyLayout(VStackLayout(spacing: 16)) : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
-                layout {
-                    if !project.burn.isEmpty { costs(burn) }
-                    if let f = project.forecast { forecast(f, burn) }
-                }
-            }
+        .projectActions(project, renaming: $renaming, deleting: $deleting)
+        .onAppear {
+            if let r = model.tabRequest, ["chats", "instructions", "files"].contains(r) { tab = r; model.tabRequest = nil }
         }
     }
-
-    private var gainSeries: [Double] {
-        Candle.series(seed: project.name.count, count: 30, start: 100, vol: 0.06, drift: project.gain >= 0 ? 0.01 : -0.01)
-            .enumerated().map { $1.c + Double($0) * (project.gain >= 0 ? 4 : -4) }
-    }
-
-    private func stat(_ label: String, _ value: String, _ up: Bool?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-            Text(value).font(.system(size: 20, weight: .semibold)).monospacedDigit().tracking(-0.3)
-                .foregroundStyle(up == nil ? Theme.text : up! ? Theme.green : Theme.red)
-        }
-    }
-
-    private func costs(_ burn: Double) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Costs").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Spacer()
-                Text("−\(Money.usd(burn))/mo").font(.system(size: 14, weight: .semibold)).monospacedDigit().foregroundStyle(Theme.red)
-                    .contentTransition(.numericText(value: burn))
-            }
-            ForEach(project.burn) { c in
-                let off = model.costsOff.contains("\(project.name)/\(c.what)")
-                HStack {
-                    Text(c.what).foregroundStyle(off ? Theme.faint : Theme.muted).strikethrough(off, color: Theme.faint)
-                    Spacer()
-                    Text(Money.usd(c.amount)).monospacedDigit().foregroundStyle(off ? Theme.faint : Theme.text)
-                    Toggle(c.what, isOn: Binding(get: { !off }, set: { _ in withAnimation(.snappy) { model.toggleCost(project, c) } }))
-                        .labelsHidden().toggleStyle(.switch).tint(Theme.text).controlSize(.mini)
-                }
-                .font(.system(size: 12.5))
-            }
-            Text(runway(burn)).font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 2)
-        }
-        .padding(18).frame(maxWidth: .infinity, alignment: .leading).card()
-    }
-
-    private func runway(_ burn: Double) -> String {
-        if burn == 0 { return "All paused" }
-        if project.money <= 0 { return "Auto-payments" }
-        if project.money >= burn { return "Runway \(Int(project.money / burn)) mo" }
-        return "Runway \(Int(project.money / burn * 30)) days"
-    }
-
-    private func forecast(_ f: Project.Forecast, _ burn: Double) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Expected / mo").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Spacer()
-                Text(Money.usd(f.monthly, signed: true)).font(.system(size: 14, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(f.monthly >= 0 ? Theme.green : Theme.red)
-            }
-            Text(f.basis).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-            if !project.burn.isEmpty {
-                HStack {
-                    Text("After costs").foregroundStyle(Theme.muted)
-                    Spacer()
-                    Text(Money.usd(f.monthly - burn, signed: true)).monospacedDigit()
-                        .foregroundStyle(f.monthly - burn >= 0 ? Theme.green : Theme.red)
-                        .contentTransition(.numericText(value: f.monthly - burn))
-                }
-                .font(.system(size: 12.5))
-            }
-            Label("Updates daily, next in \(24 - f.updatedHoursAgo)h", systemImage: "arrow.triangle.2.circlepath")
-                .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 2)
-        }
-        .padding(18).frame(maxWidth: .infinity, alignment: .leading).card()
-    }
-
-    // MARK: Chats and files
 
     private var chats: some View {
         let list = model.chats(in: project.name)
         return VStack(spacing: 0) {
             if list.isEmpty {
-                Text("No chats yet. Start one and it will show up here.").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("No chats yet. Start one above and it will show up here.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
             }
             ForEach(list) { c in
@@ -255,24 +154,93 @@ struct ProjectDetail: View {
             }
         }
     }
+}
 
-    private var files: some View {
-        VStack(spacing: 0) {
-            ForEach(project.files, id: \.self) { f in
-                let a = Attachment(f, size: f.hasSuffix(".md") ? "Instructions" : "")
-                Button { file = a } label: {
-                    HStack(spacing: 12) {
-                        FileIcon(kind: a.kind, size: 32)
-                        Text(f).font(.system(size: 14)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.faint)
-                    }
-                    .padding(.vertical, 9).padding(.horizontal, 6).contentShape(Rectangle())
-                }
-                .buttonStyle(MenuRowStyle())
+/// Files kept with a project: added from the device, opened in the Files viewer.
+struct ProjectFiles: View {
+    @Environment(AppModel.self) private var model
+    let project: String
+    @State private var importing = false
+    private var store: FilesStore { .shared }
+
+    var body: some View {
+        let list = store.files.filter { $0.project == project }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(list.isEmpty ? "Files you add here stay on this device." : list.count == 1 ? "1 file" : "\(list.count) files")
+                    .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Spacer()
+                Button { importing = true } label: { Label("Add files", systemImage: "plus") }.buttonStyle(OutlineButton())
+            }
+            .padding(.bottom, 8)
+            ForEach(list) { f in
+                FileRow(file: f) { store.open(f); model.open(.files) }
                 Divider().overlay(Theme.border)
             }
         }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            let n = store.importFiles(urls, project: project)
+            if n > 0 { model.toast(n == 1 ? "File added" : "\(n) files added") }
+        }
+    }
+}
+
+extension View {
+    /// Rename prompt and delete confirmation for a project.
+    func projectActions(_ project: Project, renaming: Binding<Bool>, deleting: Binding<Bool>) -> some View {
+        modifier(ProjectActions(project: project, renaming: renaming, deleting: deleting))
+    }
+}
+
+private struct ProjectActions: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let project: Project
+    @Binding var renaming: Bool
+    @Binding var deleting: Bool
+    @State private var name = ""
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Rename project", isPresented: $renaming) {
+                TextField("Name", text: $name)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { model.renameProject(project.name, to: name) }
+            }
+            .onChange(of: renaming) { _, on in if on { name = project.name } }
+            .confirmationDialog("Delete \(project.name)?", isPresented: $deleting, titleVisibility: .visible) {
+                Button("Delete project", role: .destructive) { model.deleteProject(project.name) }
+            } message: {
+                Text("Its chats move to Recents. Its files and instructions are removed.")
+            }
+    }
+}
+
+extension AppModel {
+    /// Renames a project and everything that points at it (chats, project.md, files, to-dos).
+    func renameProject(_ old: String, to raw: String) {
+        let new = raw.trimmingCharacters(in: .whitespaces)
+        guard !new.isEmpty, new != old, project(new) == nil, let i = projectList.firstIndex(where: { $0.name == old }) else { return }
+        projectList[i].name = new
+        for j in conversations.indices where conversations[j].project == old { conversations[j].project = new }
+        for j in todos.indices where todos[j].project == old { todos[j].project = new }
+        if let md = projectMD.removeValue(forKey: old) { projectMD[new] = md.replacingOccurrences(of: "# \(old)", with: "# \(new)") }
+        if projectOpen == old { projectOpen = new }
+        if chatProject == old { chatProject = new }
+        FilesStore.shared.moveProject(old, to: new)
+        toast("Renamed to \(new)")
+    }
+
+    /// Deletes a project. Its chats stay, as standalone chats.
+    func deleteProject(_ name: String) {
+        withAnimation(.snappy) { projectList.removeAll { $0.name == name } }
+        for j in conversations.indices where conversations[j].project == name { conversations[j].project = nil }
+        todos.removeAll { $0.project == name }
+        projectMD[name] = nil
+        if projectOpen == name { projectOpen = nil }
+        if chatProject == name { chatProject = nil }
+        FilesStore.shared.deleteProject(name)
+        toast("Project deleted")
     }
 }
 
@@ -313,6 +281,9 @@ struct ProjectInstructions: View {
                     .buttonStyle(BlackButton()).disabled(text == saved)
                     .keyboardShortcut("s", modifiers: .command)
                 }
+            } else if model.projectMD[project.name] == nil {
+                Text("No instructions yet. Add the goal, rules to follow and how Hermit should reply in this project.")
+                    .font(.system(size: 13.5)).foregroundStyle(Theme.faint).lineSpacing(6)
             } else {
                 Text(saved.replacingOccurrences(of: #"(?m)^#+ .*\n+"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines))
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).lineSpacing(6)
@@ -322,25 +293,23 @@ struct ProjectInstructions: View {
     }
 }
 
-/// Name, template chips and the budget the agent can use.
+/// Name, a short description and a kind (sets the icon).
 struct NewProjectSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var template = "DeFi yield"
-    @State private var budget: Double = 1000
+    @State private var desc = ""
+    @State private var template = "Blank"
+
+    private var taken: Bool { model.project(name.trimmingCharacters(in: .whitespaces)) != nil }
 
     var body: some View {
         SheetScaffold(title: "New project") {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Name").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                TextField(text: $name, prompt: Text("e.g. ETH staking ladder").foregroundStyle(Theme.faint)) { Text("Name") }.textFieldStyle(.plain).font(.system(size: 14))
-                    .padding(12).background(Theme.bg, in: RoundedRectangle(cornerRadius: 11))
-                    .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
-                    .onSubmit(create)
-            }
+            field("Name", "e.g. ETH staking ladder", $name)
+            if taken { Text("A project with this name already exists.").font(.system(size: 12)).foregroundStyle(Theme.red) }
+            field("Description", "Optional", $desc)
             VStack(alignment: .leading, spacing: 8) {
-                Text("Template").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text("Kind").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Flow(spacing: 6) {
                     ForEach(Project.templates, id: \.0) { t in
                         Button { withAnimation(.snappy) { template = t.0 } } label: { Label(t.0, systemImage: t.1) }
@@ -348,27 +317,34 @@ struct NewProjectSheet: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Budget the agent can use").foregroundStyle(Theme.muted)
-                    Spacer()
-                    Text(Money.usd(budget)).monospacedDigit().contentTransition(.numericText(value: budget))
-                }
-                .font(.system(size: 12.5))
-                Slider(value: $budget, in: 0...20000, step: 250).tint(Theme.text)
-            }
-            Text("The project gets its own chats, files, instructions and spending limit.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Text("The project gets its own chats, files and instructions.").font(.system(size: 12)).foregroundStyle(Theme.faint)
         } foot: {
             Button("Create", action: create).buttonStyle(SheetButton(primary: true))
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || taken)
                 .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func field(_ label: String, _ prompt: String, _ text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            TextField(text: text, prompt: Text(prompt).foregroundStyle(Theme.faint)) { Text(label) }.textFieldStyle(.plain).font(.system(size: 14))
+                .padding(12).background(Theme.bg, in: RoundedRectangle(cornerRadius: 11))
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
+                .onSubmit(create)
         }
     }
 
     private func create() {
         let n = name.trimmingCharacters(in: .whitespaces)
-        guard !n.isEmpty else { return }
-        model.addProject(name: n, template: template, budget: budget)
+        guard !n.isEmpty, !taken else { return }
+        model.addProject(name: n, template: template, budget: 0)
+        let d = desc.trimmingCharacters(in: .whitespaces)
+        if let i = model.projectList.firstIndex(where: { $0.name == n }) {
+            model.projectList[i].desc = d.isEmpty ? (template == "Blank" ? "Project" : template) : d
+            model.projectList[i].files = []
+            model.projectList[i].gainNote = ""
+        }
         model.toast("Project created")
         dismiss()
     }

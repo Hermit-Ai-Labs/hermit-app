@@ -263,17 +263,19 @@ struct CalItemMenu: ViewModifier {
     func body(content: Content) -> some View {
         content.contextMenu {
             Button("Open", systemImage: "arrow.up.right", action: open)
-            if !item.event {
+            if !item.event && !item.external {
                 if item.status != .done {
                     Button("Mark done", systemImage: "checkmark.circle") { CalendarStore.shared.setStatus(item.id, .done) }
                 } else {
                     Button("Mark not done", systemImage: "circle") { CalendarStore.shared.setStatus(item.id, .todo) }
                 }
             }
-            Button("Ask Hermit", systemImage: "sparkles") { model.send("Help me with \"\(item.t)\"") }
-            Divider()
-            Button("Delete", systemImage: "trash", role: .destructive) {
-                CalendarStore.shared.remove(item.id); model.toast("Deleted")
+            Button("Ask Hermit", systemImage: "sparkles") { model.newChat(project: item.project); model.send("Help me with \"\(item.t)\"") }
+            if !item.external && !item.payment {
+                Divider()
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    CalendarStore.shared.remove(item.id); model.toast("Deleted")
+                }
             }
         }
     }
