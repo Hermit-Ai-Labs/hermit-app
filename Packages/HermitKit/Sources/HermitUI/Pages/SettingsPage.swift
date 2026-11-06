@@ -89,7 +89,7 @@ struct ProfileSettings: View {
                     TextField(text: $draft, prompt: Text("Your name").foregroundStyle(Theme.faint)) { Text("Name") }
                         .textFieldStyle(.plain).font(.system(size: 13.5)).foregroundStyle(Theme.text)
                         .focused($focused).autocorrectionDisabled()
-                        .padding(.horizontal, 12).frame(width: 200, height: 32)
+                        .padding(.horizontal, 12).frame(minWidth: 200, maxWidth: .infinity).frame(height: 36)
                         .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
                         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(focused ? Theme.faint : Theme.border))
                         .onSubmit(save)
@@ -121,15 +121,27 @@ struct SettingRow<Trailing: View>: View {
     var sub: String? = nil
     @ViewBuilder var trailing: () -> Trailing
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 14))
-                if let sub { Text(sub).font(.system(size: 12.5)).foregroundStyle(Theme.muted) }
+        // Side by side when the label keeps a readable width; on a narrow iPhone the control drops below it.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                label.frame(minWidth: 170, alignment: .leading)
+                Spacer(minLength: 10)
+                trailing().fixedSize()
             }
-            Spacer(minLength: 10)
-            trailing()
+            VStack(alignment: .leading, spacing: 10) {
+                label
+                trailing()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 13)
+    }
+
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.system(size: 14))
+            if let sub { Text(sub).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true) }
+        }
     }
 }
 
