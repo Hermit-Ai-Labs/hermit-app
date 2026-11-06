@@ -183,9 +183,9 @@ struct ActionRow: View {
 struct BlackButton: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(enabled ? .white : Theme.disabledText)
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Theme.text.opacity(!enabled ? 0.35 : configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 9))
+            .background(enabled ? Theme.text.opacity(configuration.isPressed ? 0.8 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 9))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

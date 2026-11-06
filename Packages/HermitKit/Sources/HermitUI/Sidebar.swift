@@ -23,7 +23,14 @@ struct Sidebar: View {
     private var list: some View {
         VStack(alignment: .leading, spacing: 2) {
             HermitMark(height: 15).padding(.leading, 10).padding(.bottom, 14).padding(.top, compactTop)
-            funds.padding(.bottom, 10)
+            if wallets.loaded && wallets.wallets.isEmpty {
+                GradientCTA(symbol: "wallet.bifold", title: "Create your wallet", subtitle: "Keys made on this phone") {
+                    model.open(.wallets, tab: "create")
+                }
+                .padding(.bottom, 12)
+            } else {
+                funds.padding(.bottom, 10)
+            }
             ForEach(Route.sidebar) { r in row(r) }
             if !model.projectList.isEmpty {
                 section("Projects")

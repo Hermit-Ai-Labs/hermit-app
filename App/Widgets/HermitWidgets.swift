@@ -59,17 +59,21 @@ struct ModelDownloadLiveActivity: Widget {
                         .dynamicIsland(verticalPlacement: .belowIfTooWide)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        FlightPath(fraction: s.shownFraction, ink: .white.opacity(0.45), progress: Palette.purpleOnBlack, plane: .white)
-                            .frame(height: 22)
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(s.headline).lineLimit(1).minimumScaleFactor(0.85)
-                            Spacer(minLength: 4)
-                            Text(s.sizeLine).monospacedDigit().lineLimit(1).fixedSize()
+                    // The island's bottom corners are deeply rounded: keep the route and text well inside them, centred.
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "cloud").font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                            FlightPath(fraction: s.shownFraction, ink: .white.opacity(0.4), progress: Palette.purpleOnBlack, plane: .white)
+                                .frame(height: 22)
+                            Image(systemName: "iphone").font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.55))
                         }
-                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
+                        Text(s.sizeLine.isEmpty ? s.headline : "\(s.headline)  ·  \(s.sizeLine)")
+                            .font(.system(size: 12)).monospacedDigit().foregroundStyle(.white.opacity(0.72))
+                            .lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity)
                     }
-                    .padding(.top, 2)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 4).padding(.bottom, 6)
                 }
             } compactLeading: {
                 Image(systemName: s.done ? "checkmark" : "airplane").font(.system(size: 13, weight: .semibold))

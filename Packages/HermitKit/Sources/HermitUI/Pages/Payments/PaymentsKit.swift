@@ -42,7 +42,7 @@ extension EmptyState where Action == EmptyView {
 extension View {
     /// Greys out a control whose feature isn't built yet. The reason shows on hover.
     func comingSoon(_ note: String = "Coming soon") -> some View {
-        disabled(true).opacity(0.45).help(note)
+        disabled(true).help(note)
     }
 }
 
@@ -226,9 +226,9 @@ struct PayWideButton: ButtonStyle {
         let bg: Color = switch kind {
             case .black: Theme.text; case .accent: Theme.accent; case .plain: Theme.hover; case .danger: Theme.red.opacity(0.08)
         }
-        return configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(fg)
+        return configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(enabled ? fg : Theme.disabledText)
             .frame(maxWidth: .infinity).frame(height: 42)
-            .background(bg.opacity(enabled ? (configuration.isPressed ? 0.85 : 1) : 0.35), in: RoundedRectangle(cornerRadius: 11))
+            .background(enabled ? bg.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 11))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

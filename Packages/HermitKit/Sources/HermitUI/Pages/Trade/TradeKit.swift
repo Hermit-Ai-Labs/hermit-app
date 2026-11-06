@@ -168,12 +168,11 @@ struct TradeSmallButton: ButtonStyle {
             }
         }()
         return TradeHover { hovering in
-            configuration.label.font(.system(size: 12.5, weight: .medium)).foregroundStyle(fg).lineLimit(1)
+            configuration.label.font(.system(size: 12.5, weight: .medium)).foregroundStyle(enabled ? fg : Theme.disabledText).lineLimit(1)
                 .padding(.horizontal, 11).frame(height: height)
-                .background(hovering && !configuration.isPressed && stroke != .clear ? Theme.hover : bg, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(stroke))
+                .background(!enabled ? Theme.disabledFill : hovering && !configuration.isPressed && stroke != .clear ? Theme.hover : bg, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(enabled ? stroke : .clear))
         }
-        .opacity(enabled ? 1 : 0.4)
         .scaleEffect(configuration.isPressed ? 0.97 : 1)
         .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
@@ -184,9 +183,9 @@ struct TradeBlockButton: ButtonStyle {
     var color: Color = Theme.text
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+        configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(enabled ? .white : Theme.disabledText)
             .frame(maxWidth: .infinity).frame(height: 42)
-            .background(color.opacity(configuration.isPressed ? 0.85 : enabled ? 1 : 0.4), in: RoundedRectangle(cornerRadius: 10))
+            .background(enabled ? color.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 10))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

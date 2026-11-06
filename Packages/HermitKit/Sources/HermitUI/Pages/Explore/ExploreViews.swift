@@ -8,9 +8,9 @@ struct ExploreConnectButton: View {
     var body: some View {
         Button {} label: {
             Text("Connect")
-                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.faint)
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.disabledText)
                 .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
-                .background(Color(hex: 0xF2F2F0), in: RoundedRectangle(cornerRadius: 9))
+                .background(Theme.disabledFill, in: RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
         .disabled(true)
@@ -51,11 +51,12 @@ struct ExploreCard: View {
             }
             Text(dapp.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 .lineLimit(2, reservesSpace: true).lineSpacing(2)
-            HStack(spacing: 6) {
-                ExploreTVLText(dapp: dapp)
+            // Two short lines so a narrow phone card never cuts them: TVL and its week, then the chain.
+            VStack(alignment: .leading, spacing: 2) {
+                ExploreTVLText(dapp: dapp).lineLimit(1).minimumScaleFactor(0.85)
                 Text(dapp.chain).foregroundStyle(Theme.faint).lineLimit(1)
             }
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+            .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
             ExploreConnectButton(dapp: dapp, block: true)
         }
         .padding(18)

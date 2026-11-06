@@ -15,6 +15,9 @@ public enum Theme {
     public static let red = Color(hex: 0xC53030)
     public static let amber = Color(hex: 0xA16207)
     public static let radius: CGFloat = 14
+    /// Buttons that can't be pressed yet: a solid light grey with text that stays readable (about 4.5:1), never a fade.
+    public static let disabledFill = Color(hex: 0xEFEFED)
+    public static let disabledText = Color(hex: 0x76766F)
 }
 
 public extension Color {

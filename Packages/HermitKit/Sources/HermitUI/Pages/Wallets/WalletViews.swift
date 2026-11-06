@@ -13,7 +13,8 @@ enum AllWalletsTab: String, CaseIterable, Hashable {
 struct NotYet: ViewModifier {
     let reason: String
     func body(content: Content) -> some View {
-        content.disabled(true).opacity(0.4).help(reason)
+        // Button styles draw their own readable disabled look; this only softens non-button rows a little.
+        content.disabled(true).opacity(0.7).help(reason)
     }
 }
 extension View {
@@ -160,7 +161,7 @@ struct NoWalletView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No wallet on this device yet").font(.system(size: 22, weight: .semibold))
-                Text("One recovery phrase gives you an address on every network Hermit supports. Keys stay on this device, sealed by the Secure Enclave.")
+                Text("One recovery phrase gives you an address on every network Hermit supports. Your keys are made on this phone and locked by Face ID.")
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
@@ -168,7 +169,8 @@ struct NoWalletView: View {
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
             ButtonPair {
-                Button("Create a wallet") { open(.addWallet(.local, start: .create)) }.buttonStyle(WideButton())
+                Button { open(.addWallet(.local, start: .create)) } label: { Label("Create a wallet", systemImage: "plus") }
+                    .buttonStyle(GradientPill(full: true))
             } second: {
                 Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
             }
