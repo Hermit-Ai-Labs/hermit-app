@@ -24,13 +24,17 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
             HStack(spacing: 10) { foot() }
                 .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 22)
         }
-        .background(Theme.bg)
         #if os(macOS)
+        .background(Theme.bg)
         .frame(width: width)
         #else
+        // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.bg)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
+        .presentationBackground(Theme.bg)
         #endif
     }
 }

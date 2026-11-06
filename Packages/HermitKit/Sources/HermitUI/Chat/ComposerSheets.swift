@@ -42,6 +42,7 @@ struct SheetScaffold<Content: View, Foot: View>: View {
         .presentationDetents(detents)
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
+        .presentationBackground(Theme.bg)
         #endif
     }
 }
