@@ -6,7 +6,7 @@ struct TradeMarkets: View {
     @State private var kind = "perps"
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Segmented(options: [("perps", "Perps"), ("spot", "Spot"), ("memes", "Memes"), ("predict", "Predictions")], selection: $kind)
+            Segmented(options: [("perps", "Perps"), ("spot", "Spot"), ("memes", "Memes")], selection: $kind)
                 .padding(.bottom, 16)
             Group {
                 switch kind {

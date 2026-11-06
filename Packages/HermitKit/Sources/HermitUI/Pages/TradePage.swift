@@ -1,7 +1,7 @@
 import SwiftUI
 import HermitCore
 
-/// Trade: your positions, the live market terminal (perps, spot, memes, predictions) and strategies.
+/// Trade: your positions, the live market terminal (perps, spot, memes) and strategies.
 /// Prices are real; placing orders isn't wired to an exchange yet, so those buttons are greyed out.
 struct TradePage: View {
     @Environment(AppModel.self) private var model
