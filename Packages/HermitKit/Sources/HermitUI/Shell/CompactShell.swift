@@ -33,12 +33,45 @@ struct CompactShell: View {
         }
     }
 
+    static let drawerWidth: CGFloat = 312
+    /// How far the drawer is pulled while a finger is on it: negative while closing, positive while opening from the edge.
+    @State private var drag: CGFloat = 0
+    @State private var dragging = false
+
     var body: some View {
         ZStack(alignment: .leading) {
             if SnapshotMode.active { snapshotShell } else { tabView }
+            #if os(iOS)
+            if !model.drawerOpen && !SnapshotMode.active { edgeSwipe }
+            #endif
             drawer
         }
-        .animation(.smooth(duration: 0.3), value: model.drawerOpen)
+        .animation(dragging ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: model.drawerOpen)
+    }
+
+    /// 0 = closed, 1 = open, following the finger in between.
+    private var openness: CGFloat {
+        let base: CGFloat = model.drawerOpen ? 1 : 0
+        return min(1, max(0, base + drag / Self.drawerWidth))
+    }
+
+    /// A thin strip on the left edge: swipe right from it to pull the drawer out.
+    private var edgeSwipe: some View {
+        Color.clear.frame(width: 18).frame(maxHeight: .infinity).contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 8)
+                .onChanged { v in dragging = true; drag = max(0, v.translation.width) }
+                .onEnded { v in settle(predicted: v.predictedEndTranslation.width) })
+            .ignoresSafeArea()
+    }
+
+    /// Lets go of the drawer: it opens or closes depending on where the throw would land.
+    private func settle(predicted: CGFloat) {
+        let landing = (model.drawerOpen ? Self.drawerWidth : 0) + predicted
+        dragging = false
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            model.drawerOpen = landing > Self.drawerWidth / 2
+            drag = 0
+        }
     }
 
     @ViewBuilder private var tabView: some View {
@@ -73,10 +106,14 @@ struct CompactShell: View {
     #if os(iOS)
     @ToolbarContentBuilder private var bar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { model.drawerOpen = true } label: { Image(systemName: "line.3.horizontal") }
+            Button { withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { model.drawerOpen = true } } label: { Image(systemName: "line.3.horizontal") }
                 .accessibilityLabel("Menu")
         }
-        ToolbarItem(placement: .principal) { HermitMark(height: 15) }
+        ToolbarItem(placement: .principal) {
+            // The mark is the way home: back to a fresh Chat from anywhere.
+            Button { model.route = .home } label: { HermitMark(height: 15) }
+                .buttonStyle(.plain).accessibilityLabel("Home")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button { model.newChat() } label: { Image(systemName: "square.and.pencil") }
                 .accessibilityLabel("New chat")
@@ -84,18 +121,29 @@ struct CompactShell: View {
     }
     #endif
 
-    /// The sidebar sliding in from the left over a dimmed app.
+    /// The sidebar over a dimmed app, edge to edge from the status bar to the home indicator. It follows the finger:
+    /// drag it left to close, swipe in from the left edge to open, tap the dimmed app to close.
     @ViewBuilder private var drawer: some View {
-        if model.drawerOpen {
-            Color.black.opacity(0.28).ignoresSafeArea()
-                .onTapGesture { model.drawerOpen = false }
+        if model.drawerOpen || drag > 0 {
+            Color.black.opacity(0.3 * openness).ignoresSafeArea()
+                .onTapGesture { withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { model.drawerOpen = false } }
                 .transition(.opacity)
             Sidebar()
-                .frame(width: 304)
+                .frame(width: Self.drawerWidth)
                 .frame(maxHeight: .infinity)
-                .background(Theme.subtle.ignoresSafeArea())
-                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: 22, topTrailingRadius: 22))
-                .shadow(color: .black.opacity(0.12), radius: 24, x: 6)
+                .background {
+                    UnevenRoundedRectangle(bottomTrailingRadius: 30, topTrailingRadius: 30, style: .continuous)
+                        .fill(Theme.subtle)
+                        .shadow(color: .black.opacity(0.14 * openness), radius: 28, x: 8)
+                        .ignoresSafeArea()
+                }
+                .offset(x: -Self.drawerWidth * (1 - openness))
+                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                    .onChanged { v in
+                        guard abs(v.translation.width) > abs(v.translation.height) else { return }
+                        dragging = true; drag = min(0, v.translation.width)
+                    }
+                    .onEnded { v in if dragging { settle(predicted: v.predictedEndTranslation.width) } })
                 .transition(.move(edge: .leading))
                 .zIndex(2)
         }

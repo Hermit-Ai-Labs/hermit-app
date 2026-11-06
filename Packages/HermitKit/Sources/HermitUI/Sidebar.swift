@@ -15,16 +15,20 @@ struct Sidebar: View {
             Divider().overlay(Theme.border)
             account
         }
+        #if os(macOS)
         .background(Theme.subtle)
+        #endif
     }
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HermitMark(height: 15).padding(.leading, 8).padding(.bottom, 12).padding(.top, 2)
+            HermitMark(height: 15).padding(.leading, 10).padding(.bottom, 14).padding(.top, compactTop)
             funds.padding(.bottom, 10)
             ForEach(Route.sidebar) { r in row(r) }
-            section("Projects")
-            ForEach(model.projectList) { p in projectRow(p) }
+            if !model.projectList.isEmpty {
+                section("Projects")
+                ForEach(model.projectList) { p in projectRow(p) }
+            }
             section("Recents")
             ForEach(model.recentConversations.prefix(14)) { c in
                 chatRow(c, indent: 0)
@@ -37,6 +41,15 @@ struct Sidebar: View {
         .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 12)
         .animation(.snappy(duration: 0.25), value: expanded)
         .animation(.snappy(duration: 0.25), value: model.conversations.map(\.id))
+    }
+
+    /// iPhone drawer: a little air under the status bar.
+    private var compactTop: CGFloat {
+        #if os(iOS)
+        10
+        #else
+        2
+        #endif
     }
 
     private var wallets: WalletsViewModel { .shared }
@@ -87,7 +100,9 @@ struct Sidebar: View {
                 }
                 Text(r.title).font(.system(size: 13.5, weight: r == .home ? .medium : .regular))
                 Spacer()
+                #if os(macOS)
                 if r == .home { Text("⌘N").font(.system(size: 11)).foregroundStyle(Theme.faint).opacity(SnapshotMode.active ? 0 : 1) }
+                #endif
             }
             .foregroundStyle(r == .home ? Theme.text : (active ? Theme.text : Theme.muted))
             .padding(.vertical, 6).padding(.horizontal, 8)
