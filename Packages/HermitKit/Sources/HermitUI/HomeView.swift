@@ -69,7 +69,7 @@ struct HomeView: View {
             Composer().padding(.top, 26)
             chips.padding(.top, 14)
             cards.padding(.top, compact ? 28 : 48)
-            if compact && model.chatProject == nil { projects.padding(.top, 32) }
+            if compact && model.chatProject == nil && !model.projectList.isEmpty { projects.padding(.top, 32) }
             Spacer(minLength: 40)
         }
         .frame(maxWidth: 640)
