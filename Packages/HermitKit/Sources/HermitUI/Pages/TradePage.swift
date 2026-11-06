@@ -5,8 +5,8 @@ import HermitCore
 /// Prices are real; placing orders isn't wired to an exchange yet, so those buttons are greyed out.
 struct TradePage: View {
     @Environment(AppModel.self) private var model
-    @State private var tab = "positions"
-    static let tabs = [("positions", "Positions"), ("markets", "Markets"), ("strategies", "Strategies")]
+    @State private var tab = "markets"
+    static let tabs = [("markets", "Markets"), ("positions", "Positions"), ("strategies", "Strategies")]
 
     var body: some View {
         Page(title: "Trade", tabs: Self.tabs, tab: $tab) { t in
