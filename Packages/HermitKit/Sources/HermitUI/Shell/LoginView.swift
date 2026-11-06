@@ -81,7 +81,9 @@ struct LoginView: View {
 
     private var ask: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Starts where "Your name" starts inside the bar (field padding 20 + bar padding 5).
             Text("What should Hermit call you?").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
+                .padding(.leading, 25)
             HStack(spacing: 8) {
                 TextField(text: $name, prompt: Text("Your name").foregroundStyle(Theme.faint)) { Text("Name") }
                     .textFieldStyle(.plain).font(.system(size: 17)).foregroundStyle(Theme.text)
@@ -104,9 +106,8 @@ struct LoginView: View {
             .background(.white, in: Capsule())
             .overlay(Capsule().strokeBorder(focused ? Theme.faint : Theme.border))
             .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
-            Text("No account. Your name, chats and keys stay on this device.")
-                .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            // Deliberately empty: the air under the bar keeps the screen calm.
+            Color.clear.frame(height: 34)
         }
         .frame(maxWidth: 440, alignment: .leading)
     }
