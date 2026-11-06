@@ -25,13 +25,25 @@ public struct GenerationStats: Sendable, CustomStringConvertible {
 /// (with its KV cache) until New chat, and streams text as it is generated. Cancelling the reply stops generation.
 public final class LocalAgent: Agent, @unchecked Sendable {
     public static let systemPrompt = """
-    You are Hermit, a private AI agent that runs entirely on this device. Nothing the user types leaves the \
-    device: there is no cloud and no server. You help with payments, crypto, trading, research and everyday questions.
-    You never move money yourself. When a payment, swap, trade or transfer is needed, you propose it and the user \
-    approves it with Touch ID or Face ID.
+    You are Hermit, a private AI assistant that runs entirely on this device. Nothing the user types leaves the \
+    device: there is no cloud and no server. You help with questions, writing, explaining, planning and files the user attaches.
+    In chat you can't see the user's wallets or balances, move money, trade, browse the web or read email. If asked, \
+    say so plainly and point them to the Wallets page in the app for their own wallets. Never pretend you did something you can't do.
     Keep answers short and plain: a few sentences, simple words, no filler. Do not use middle dots as separators. \
-    If you don't know something, say so. You can't browse the web.
+    If you don't know something, say so.
     """
+
+    /// The system prompt with the user's name and their hermit.md notes.
+    public static func instructions(name: String, memory: [String]) -> String {
+        var s = systemPrompt
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { s += "\nThe user wants to be called \(name)." }
+        // Keep the notes to a sane size so they don't crowd out the conversation.
+        var notes: [String] = [], used = 0
+        for line in memory where used + line.count < 2000 { notes.append("- " + line); used += line.count }
+        if !notes.isEmpty { s += "\nThe user's standing notes (hermit.md). Follow them:\n" + notes.joined(separator: "\n") }
+        return s
+    }
 
     private let store: ModelStore
     private let engine = LocalEngine()
@@ -56,6 +68,13 @@ public final class LocalAgent: Agent, @unchecked Sendable {
 
     public func reset() {
         Task { [engine] in await engine.reset() }
+    }
+
+    /// Name and hermit.md for the system prompt. The model reads its instructions when a conversation starts,
+    /// so this applies from the next new chat (or right away if this one hasn't started).
+    public func setContext(name: String, memory: [String]) {
+        let text = Self.instructions(name: name, memory: memory)
+        Task { [engine] in await engine.setInstructions(text) }
     }
 
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
@@ -105,6 +124,14 @@ actor LocalEngine {
     private var container: ModelContainer?
     private var session: ChatSession?
     private var loadedID: String?
+    private var instructions = LocalAgent.systemPrompt
+    /// The session has answered something since the last reset. Its instructions are fixed until the next reset.
+    private var started = false
+
+    func setInstructions(_ text: String) {
+        instructions = text
+        if !started { session?.instructions = text }
+    }
 
     func isLoaded(_ id: String) -> Bool { loadedID == id && session != nil }
 
@@ -117,7 +144,7 @@ actor LocalEngine {
         let start = Date()
         let container = try await LLMModelFactory.shared.loadContainer(from: directory, using: TransformersTokenizerLoader())
         self.container = container
-        session = ChatSession(container, instructions: LocalAgent.systemPrompt,
+        session = ChatSession(container, instructions: instructions,
                               generateParameters: Self.parameters(directory),
                               additionalContext: ["enable_thinking": false])
         loadedID = id
@@ -126,14 +153,19 @@ actor LocalEngine {
 
     func unload(ifID id: String? = nil) {
         guard id == nil || id == loadedID else { return }
-        session = nil; container = nil; loadedID = nil
+        session = nil; container = nil; loadedID = nil; started = false
         Memory.clearCache()
     }
 
-    func reset() async { await session?.clear() }
+    func reset() async {
+        await session?.clear()
+        session?.instructions = instructions
+        started = false
+    }
 
     func stream(_ prompt: String) throws -> AsyncThrowingStream<Generation, Error> {
         guard let session else { throw CancellationError() }
+        started = true
         return session.streamDetails(to: prompt)
     }
 

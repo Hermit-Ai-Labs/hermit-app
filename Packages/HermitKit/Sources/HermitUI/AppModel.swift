@@ -53,12 +53,18 @@ public final class AppModel {
     public var busy = false
     /// Short confirmation shown at the bottom; set it with `toast(_:)`.
     public var toastText: String?
-    public let user = "Ryan"
-    public let email = "ryan@hermit.my"
+    /// What Hermit calls you, asked on first launch and editable in Settings > Profile. Empty until then.
+    public var user = "" {
+        didSet {
+            if persist { UserDefaults.standard.set(user, forKey: Self.nameKey) }
+            pushContext()
+        }
+    }
+    static let nameKey = "hermit.userName"
 
     // Conversations
     /// Every saved chat, newest first. Recents are the ones outside a project.
-    public var conversations: [Conversation] = Threads.all
+    public var conversations: [Conversation] = []
     /// The saved conversation `messages` belongs to (nil for a new chat until its first message).
     public var currentID: String?
     /// The project a new or open chat belongs to (back link, strip under the chat box, project home cards).
@@ -81,8 +87,8 @@ public final class AppModel {
 
     // Everything else
     public var todos: [Todo] = Todo.seed
-    /// hermit.md: what Hermit remembers in every chat.
-    public var memory: [String] = ["Never use more than 5x leverage", "Prefer audited protocols for stablecoin yield", "Keep replies short, numbers first"]
+    /// hermit.md: what Hermit remembers in every chat (edited in Settings > Memory).
+    public var memory: [String] { MemoryStore.shared.items }
     /// Titles of approvals that went through, so cards can show their after-state (sent, live, key added).
     public var approvedIDs: Set<String> = []
     /// Goes up by one each time an approval goes through. Pages compare it to know a sheet was approved, not cancelled.
@@ -91,10 +97,6 @@ public final class AppModel {
     public var focusTick = 0
     /// iPhone: the sidebar drawer.
     public var drawerOpen = false
-    /// Home cards (Settings › Home can hide them).
-    public var showManaged = true
-    public var showToday = true
-
     /// Sidebar shape kept for other pages: (name, colour).
     public var projects: [(String, Color)] { projectList.map { ($0.name, $0.color) } }
     /// Titles of standalone chats, newest first.
@@ -110,14 +112,21 @@ public final class AppModel {
     /// The on-device models (download, pick, delete).
     public let models: ModelStore
 
-    /// Defaults to the hybrid agent: scripted money flows and demo scenarios, everything else on the local model.
+    /// Defaults to the hybrid agent: every prompt on the on-device model.
     public init(agent: Agent? = nil, models: ModelStore? = nil) {
         let models = models ?? .shared
         self.models = models
         self.agent = agent ?? HybridAgent(store: models)
         persist = !SnapshotMode.active
-        if persist { load() }
+        if persist {
+            user = UserDefaults.standard.string(forKey: Self.nameKey) ?? ""
+            load()
+        }
+        pushContext()
     }
+
+    /// Hands the name and hermit.md to the model's system prompt (used from the next new chat).
+    public func pushContext() { agent.setContext(name: user, memory: memory) }
 
     public var inChat: Bool { !messages.isEmpty }
 
@@ -140,6 +149,7 @@ public final class AppModel {
     /// A fresh chat, optionally inside a project.
     public func newChat(project: String?) {
         commit()
+        pushContext()
         replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
         currentID = nil; chatProject = project; drawerOpen = false
         focusTick += 1
@@ -147,11 +157,19 @@ public final class AppModel {
 
     public func newChat() { newChat(project: nil) }
 
+    /// Get help: a new chat that opens with a short explainer.
+    public func showHelp() {
+        newChat()
+        messages = [Message(role: .user, text: "How does Hermit work?"),
+                    Message(role: .assistant, text: "Ask anything in chat. Hermit answers with a model that runs on this device, so it works offline and nothing you type leaves it. Attach a text file (plain text, Markdown, CSV, JSON or code) to ask about it, and say \"remember …\" to add a note to hermit.md. Your wallets are under Wallets.")]
+    }
+
     /// Reopen a saved conversation.
     public func openConversation(_ id: String) {
         guard let c = conversations.first(where: { $0.id == id }) else { return }
         commit()
-        replyTask?.cancel(); busy = false
+        // The model starts this one fresh: it doesn't carry the other chat's context in.
+        replyTask?.cancel(); agent.reset(); busy = false
         messages = c.messages; currentID = id; chatProject = c.project
         route = .home; drawerOpen = false
     }
@@ -194,14 +212,21 @@ public final class AppModel {
             currentID = c.id
             withAnimation(.snappy) { conversations.insert(c, at: 0) }
         }
-        if let item = attachment == nil ? ScriptedAgent.memoryItem(text) : nil { memory.append(item) }
         messages.append(Message(role: .user, text: text, attachment: attachment))
         let reply = Message(role: .assistant, done: false)
         messages.append(reply)
         busy = true
         let stream: AsyncStream<AgentEvent>
-        if let a = attachment {
-            stream = ScriptedAgent().stream(ScriptedAgent.script(for: text, attachment: a))
+        if let item = attachment == nil ? ScriptedAgent.memoryItem(text) : nil {
+            MemoryStore.shared.append(item)
+            pushContext()
+            stream = ScriptedAgent(pace: SnapshotMode.active ? 0 : 0.5).stream(ScriptedAgent.memoryScript(item))
+        } else if let a = attachment {
+            if let body = a.text {
+                stream = agent.reply(to: Self.prompt(text, with: a, body))
+            } else {
+                stream = ScriptedAgent(pace: 0).say("I can't read \(a.name) yet. Here on the device I can read text files: plain text, Markdown, CSV, JSON and code. Paste the part you need, or save it as one of those and attach it again.")
+            }
         } else {
             stream = agent.reply(to: text)
         }
@@ -213,6 +238,13 @@ public final class AppModel {
             self?.busy = false
             self?.commit()
         }
+    }
+
+    /// What the model sees for a message with a readable file: the file between markers, then the question.
+    static func prompt(_ question: String, with a: Attachment, _ body: String) -> String {
+        let note = a.truncated ? " (only the first \(Attachment.maxChars) characters, the file is longer)" : ""
+        let content = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(the file is empty)" : body
+        return "The user attached the file \(a.name)\(note):\n<file>\n\(content)\n</file>\n\n\(question)"
     }
 
     /// Stop the reply that is streaming.
@@ -337,20 +369,31 @@ public final class AppModel {
         return dir.appendingPathComponent("chats.json")
     }
 
-    private struct Saved: Codable { var conversations: [Conversation]; var memory: [String] }
+    private struct Saved: Codable { var conversations: [Conversation] }
+    /// 2: no more seeded demo chats or memory. Installs from before saved them, so they are dropped once.
+    private static let dataVersion = 2
+    private static let versionKey = "hermit.dataVersion"
 
     private func save() {
         guard persist, let url = store else { return }
-        let data = Saved(conversations: conversations, memory: memory)
+        let data = Saved(conversations: conversations)
         Task.detached(priority: .utility) {
             if let json = try? JSONEncoder().encode(data) { try? json.write(to: url, options: .atomic) }
         }
     }
 
     private func load() {
-        guard let url = store, let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
-        conversations = saved.conversations
-        memory = saved.memory
+        if let url = store, let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+            conversations = saved.conversations
+        }
+        let defaults = UserDefaults.standard
+        if defaults.integer(forKey: Self.versionKey) < Self.dataVersion {
+            // The demo's chats had fixed ids; real ones are UUIDs.
+            conversations.removeAll { UUID(uuidString: $0.id) == nil }
+            MemoryStore.shared.dropDemoSeed()
+            defaults.set(Self.dataVersion, forKey: Self.versionKey)
+            save()
+        }
     }
 
     private func update(_ id: UUID, _ change: (inout Message) -> Void) {

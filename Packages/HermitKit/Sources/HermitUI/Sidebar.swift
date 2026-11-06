@@ -1,11 +1,10 @@
 import SwiftUI
 import HermitCore
 
-/// Claude-style sidebar from the demo: funds card, New chat, pages, projects (expand to see their chats),
-/// recents (saved chats you can reopen), account.
+/// Claude-style sidebar from the demo: wallets card, New chat, pages, projects (expand to see their chats),
+/// recents (saved chats you can reopen), you.
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
-    @AppStorage(SignIn.key) private var signedIn = false
     @State private var expanded: Set<String> = []
 
     var body: some View {
@@ -30,20 +29,34 @@ struct Sidebar: View {
             ForEach(model.recentConversations.prefix(14)) { c in
                 chatRow(c, indent: 0)
             }
+            if model.recentConversations.isEmpty {
+                Text("Your chats show up here").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+            }
         }
         .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 12)
         .animation(.snappy(duration: 0.25), value: expanded)
         .animation(.snappy(duration: 0.25), value: model.conversations.map(\.id))
     }
 
+    private var wallets: WalletsViewModel { .shared }
+
+    /// The wallets' total, or a way to create the first one.
     private var funds: some View {
         Button { model.open(.wallets) } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Under management").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
-                HStack {
-                    Text("$48,320").font(.system(size: 15, weight: .semibold)).monospacedDigit()
-                    Spacer()
-                    Text("+2.6%").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.green)
+                if wallets.loaded && wallets.wallets.isEmpty {
+                    Text("No wallet yet").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                    HStack {
+                        Text("Create a wallet").font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    }
+                } else {
+                    Text("Wallets").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                    Text(MoneyFmt.usdSmart(wallets.total())).font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                        .redacted(reason: wallets.loaded ? [] : .placeholder)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, 11).padding(.vertical, 9)
@@ -52,6 +65,7 @@ struct Sidebar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
+        .task { if !wallets.loaded { await wallets.refresh() } }
     }
 
     private func isActive(_ r: Route) -> Bool {
@@ -73,7 +87,6 @@ struct Sidebar: View {
                 }
                 Text(r.title).font(.system(size: 13.5, weight: r == .home ? .medium : .regular))
                 Spacer()
-                if r == .payments { Text("2").font(.system(size: 11)).foregroundStyle(Theme.faint) }
                 if r == .home { Text("⌘N").font(.system(size: 11)).foregroundStyle(Theme.faint).opacity(SnapshotMode.active ? 0 : 1) }
             }
             .foregroundStyle(r == .home ? Theme.text : (active ? Theme.text : Theme.muted))
@@ -144,27 +157,32 @@ struct Sidebar: View {
     private var account: some View {
         HStack(spacing: 9) {
             Menu {
-                Section(model.email) {
-                    Button { model.open(.wallets) } label: { Label("Wallets", systemImage: "wallet.bifold"); Text("$48,320") }
+                Section(model.user) {
+                    Button { model.open(.wallets) } label: {
+                        Label("Wallets", systemImage: "wallet.bifold")
+                        if !wallets.wallets.isEmpty { Text(MoneyFmt.usdSmart(wallets.total())) }
+                    }
                     Button("Files", systemImage: "doc") { model.open(.files) }
                     Button("Connectors", systemImage: "puzzlepiece.extension") { model.open(.connectors) }
                     Button("Settings", systemImage: "gearshape") { model.open(.settings) }.keyboardShortcut(",", modifiers: .command)
+                    Button("Change name", systemImage: "person") { model.open(.settings, tab: "profile") }
                 }
                 Divider()
                 Button("Get help", systemImage: "questionmark.circle") {
-                    model.newChat()
-                    model.react("How do I get started?", "Ask anything in chat. Try \"best safe yield for 10k USDC\" or \"what news is moving the market\". Anything that moves money shows an approval first.")
-                }
-                Divider()
-                Button("Log out", systemImage: "rectangle.portrait.and.arrow.right") {
-                    model.newChat()
-                    withAnimation(.smooth) { signedIn = false }
+                    model.showHelp()
                 }
             } label: {
                 HStack(spacing: 9) {
-                    Text(String(model.user.prefix(1))).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                        .frame(width: 26, height: 26).background(Theme.text, in: Circle())
-                    Text(model.user).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
+                    Group {
+                        if let initial = model.user.first {
+                            Text(String(initial).uppercased()).font(.system(size: 12, weight: .semibold))
+                        } else {
+                            Image(systemName: "person.fill").font(.system(size: 11))
+                        }
+                    }
+                    .foregroundStyle(.white).frame(width: 26, height: 26).background(Theme.text, in: Circle())
+                    Text(model.user.isEmpty ? "You" : model.user).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
+                        .lineLimit(1)
                     Text("Local").font(.system(size: 13)).foregroundStyle(Theme.faint)
                     Spacer(minLength: 4)
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.faint)

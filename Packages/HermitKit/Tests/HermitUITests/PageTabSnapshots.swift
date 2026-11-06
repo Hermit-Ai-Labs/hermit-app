@@ -61,7 +61,7 @@ final class PageTabSnapshots: XCTestCase {
             try sheet(HistorySheet(vm: vm, walletID: nil), "history", height: 900)
             try sheet(WalletPickerMenuPreview(vm: vm), "picker", height: 520)
         }
-        if wanted("settings") { for t in ["memory", "models", "home"] { try page(.settings, t) } }
+        if wanted("settings") { for t in ["profile", "memory", "models", "home"] { try page(.settings, t) } }
         if wanted("connectors") {
             for t in ["apis", "skills"] { try page(.connectors, t) }
             try sheet(ConnectAppSheet(app: "Discord") {}, "connect-discord")

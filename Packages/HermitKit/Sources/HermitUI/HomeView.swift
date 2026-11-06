@@ -1,13 +1,24 @@
 import SwiftUI
 import HermitCore
 
-/// New chat: the crab, the greeting, wallet actions, the chat box, then today's cards.
+/// New chat: the crab, the greeting, wallet actions, the chat box, then the balance and today's to-dos.
 /// A new chat inside a project shows a back link and that project's money and to-dos instead.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
     @State private var appeared = SnapshotMode.active
-    @State private var sheet: HomeWalletSheet?
+    @AppStorage("home.showBalance") private var showBalance = true
+    @AppStorage("home.showToday") private var showToday = true
+
+    /// Things the on-device model answers well on its own.
+    static let suggestions: [(String, String)] = [
+        ("What's a seed phrase?", "What is a seed phrase, and how should I keep mine safe?"),
+        ("Stablecoins, simply", "Explain how stablecoins keep their price, in a few sentences."),
+        ("Plan my week", "Help me plan my week. Ask me what I have on first."),
+        ("Write a message", "Help me write a short, friendly message to a friend I haven't talked to in a while."),
+    ]
+
+    private var wallets: WalletsViewModel { .shared }
 
     var body: some View {
         Group {
@@ -16,7 +27,7 @@ struct HomeView: View {
             }
         }
         .onAppear { withAnimation(.spring(duration: 0.6, bounce: 0.25)) { appeared = true } }
-        .sheet(item: $sheet) { s in WalletActionSheet(kind: s) }
+        .task { if !wallets.loaded { await wallets.refresh() } }
     }
 
     private var content: some View {
@@ -38,14 +49,18 @@ struct HomeView: View {
             Image.hermit("hermit-hero").resizable().interpolation(.high).scaledToFit()
                 .frame(height: compact ? 120 : 150).padding(.top, model.chatProject != nil ? 18 : (compact ? 28 : 64))
                 .scaleEffect(appeared ? 1 : 0.94).opacity(appeared ? 1 : 0)
-            Text("\(greeting), \(model.user)").font(.serif(compact ? 32 : 40)).foregroundStyle(Theme.text)
+            Text(model.user.isEmpty ? greeting : "\(greeting), \(model.user)").font(.serif(compact ? 32 : 40)).foregroundStyle(Theme.text)
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
             HStack(spacing: compact ? 28 : 22) {
-                walletAction(.send, "Send", "arrow.up.right")
-                walletAction(.swap, "Swap", "arrow.left.arrow.right")
-                walletAction(.receive, "Receive", "arrow.down.left")
-                walletAction(.buy, "Buy", "creditcard")
+                if wallets.loaded && wallets.wallets.isEmpty {
+                    walletAction("Create wallet", "plus") { model.open(.wallets) }
+                } else {
+                    walletAction("Send", "arrow.up.right") { model.open(.wallets, tab: "send") }
+                    walletAction("Swap", "arrow.left.arrow.right", soon: true) {}
+                    walletAction("Receive", "arrow.down.left") { model.open(.wallets, tab: "receive") }
+                    walletAction("Buy", "creditcard", soon: true) {}
+                }
             }
             .padding(.top, 22)
             Composer().padding(.top, 26)
@@ -61,8 +76,8 @@ struct HomeView: View {
 
     @ViewBuilder private var chips: some View {
         let row = HStack(spacing: 8) {
-            ForEach(Scenario.home) { s in
-                Button(s.chip) { model.send(s.prompt) }.buttonStyle(ChipStyle())
+            ForEach(Self.suggestions, id: \.0) { s in
+                Button(s.0) { model.send(s.1) }.buttonStyle(ChipStyle())
             }
         }
         if compact {
@@ -73,14 +88,16 @@ struct HomeView: View {
     }
 
     @ViewBuilder private var cards: some View {
-        let both = model.showManaged && model.showToday
+        // Today only shows when there is something on it; a project's card always shows (it says when it's empty).
+        let today = showToday && (model.chatProject != nil || !TodayCard.rows(model, project: nil).isEmpty)
+        let both = showBalance && today
         let layout = compact || !both ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-        if model.showManaged || model.showToday {
+        if showBalance || today {
             layout {
-                if model.showManaged {
-                    if let p = model.project(model.chatProject) { ProjectMoneyCard(project: p) } else { ManagedCard() }
+                if showBalance {
+                    if let p = model.project(model.chatProject) { ProjectMoneyCard(project: p) } else { HomeBalanceCard { showBalance = false } }
                 }
-                if model.showToday { TodayCard(project: model.chatProject) }
+                if today { TodayCard(project: model.chatProject) { showToday = false } }
             }
         }
     }
@@ -111,43 +128,52 @@ struct HomeView: View {
         return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"
     }
 
-    private func walletAction(_ kind: HomeWalletSheet, _ title: String, _ symbol: String) -> some View {
-        Button { sheet = kind } label: {
+    /// A round wallet shortcut. `soon` greys it out until the feature exists.
+    private func walletAction(_ title: String, _ symbol: String, soon: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             VStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
-                    .frame(width: compact ? 44 : 40, height: compact ? 44 : 40).background(Theme.hover, in: Circle())
-                Text(title).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(soon ? Theme.faint : Theme.text)
+                    .frame(width: compact ? 44 : 40, height: compact ? 44 : 40).background(Theme.hover.opacity(soon ? 0.6 : 1), in: Circle())
+                Text(soon ? "\(title), soon" : title).font(.system(size: 12)).foregroundStyle(soon ? Theme.faint : Theme.muted)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .help(title)
+        .disabled(soon)
+        .help(soon ? "\(title) is coming soon" : title)
     }
 }
 
-/// What the agent manages in total. Opens Wallets.
-struct ManagedCard: View {
+/// The wallets' total from the wallet engine, or a way to create the first wallet. Opens Wallets.
+struct HomeBalanceCard: View {
     @Environment(AppModel.self) private var model
+    let hide: () -> Void
+    private var wallets: WalletsViewModel { .shared }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Managed by agent").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text("Balance").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
-                hideButton { model.showManaged = false }
+                hideButton(hide)
             }
-            Button { model.open(.wallets) } label: {
-                HStack(spacing: 18) {
-                    Donut(parts: [(0.306, Theme.text), (0.257, Theme.accent), (0.186, Color(hex: 0x9C82D4)), (0.17, Color(hex: 0xC9BFE6)), (0.081, Color(hex: 0xE4E4E2))])
-                        .frame(width: 70, height: 70)
+            if wallets.loaded && wallets.wallets.isEmpty {
+                Text("No wallet yet. Create one and its keys stay on this device.").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Create a wallet") { model.open(.wallets) }.buttonStyle(BlackButton())
+            } else {
+                Button { model.open(.wallets) } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("$48,320").font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                        Text("+2.6% this week").font(.system(size: 12.5)).foregroundStyle(Theme.green)
+                        Text(MoneyFmt.usdSmart(wallets.total())).font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                            .contentTransition(.numericText())
+                        Text(wallets.wallets.count == 1 ? "1 wallet" : "\(wallets.wallets.count) wallets").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                     }
-                    Spacer(minLength: 0)
+                    .redacted(reason: wallets.loaded ? [] : .placeholder)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .card()
@@ -196,20 +222,22 @@ struct ProjectMoneyCard: View {
 struct TodayCard: View {
     @Environment(AppModel.self) private var model
     var project: String? = nil
+    var hide: () -> Void = {}
 
-    private var rows: [Todo] {
+    static func rows(_ model: AppModel, project: String?) -> [Todo] {
         if let project {
             return model.todos.filter { $0.project == project && $0.day >= 0 }.sorted { $0.day < $1.day }
         }
         return model.todos.filter { $0.day == 0 }
     }
+    private var rows: [Todo] { Self.rows(model, project: project) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(project != nil && !rows.contains { $0.day == 0 } ? "Up next" : "Today").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
-                hideButton { model.showToday = false }
+                hideButton(hide)
             }
             ForEach(rows.prefix(5)) { t in
                 HStack(spacing: 9) {

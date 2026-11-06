@@ -53,14 +53,16 @@ enum ShellShots {
                 let m = AppModel()
                 try shoot(messages(exchange(s), model: m), "chat-\(s.id)", CGSize(width: tall.width, height: h))
             }
-            // Memory, an attached invoice, an action reply and a receipt with a live trade.
+            // Memory, an attached text file, a file Hermit can't read, an action reply and a receipt with a live trade.
             let m = AppModel()
-            let mem = ScriptedAgent.memoryScript("Always show Bollinger Bands on charts")
-            let inv = ScriptedAgent.script(for: "What's in it?", attachment: SampleFiles.all[1])
-            let ms = [Message(role: .user, text: "Add always show Bollinger Bands on charts to your long-term memory"),
+            let mem = ScriptedAgent.memoryScript("Keep answers short")
+            let notes = Attachment("meeting-notes.md", size: "2 KB", text: "# Sync\n- Ship onboarding\n- Review the wallet copy")
+            let ms = [Message(role: .user, text: "Remember to keep answers short"),
                       Message(role: .assistant, steps: 1, tools: mem.tools, blocks: mem.blocks),
-                      Message(role: .user, text: "What's in Invoice_Figma_2291.pdf?", attachment: SampleFiles.all[1]),
-                      Message(role: .assistant, steps: 2, tools: inv.tools, blocks: inv.blocks),
+                      Message(role: .user, text: "What's in meeting-notes.md?", attachment: notes),
+                      Message(role: .assistant, text: "Two follow-ups from the sync: ship onboarding, and review the wallet copy."),
+                      Message(role: .user, text: "What's in scan.pdf?", attachment: Attachment("scan.pdf", size: "1.2 MB")),
+                      Message(role: .assistant, text: "I can't read scan.pdf yet. Here on the device I can read text files: plain text, Markdown, CSV, JSON and code."),
                       Message(role: .user, text: "Run daily"),
                       Message(role: .assistant, text: "Run daily set. I will finish open Monad quests every day at 08:00 with gas capped at $1 a day.", note: true),
                       Message(role: .assistant, blocks: [.card(.liveTrade(LiveTrade(sym: "ETH", title: "ETH-PERP", side: "Long 3x", entry: 3498, tp: 3780, sl: 3390, liq: 2450, size: 3000)))])]
@@ -68,7 +70,9 @@ enum ShellShots {
 
             // The whole window mid-conversation, inside a project.
             let w = AppModel()
-            w.openConversation("news-sell")
+            w.chatProject = w.projectList.first?.name
+            w.messages = [Message(role: .user, text: "What should this project do first?"),
+                          Message(role: .assistant, text: "Start with the smallest piece you can finish this week, then build from there.")]
             try shoot(RootView(model: w), "mac-chat-project", CGSize(width: 1320, height: 822))
         }
 
@@ -93,8 +97,8 @@ enum ShellShots {
         }
 
         if want("login") {
-            try shoot(LoginView {}, "mac-login", CGSize(width: 1320, height: 860))
-            try shoot(LoginView {}, "phone-login", CGSize(width: 402, height: 874))
+            try shoot(LoginView { _ in }, "mac-login", CGSize(width: 1320, height: 860))
+            try shoot(LoginView { _ in }, "phone-login", CGSize(width: 402, height: 874))
         }
 
         if want("phone") {

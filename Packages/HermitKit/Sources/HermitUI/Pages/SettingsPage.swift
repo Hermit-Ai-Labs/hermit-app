@@ -1,18 +1,20 @@
 import SwiftUI
 import HermitCore
 
-/// Settings (demo: Settings.jsx): Safety, Memory (hermit.md), Models (on-device), Home.
+/// Settings (demo: Settings.jsx): Profile, Safety, Memory (hermit.md), Models (on-device), Home.
 struct SettingsPage: View {
     @Environment(AppModel.self) private var model
-    @State private var tab = "safety"
+    @State private var tab = "profile"
     @AppStorage("settings.askAbove") private var askAbove = 100
     @AppStorage("settings.dailyLimit") private var daily = 2000
     @AppStorage("home.showBalance") private var showBalance = true
     @AppStorage("home.showToday") private var showToday = true
 
     var body: some View {
-        Page(title: "Settings", tabs: [("safety", "Safety"), ("memory", "Memory"), ("models", "Models"), ("home", "Home")], tab: $tab) { t in
+        Page(title: "Settings", tabs: [("profile", "Profile"), ("safety", "Safety"), ("memory", "Memory"), ("models", "Models"), ("home", "Home")], tab: $tab) { t in
             switch t {
+            case "profile": ProfileSettings()
+            case "safety": safety
             case "memory": MemoryEditor()
             case "models":
                 VStack(alignment: .leading, spacing: 10) {
@@ -20,11 +22,11 @@ struct SettingsPage: View {
                     ModelSheet(embedded: true)
                 }
             case "home": home
-            default: safety
+            default: ProfileSettings()
             }
         }
         .onAppear {
-            if let r = model.tabRequest, ["safety", "memory", "models", "home"].contains(r) { tab = r; model.tabRequest = nil }
+            if let r = model.tabRequest, ["profile", "safety", "memory", "models", "home"].contains(r) { tab = r; model.tabRequest = nil }
         }
     }
 
@@ -58,7 +60,7 @@ struct SettingsPage: View {
 
     private var home: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingRow(title: "Balance", sub: "Money managed by the agent, on the home screen") {
+            SettingRow(title: "Balance", sub: "Your wallets' total, on the home screen") {
                 Toggle("Balance", isOn: $showBalance).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
             Hairline()
@@ -68,6 +70,45 @@ struct SettingsPage: View {
         }
         .onChange(of: showBalance) { _, v in model.toast(v ? "Balance shown on Home" : "Balance hidden on Home") }
         .onChange(of: showToday) { _, v in model.toast(v ? "Today shown on Home" : "Today hidden on Home") }
+    }
+}
+
+/// What Hermit calls you. There is no account: the name lives on this device.
+struct ProfileSettings: View {
+    @Environment(AppModel.self) private var model
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    private var trimmed: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var dirty: Bool { !trimmed.isEmpty && trimmed != model.user }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingRow(title: "What Hermit calls you", sub: "Used in greetings and in chat") {
+                HStack(spacing: 8) {
+                    TextField(text: $draft, prompt: Text("Your name").foregroundStyle(Theme.faint)) { Text("Name") }
+                        .textFieldStyle(.plain).font(.system(size: 13.5)).foregroundStyle(Theme.text)
+                        .focused($focused).autocorrectionDisabled()
+                        .padding(.horizontal, 12).frame(width: 200, height: 32)
+                        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(focused ? Theme.faint : Theme.border))
+                        .onSubmit(save)
+                    Button("Save", action: save).buttonStyle(BlackButton()).disabled(!dirty)
+                }
+            }
+            Hairline()
+            SettingRow(title: "Account", sub: "None needed. Your chats, memory and keys stay on this device") {
+                Text("On this device").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+            }
+        }
+        .onAppear { draft = model.user }
+    }
+
+    private func save() {
+        guard dirty else { return }
+        model.user = String(trimmed.prefix(40))
+        focused = false
+        model.toast("Hermit will call you \(model.user)")
     }
 }
 

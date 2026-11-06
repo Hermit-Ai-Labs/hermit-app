@@ -3,7 +3,8 @@ import UniformTypeIdentifiers
 import HermitCore
 
 /// The chat box, the same everywhere (home, chat, project pages, automations), like Claude and ChatGPT:
-/// text, then + (files, commands, project, connectors, plugins), attach and speak on the left; model and send on the right.
+/// text, then + (files, commands, project), attach and speak on the left; model and send on the right.
+/// Speak, connectors and plugins are greyed out until they exist.
 struct Composer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
@@ -12,31 +13,20 @@ struct Composer: View {
     var label: String? = nil
     var projectPicker = true
     var minLines = 1
-    var dictation = "Long HYPE 5x on Hyperliquid, stop at $22"
+    /// Example words for voice input. Not used until voice input exists; callers still pass one.
+    var dictation = ""
     var autoFocus = true
     /// Where the message goes. Nil sends it to the main chat.
     var onSend: ((String, Attachment?) -> Void)? = nil
 
     @State private var text = ""
     @State private var file: Attachment?
-    @State private var attaching = false
-    @State private var recording = false
     @State private var importing = false
     @State private var showModels = false
-    @State private var connectorsOn: Set<String> = ["Gmail", "Google Calendar", "Notion", "X", "OpenAI", "Perplexity"]
-    @State private var pluginsOn: Set<String> = ["Research analyst"]
     @FocusState private var focused: Bool
 
-    static let commands: [(String, String)] = [
-        ("/trade", "Open a trade with TP and SL"), ("/swap", "Swap one token for another"), ("/pay", "Send or schedule a payment"),
-        ("/earn", "Find yield for idle funds"), ("/automate", "Turn a task into an automation"), ("/remember", "Save something to long-term memory"),
-    ]
-    static let connectors = ["Gmail", "Google Calendar", "Notion", "X", "Telegram", "Discord", "OpenAI"]
-    static let plugins: [(String, String, Bool)] = [
-        ("Hazard scan", "Checks every transaction", true), ("Injection shield", "Ignores instructions in web pages and email", true),
-        ("Browser takeover", "Uses websites for you", false), ("Meme sniper", "Screens new pairs", false),
-        ("Airdrop farmer", "Completes quests", false), ("Research analyst", "Token reports", false),
-    ]
+    /// Commands that do something real today.
+    static let commands: [(String, String)] = [("/remember", "Save something to long-term memory")]
 
     private var slash: String? {
         text.range(of: #"^/\w*$"#, options: .regularExpression) != nil ? text.lowercased() : nil
@@ -69,25 +59,12 @@ struct Composer: View {
         }
         .animation(.snappy, value: model.chatProject)
         .sheet(isPresented: $showModels) { ModelSheet().environment(model) }
-        .sheet(isPresented: $attaching) {
-            AttachSheet { picked in
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
+            // Text files come with their content, which goes to the model with the message.
+            if case .success(let url) = result {
+                let picked = Attachment.read(url)
                 withAnimation(.snappy) { file = picked }
                 focused = true
-            } browse: {
-                attaching = false
-                Task { try? await Task.sleep(for: .milliseconds(300)); importing = true }
-            }
-        }
-        .sheet(isPresented: $recording) {
-            RecordSheet(transcript: dictation) { words in
-                text = text.isEmpty ? words : text + " " + words
-                focused = true
-            }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result {
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? ""
-                withAnimation(.snappy) { file = Attachment(url.lastPathComponent, size: size) }
             }
         }
     }
@@ -107,8 +84,8 @@ struct Composer: View {
                 #endif
             HStack(spacing: 2) {
                 plusMenu
-                tool("paperclip", "Attach file") { attaching = true }
-                tool("mic", "Speak") { recording = true }
+                tool("paperclip", "Attach a file") { importing = true }
+                tool("mic", "Voice input is coming soon") {}.disabled(true).opacity(0.45)
                 Spacer(minLength: 8)
                 if let label, !label.isEmpty {
                     Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1).padding(.trailing, 6)
@@ -163,7 +140,7 @@ struct Composer: View {
 
     private var plusMenu: some View {
         Menu {
-            Button("Add files or photos", systemImage: "photo.badge.plus") { attaching = true }
+            Button("Add a file", systemImage: "paperclip") { importing = true }
             Divider()
             Menu {
                 ForEach(Self.commands, id: \.0) { c in Button { use(c.0) } label: { Text(c.0); Text(c.1) } }
@@ -179,32 +156,15 @@ struct Composer: View {
                     }
                 } label: { Label("Project", systemImage: "folder"); Text(model.chatProject ?? "None") }
             }
-            Menu {
-                ForEach(Self.connectors, id: \.self) { c in
-                    Toggle(c, isOn: Binding(get: { connectorsOn.contains(c) }, set: { on in if on { connectorsOn.insert(c) } else { connectorsOn.remove(c) } }))
-                }
-                Divider()
-                Button("Manage connectors", systemImage: "puzzlepiece.extension") { model.open(.connectors) }
-            } label: { Label("Connectors", systemImage: "powerplug"); Text("\(connectorsOn.count) on") }
-            Menu {
-                ForEach(Self.plugins, id: \.0) { p in
-                    if p.2 {
-                        Button { model.toast("\(p.0) is always on") } label: { Label(p.0, systemImage: "lock"); Text(p.1) }
-                    } else {
-                        Toggle(isOn: Binding(get: { pluginsOn.contains(p.0) }, set: { on in if on { pluginsOn.insert(p.0) } else { pluginsOn.remove(p.0) } })) {
-                            Text(p.0); Text(p.1)
-                        }
-                    }
-                }
-                Divider()
-                Button("Browse plugins", systemImage: "puzzlepiece") { model.open(.connectors, tab: "skills") }
-            } label: { Label("Plugins", systemImage: "puzzlepiece"); Text("\(pluginsOn.count + 2) on") }
+            Divider()
+            Button {} label: { Label("Connectors", systemImage: "powerplug"); Text("Soon") }.disabled(true)
+            Button {} label: { Label("Plugins", systemImage: "puzzlepiece"); Text("Soon") }.disabled(true)
         } label: {
             Image(systemName: "plus").font(.system(size: 15)).foregroundStyle(Theme.muted)
                 .frame(width: compact ? 36 : 30, height: compact ? 36 : 30).contentShape(Rectangle())
         }
         .menuStyle(.button).buttonStyle(ToolStyle()).menuIndicator(.hidden).fixedSize()
-        .help("Add files, commands, connectors and more")
+        .help("Add a file, a command or a project")
     }
 
     /// Typing "/" lists the commands right above the box.

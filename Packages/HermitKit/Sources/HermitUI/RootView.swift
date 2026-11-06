@@ -2,10 +2,9 @@ import SwiftUI
 import HermitCore
 
 /// The whole app. Mac (and iPad): sidebar on the left, the page on the right. iPhone: a tab bar with
-/// Chat, Trade, Earn, Payments and Wallets, and the sidebar as a drawer. First launch shows the sign-in page.
+/// Chat, Trade, Earn, Payments and Wallets, and the sidebar as a drawer. First launch asks what Hermit should call you.
 public struct RootView: View {
     @State private var model: AppModel
-    @AppStorage(SignIn.key) private var signedIn = false
     private let forcePhone: Bool
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -27,8 +26,8 @@ public struct RootView: View {
 
     public var body: some View {
         ZStack {
-            if !signedIn && !SnapshotMode.active {
-                LoginView { withAnimation(.smooth(duration: 0.5)) { signedIn = true } }
+            if model.user.isEmpty && !SnapshotMode.active {
+                LoginView { name in withAnimation(.smooth(duration: 0.5)) { model.user = name } }
                     .transition(.opacity)
             } else if compact {
                 CompactShell()

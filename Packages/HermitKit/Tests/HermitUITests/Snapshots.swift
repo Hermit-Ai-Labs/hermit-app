@@ -47,7 +47,7 @@ final class Snapshots: XCTestCase {
     func testChat() throws {
         let model = AppModel()
         try shoot(RootView(model: model), "mac-chat", CGSize(width: 1320, height: 822), settle: 4.5) {
-            model.send("Pay alice.eth 200 USDC on Friday")
+            model.send("What is a seed phrase?")
         }
     }
 

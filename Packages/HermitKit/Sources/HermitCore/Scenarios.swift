@@ -1,6 +1,7 @@
 import Foundation
 
-/// Every scripted conversation from the web demo (hermit-demo/src/scenarios.jsx), with the prompt matcher.
+/// The scripted conversations from the web demo (hermit-demo/src/scenarios.jsx). Chat never answers with these;
+/// they are card samples the snapshot tests render so every card type keeps its look.
 public struct Scenario: Sendable, Identifiable {
     public let id: String
     public let chip: String
@@ -37,9 +38,6 @@ public struct Scenario: Sendable, Identifiable {
         guard let hit = rules.first(where: { t.range(of: $0.1, options: .regularExpression) != nil }) else { return nil }
         return named(hit.0)
     }
-
-    /// Chips on the home screen.
-    public static let home = ["news", "opps-defi", "build", "inject"].compactMap(named)
 
     // MARK: Building blocks
 

@@ -1,11 +1,10 @@
 import Foundation
 import HermitCore
 
-/// The agent the app talks to. Money moves and demo flows go to the scripted agent so the approval sheets keep
-/// working; everything else goes to the on-device model. Until the model is downloaded it offers the download.
+/// The agent the app talks to: every prompt goes to the on-device model. Until the model is downloaded it offers
+/// the download.
 public final class HybridAgent: Agent, @unchecked Sendable {
     private let store: ModelStore
-    private let scripted = ScriptedAgent()
     public let local: LocalAgent
 
     @MainActor
@@ -22,8 +21,9 @@ public final class HybridAgent: Agent, @unchecked Sendable {
 
     public func reset() { local.reset() }
 
+    public func setContext(name: String, memory: [String]) { local.setContext(name: name, memory: memory) }
+
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
-        if ScriptedAgent.matches(prompt) { return scripted.reply(to: prompt) }
         return AsyncStream { cont in
             let task = Task { [store, local] in
                 let (spec, state) = await MainActor.run { (store.selected, store.selectedState) }

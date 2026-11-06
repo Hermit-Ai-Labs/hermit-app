@@ -49,8 +49,45 @@ public struct Attachment: Equatable, Sendable, Codable, Hashable, Identifiable {
     public let kind: Kind
     public let size: String
     public let source: String
-    public init(_ name: String, kind: Kind? = nil, size: String = "", source: String = "Device") {
+    /// The file's text when Hermit can read it (plain text, markdown, CSV, JSON, code), cut to fit the model.
+    /// nil for files it can't read. Not saved with the chat.
+    public var text: String? = nil
+    /// True when `text` is only the start of the file.
+    public var truncated = false
+
+    enum CodingKeys: String, CodingKey { case name, kind, size, source }
+
+    public init(_ name: String, kind: Kind? = nil, size: String = "", source: String = "Device", text: String? = nil, truncated: Bool = false) {
         self.name = name; self.kind = kind ?? Attachment.kind(of: name); self.size = size; self.source = source
+        self.text = text; self.truncated = truncated
+    }
+
+    /// Extensions read as text. Files without an extension are read too when they decode as text.
+    public static let textExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "csv", "tsv", "json", "jsonl", "yaml", "yml", "toml", "ini", "xml", "html", "htm", "css",
+        "js", "jsx", "ts", "tsx", "swift", "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "hpp", "m", "sh", "zsh", "sql",
+        "sol", "log", "prompt", "env", "rtf",
+    ]
+    /// Most characters of one file passed to the model (about 2,000 tokens, so the answer starts quickly on a phone).
+    public static let maxChars = 8000
+
+    /// Reads a file the user picked: name, size, and its text when it is a text file.
+    public static func read(_ url: URL) -> Attachment {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        var a = Attachment(url.lastPathComponent, size: bytes > 0 ? ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) : "")
+        let ext = url.pathExtension.lowercased()
+        guard ext.isEmpty || textExtensions.contains(ext), let h = try? FileHandle(forReadingFrom: url) else { return a }
+        defer { try? h.close() }
+        let data = (try? h.read(upToCount: maxChars * 4)) ?? Data()
+        guard !data.contains(0) else { return a }
+        let s = String(decoding: data, as: UTF8.self)
+        // Mostly replacement characters means it isn't text after all.
+        guard s.unicodeScalars.filter({ $0 == "\u{FFFD}" }).count <= max(2, s.count / 100) else { return a }
+        a.text = String(s.prefix(maxChars))
+        a.truncated = s.count > maxChars || bytes > data.count
+        return a
     }
     public static func kind(of name: String) -> Kind {
         let n = name.lowercased()
