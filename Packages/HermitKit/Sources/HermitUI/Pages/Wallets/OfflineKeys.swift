@@ -23,38 +23,30 @@ struct OfflineKeysBadge: View {
 
     var body: some View {
         let offline = !net.online
-        HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                Circle().fill(offline ? Theme.green.opacity(0.12) : Theme.hover)
-                Image(systemName: offline ? "airplane" : "iphone")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(offline ? Theme.green : Theme.text)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 5) {
-                // Status on its own line so the title never has to share (and lose) the width.
-                HStack(spacing: 5) {
-                    Circle().fill(offline ? Theme.green : Theme.faint).frame(width: 6, height: 6)
-                    Text(offline ? "No internet" : "Online").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
+        // One compact row: icon, a short title with the live status, one line under it.
+        HStack(spacing: 11) {
+            Image(systemName: offline ? "airplane" : "iphone")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(offline ? Theme.green : Theme.text)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 32, height: 32)
+                .background(offline ? Theme.green.opacity(0.12) : Theme.bg, in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Made on this phone").font(.system(size: 13.5, weight: .semibold))
+                    Circle().fill(offline ? Theme.green : Theme.faint).frame(width: 5, height: 5)
+                    Text(offline ? "Offline" : "Online").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
                 }
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Theme.bg, in: Capsule()).overlay(Capsule().strokeBorder(Theme.border))
-                .fixedSize()
-                Text(offline ? "Offline, and that's fine" : "Made on this phone").font(.system(size: 15, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(offline
-                     ? "Your keys are being made right here. Nothing can leave this phone."
-                     : "Hermit makes keys without the internet. For extra peace of mind, turn on Airplane Mode first.")
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(offline ? "Nothing can leave this phone." : "Works offline. Airplane Mode adds peace of mind.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
-        .background(offline ? Theme.green.opacity(0.05) : Theme.subtle, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(offline ? Theme.green.opacity(0.25) : Theme.border))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(offline ? Theme.green.opacity(0.05) : Theme.subtle, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(offline ? Theme.green.opacity(0.25) : Theme.border))
         .animation(.smooth(duration: 0.35), value: offline)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -2,9 +2,8 @@ import SwiftUI
 import HermitCore
 import HermitWallet
 
-/// Swap on one network, or bridge to another (same sheet, pick a different "To" network). Quotes come from LI.FI and
-/// refresh as you type; Review shows what you get, the minimum after slippage, the route and fees, then Face ID signs
-/// the approve (if needed) and the swap.
+/// Swap on one network, or bridge to another (same sheet, pick a different "To" network), Solana included. Quotes come
+/// from Relay and refresh as you type; Review shows what you get, the fee and the time, then Face ID signs each step.
 struct SwapSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var ask
@@ -15,16 +14,16 @@ struct SwapSheet: View {
     @State private var fromSym: String
     @State private var toSym: String
     @State private var amount = ""
-    @State private var quote: LiFi.Quote?
+    @State private var quote: Relay.Quote?
     @State private var quoting = false
     @State private var error: String?
 
-    static let chains: [Chain] = Chain.mainnets.filter { $0.kind == .evm }
+    static let chains: [Chain] = Chain.mainnets.filter { Relay.Place.chain($0).relayID != nil }
 
     init(vm: WalletsViewModel, fromID: String, bridge: Bool, token: String? = nil, chain: Chain? = nil) {
         self.vm = vm
         _walletID = State(initialValue: vm.wallet(fromID)?.id ?? vm.firstWalletID ?? "")
-        let from = chain.flatMap { $0.kind == .evm ? $0 : nil } ?? .base
+        let from = chain.flatMap { Relay.Place.chain($0).relayID != nil ? $0 : nil } ?? .base
         _fromChain = State(initialValue: from)
         _toChain = State(initialValue: bridge ? (from == .arbitrum ? .base : .arbitrum) : from)
         _fromSym = State(initialValue: token ?? "USDC")
@@ -56,11 +55,11 @@ struct SwapSheet: View {
                 Button { flip() } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 12, weight: .semibold)) }
                     .buttonStyle(PressStyle()).frame(width: 30, height: 30).background(Theme.hover, in: Circle()).accessibilityLabel("Swap direction")
             }
-            box("To", trailing: quote.map { "min. " + Units.format($0.toAmountMin, decimals: $0.toDecimals, maxFraction: 6) }) {
+            box("To") {
                 HStack(spacing: 8) {
                     Group {
                         if quoting { ProgressView().controlSize(.small) }
-                        else { Text(quote.map { Units.format($0.toAmount, decimals: $0.toDecimals, maxFraction: 6) } ?? "0") }
+                        else { Text(quote?.amountOut ?? "0") }
                     }
                     .font(.system(size: 14)).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading).modifier(FieldBox())
                     MenuField(selection: $toSym, options: symbols(toChain), title: { $0 }, logo: { $0 }).frame(maxWidth: 120)
@@ -68,7 +67,7 @@ struct SwapSheet: View {
                 MenuField(selection: $toChain, options: Self.chains, title: { $0.name }, logo: { $0.logo })
             }
             if let q = quote {
-                DetailLines(lines: [("Route", q.tool), ("Fees", MoneyFmt.usd(q.feeUSD + q.gasUSD, digits: 2) + " incl. network"),
+                DetailLines(lines: [("Route", "Relay"), ("Fees", MoneyFmt.usd(q.feeUSD, digits: 2) + " incl. network"),
                                     ("Time", q.seconds < 60 ? "Under a minute" : "About \(q.seconds / 60) min")])
             }
             if value > (held?.amount ?? 0), value > 0 {
@@ -94,16 +93,19 @@ struct SwapSheet: View {
         fromChain = toChain; fromSym = toSym; toChain = c; toSym = s; amount = ""
     }
 
+    private func address(_ c: Chain, _ w: WalletAccount) -> String { c.kind == .solana ? w.record.solanaAddress : w.record.evmAddress }
+
     private func requote() async {
         quote = nil; error = nil
         let tok = token(fromSym, fromChain)
-        guard value > 0, !(fromChain == toChain && fromSym == toSym), let w = vm.wallet(walletID), let addr = w.evmAddress,
-              let amt = try? Units.parse(amount, decimals: tok?.decimals ?? 18) else { return }
+        guard value > 0, !(fromChain == toChain && fromSym == toSym), let w = vm.wallet(walletID),
+              let amt = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? fromChain.nativeDecimals) else { return }
         try? await Task.sleep(for: .milliseconds(450))   // wait for typing to settle
         guard !Task.isCancelled else { return }
         quoting = true; defer { quoting = false }
         do {
-            let q = try await LiFi.quote(from: fromChain, to: toChain, fromToken: tok, toToken: token(toSym, toChain), amount: amt, address: addr)
+            let q = try await Relay.quote(from: .chain(fromChain), fromToken: tok, to: .chain(toChain), toToken: token(toSym, toChain),
+                                          amount: amt, user: address(fromChain, w), recipient: address(toChain, w))
             if !Task.isCancelled { quote = q }
         } catch {
             if !Task.isCancelled { self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription }
@@ -111,25 +113,17 @@ struct SwapSheet: View {
     }
 
     private func review() {
-        guard let q = quote, let w = vm.wallet(walletID), let owner = EVMAddress(w.record.evmAddress) else { return }
-        let fromTok = token(fromSym, fromChain), chain = fromChain, svc = vm.service, wid = w.record.id
-        let out = Units.format(q.toAmount, decimals: q.toDecimals, maxFraction: 6), min = Units.format(q.toAmountMin, decimals: q.toDecimals, maxFraction: 6)
-        Task {
-            let allowance: UInt128
-            if let t = fromTok, let spender = q.approvalAddress {
-                allowance = (try? await svc.allowance(chain: chain, token: EVMAddress(t.address)!, owner: owner, spender: spender)) ?? 0
-            } else { allowance = .max }
-            let calls = LiFi.calls(q, token: fromTok, allowance: allowance)
-            ask(Approval(kind: bridging ? "Bridge" : "Swap on \(chain.name)",
-                         title: "\(amount) \(fromSym) to \(toSym)",
-                         lines: [["You pay", "\(amount) \(fromSym) on \(fromChain.name)"], ["You get", "about \(out) \(toSym) on \(toChain.name)"],
-                                 ["At least", "\(min) \(toSym) (0.5% slippage)"], ["Route", q.tool],
-                                 ["Fees", MoneyFmt.usd(q.feeUSD + q.gasUSD, digits: 2)],
-                                 ["Steps", calls.count == 2 ? "Allow, then swap (two Face ID prompts)" : "One transaction"]],
-                         checks: ["Each step is simulated before it's signed", "Signed on this phone with your wallet's key"],
-                         success: bridging ? "Bridge sent. Funds arrive on \(toChain.name) shortly." : "Swapped \(fromSym) to \(toSym)") {
-                try await svc.executeCalls(walletID: wid, chain: chain, calls).last ?? ""
-            }) { Task { await vm.refresh() } }
-        }
+        guard let q = quote, let w = vm.wallet(walletID) else { return }
+        let svc = vm.service, wid = w.record.id
+        let txs = q.steps.reduce(0) { n, s in if case .evm(_, let c) = s { return n + c.count }; return n + 1 }
+        ask(Approval(kind: bridging ? "Bridge" : "Swap on \(fromChain.name)",
+                     title: "\(amount) \(fromSym) to \(toSym)",
+                     lines: [["You pay", "\(amount) \(fromSym) on \(fromChain.name)"], ["You get", "about \(q.amountOut) \(toSym) on \(toChain.name)"],
+                             ["Fee", MoneyFmt.usd(q.feeUSD, digits: 2)], ["Time", q.seconds < 60 ? "Under a minute" : "About \(q.seconds / 60) min"],
+                             ["Steps", txs > 1 ? "\(txs) transactions, one Face ID each" : "One transaction"], ["Route", "Relay"]],
+                     checks: ["Every step is simulated before it's signed", "Signed on this phone with your wallet's key"],
+                     success: bridging ? "On its way to \(toChain.name)" : "Swapped \(fromSym) to \(toSym)") {
+            try await svc.execute(q, walletID: wid)
+        }) { Task { try? await Task.sleep(for: .seconds(3)); await vm.refresh() } }
     }
 }

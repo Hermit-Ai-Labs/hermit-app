@@ -200,77 +200,6 @@ struct HomeBalanceCard: View {
     }
 }
 
-/// Live prices on Home, in place of the balance (design C): the welcome screen's dial, its needle the market's mood
-/// (the average 24h move of BTC, ETH, SOL and HYPE on Hyperliquid), and the four coins under it. Tap to open Trade.
-struct HomeMarketsCard: View {
-    @Environment(AppModel.self) private var model
-    let hide: () -> Void
-    private var feed: MarketFeed { .shared }
-    static let coins = ["BTC", "ETH", "SOL", "HYPE"]
-
-    private var mood: Double? {
-        let ch = Self.coins.compactMap { feed.perps[$0]?.ch }
-        return ch.isEmpty ? nil : ch.reduce(0, +) / Double(ch.count)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("MARKET MOOD").font(.system(size: 10.5, weight: .medium, design: .monospaced)).tracking(0.8).foregroundStyle(Theme.faint)
-                Spacer()
-                Text("24H").font(.system(size: 10.5, weight: .medium, design: .monospaced)).tracking(0.8).foregroundStyle(Theme.faint)
-                hideButton(hide).padding(.leading, 4)
-            }
-            Button { model.open(.trade, tab: "markets") } label: {
-                VStack(spacing: 0) {
-                    VStack(spacing: 6) {
-                        MoodDial(value: mood ?? 0)
-                            .frame(height: 78)
-                            .animation(.smooth(duration: 0.9), value: mood)
-                        Text(mood.map { String(format: "%@%.1f%%", $0 >= 0 ? "+" : "−", abs($0)) } ?? "—")
-                            .font(.display(26)).monospacedDigit()
-                            .foregroundStyle((mood ?? 0) >= 0 ? Theme.green : Theme.red)
-                            .contentTransition(.numericText())
-                    }
-                    .padding(.top, 8)
-                    Rectangle().fill(Theme.border).frame(height: 1).padding(.top, 12)
-                    HStack(spacing: 4) {
-                        ForEach(Self.coins, id: \.self) { c in cell(c).frame(maxWidth: .infinity, alignment: .leading) }
-                    }
-                    .padding(.top, 11)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Market mood \(mood.map { String(format: "%.1f percent", $0) } ?? "loading"). Opens Trade.")
-        }
-        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-        .marketPoll(every: 30) { await feed.refreshPerps() }
-    }
-
-    /// "$76,101", "$2,247", "$90.17", "$78.84": whole dollars past 1,000, cents below.
-    static func price(_ v: Double) -> String {
-        "$" + v.formatted(.number.precision(.fractionLength(v >= 1000 ? 0 : 2)))
-    }
-
-    private func cell(_ c: String) -> some View {
-        let p = feed.perps[c]
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                MarketLogo(key: TradeData.logo(c), name: c, size: 15)
-                Text(c).font(.system(size: 11, weight: .medium, design: .monospaced)).tracking(0.5).foregroundStyle(Theme.text)
-            }
-            Text(p.map { Self.price($0.px) } ?? "—").font(.display(16)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.7).contentTransition(.numericText())
-            Text(p.map { String(format: "%@%.1f%%", $0.ch >= 0 ? "+" : "−", abs($0.ch)) } ?? " ")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle((p?.ch ?? 0) >= 0 ? Theme.green : Theme.red)
-        }
-        .redacted(reason: p == nil ? .placeholder : [])
-    }
-}
-
 /// Half dial with ticks, Fear on the left and Greed on the right. ±6% average move swings the needle to the ends.
 struct MoodDial: View, Animatable {
     var value: Double
@@ -395,7 +324,7 @@ struct TodayCard: View {
     }
 }
 
-private func hideButton(_ action: @escaping () -> Void) -> some View {
+func hideButton(_ action: @escaping () -> Void) -> some View {
     Button { withAnimation(.snappy) { action() } } label: {
         Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.faint)
             .frame(width: 20, height: 20).contentShape(Rectangle())

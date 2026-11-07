@@ -95,6 +95,8 @@ public struct LogoMark: View {
         "usdt": "usdt",
         "bnb": "bnb",
         "binance": "mk-bnb",
+        "pol": "mk-pol",
+        "usdc.e": "usdc",
         "xrp": "xrp",
         "doge": "doge",
         "sui": "sui",

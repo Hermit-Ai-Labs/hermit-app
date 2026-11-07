@@ -86,6 +86,9 @@ extension Chain {
     public static let robinhoodTestnet = evm("robinhood-testnet", "Robinhood Chain Testnet", 46630, "ETH", "robinhood",
                                              "https://rpc.testnet.chain.robinhood.com", "https://explorer.testnet.chain.robinhood.com",
                                              testnetOf: "robinhood")
+    // Polygon PoS (137): POL gas. Polymarket settles here in USDC.e. publicnode answers eth_chainId 0x89 (polygon-rpc.com is disabled).
+    public static let polygon = evm("polygon", "Polygon", 137, "POL", "polygon", "https://polygon-bor-rpc.publicnode.com",
+                                    "https://polygonscan.com")
     // Solana: solana.com/docs/references/clusters
     public static let solana = Chain(id: "solana", name: "Solana", kind: .solana, chainId: nil, nativeSymbol: "SOL", nativeDecimals: 9,
                                      logo: "solana", rpc: URL(string: "https://api.mainnet-beta.solana.com")!, explorer: "", isTestnet: false, mainnetID: nil)
@@ -93,7 +96,7 @@ extension Chain {
                                            nativeDecimals: 9, logo: "solana", rpc: URL(string: "https://api.devnet.solana.com")!, explorer: "",
                                            isTestnet: true, mainnetID: "solana")
 
-    public static let all: [Chain] = [ethereum, base, bnb, monad, arbitrum, robinhood, solana,
+    public static let all: [Chain] = [ethereum, base, bnb, monad, arbitrum, polygon, robinhood, solana,
                                       sepolia, baseSepolia, bnbTestnet, monadTestnet, arbitrumSepolia, robinhoodTestnet, solanaDevnet]
     public static let mainnets = all.filter { !$0.isTestnet }
     public static let testnets = all.filter(\.isTestnet)
@@ -133,6 +136,9 @@ public enum TokenTable {
         Token(chainID: "arbitrum", symbol: "USDC", name: "USD Coin", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6),
         Token(chainID: "arbitrum", symbol: "USDT0", name: "USDT0", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6),
         Token(chainID: "arbitrum-sepolia", symbol: "USDC", name: "USD Coin (testnet)", address: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", decimals: 6),
+        // Polygon (137): native USDC, and bridged USDC.e which Polymarket uses.
+        Token(chainID: "polygon", symbol: "USDC", name: "USD Coin", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6),
+        Token(chainID: "polygon", symbol: "USDC.e", name: "Bridged USDC (Polymarket)", address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6),
         // Solana (SPL Token program)
         Token(chainID: "solana", symbol: "USDC", name: "USD Coin", address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6),
         Token(chainID: "solana", symbol: "USDT", name: "Tether USD", address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6),
@@ -140,5 +146,5 @@ public enum TokenTable {
     ]
 
     /// Dollar-pegged tokens count 1:1 towards the daily limit.
-    public static let stableSymbols: Set<String> = ["USDC", "USDT", "USDT0"]
+    public static let stableSymbols: Set<String> = ["USDC", "USDT", "USDT0", "USDC.e"]
 }

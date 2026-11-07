@@ -70,7 +70,12 @@ struct EarnDepositSheet: View {
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
         } foot: {
             if (held?.amount ?? 0) == 0 {
-                Button("Add \(pool.symbol)") { EarnFlow.shared.deposit = nil; model.open(.wallets, tab: "receive") }.buttonStyle(WideButton())
+                Button("Add \(pool.symbol)") {
+                    let goal = route.map { FundGoal.token($0.chain, $0.token.symbol) } ?? .wallet
+                    EarnFlow.shared.deposit = nil
+                    Task { @MainActor in try? await Task.sleep(for: .milliseconds(400)); model.fundGoal = goal }
+                }
+                .buttonStyle(WideButton())
             } else {
                 Button { Task { await review() } } label: {
                     HStack(spacing: 6) {

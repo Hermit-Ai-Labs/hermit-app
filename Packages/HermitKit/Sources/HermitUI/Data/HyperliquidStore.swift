@@ -40,10 +40,6 @@ final class HyperliquidStore {
         return HyperliquidTrader(vault: wallets.service.vault, wallet: w.record)
     }
 
-    /// Deposit: Send opens on Arbitrum, USDC, to Hyperliquid's bridge. Lands in about a minute.
-    func openDeposit(_ model: AppModel, amount: Double? = nil) {
-        wallets.sendPrefill = .init(address: Hyperliquid.bridge, amount: amount.map { String(Int(max($0, 5).rounded(.up))) } ?? "",
-                                    token: "USDC", chain: .arbitrum, label: "Hyperliquid deposit")
-        model.open(.wallets, tab: "send")
-    }
+    /// Deposit: the Add funds flow, aimed at Hyperliquid (moves any balance there through Relay, or shows QR codes).
+    func openDeposit(_ model: AppModel, amount: Double? = nil) { model.fundGoal = .hyperliquid }
 }

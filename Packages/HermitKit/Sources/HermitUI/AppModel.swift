@@ -50,6 +50,8 @@ public final class AppModel {
     /// The open conversation.
     public var messages: [Message] = []
     public var approval: Approval?
+    /// The Add funds sheet, opened from anywhere (Trade, Wallets, Earn). RootView presents it.
+    var fundGoal: FundGoal?
     public var busy = false
     /// Short confirmation shown at the bottom; set it with `toast(_:)`.
     public var toastText: String?

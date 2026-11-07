@@ -189,6 +189,8 @@ struct AllWalletsView: View {
     @Binding var tab: AllWalletsTab
     let wide: Bool
     let open: (WalletSheet) -> Void
+    var pick: (String) -> Void = { _ in }
+    var remove: (WalletAccount) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -200,6 +202,7 @@ struct AllWalletsView: View {
                     VStack(spacing: 14) { balance; AllocationCard(vm: vm) }
                 }
             }
+            walletList.padding(.top, 22)
             PageTabs(tabs: AllWalletsTab.shipped.map { ($0, $0.title) }, selection: $tab).padding(.top, 22)
             Group {
                 switch tab {
@@ -215,6 +218,42 @@ struct AllWalletsView: View {
             .transition(.opacity)
         }
         .animation(.smooth(duration: 0.22), value: tab)
+    }
+
+    /// Every wallet on this phone, each with its own actions (Open, Back up, Remove) one tap away.
+    private var walletList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Your wallets").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.bottom, 4)
+            ForEach(vm.wallets) { w in
+                HStack(spacing: 10) {
+                    Button { pick(w.id) } label: {
+                        HStack(spacing: 10) {
+                            WalletSymbolTile(symbol: w.symbol, size: 32)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(w.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
+                                Text(w.shortAddress).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                            }
+                            Spacer(minLength: 8)
+                            Text(MoneyFmt.usd(vm.total(w.id), digits: 2)).font(.system(size: 13.5)).monospacedDigit().foregroundStyle(Theme.text)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Menu {
+                        Button { pick(w.id) } label: { Label("Open", systemImage: "wallet.bifold") }
+                        Button { open(.phrase(w.id)) } label: { Label(w.backedUp ? "Recovery phrase" : "Back up words", systemImage: "key") }
+                        Divider()
+                        Button(role: .destructive) { remove(w) } label: { Label("Remove from this phone", systemImage: "trash") }
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .frame(width: 34, height: 34).background(Theme.hover, in: Circle())
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .accessibilityLabel("\(w.name) options")
+                }
+                .padding(.vertical, 8)
+            }
+        }
     }
 
     private var balance: some View {

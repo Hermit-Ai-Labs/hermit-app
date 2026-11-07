@@ -24,7 +24,8 @@ struct WalletsPage: View {
                 } else if let w = vm.wallet(selected) {
                     OneWalletView(vm: vm, wallet: w, wide: width > 720, open: open) { removing = w }.id(w.id)
                 } else {
-                    AllWalletsView(vm: vm, tab: $allTab, wide: width > 720, open: open)
+                    AllWalletsView(vm: vm, tab: $allTab, wide: width > 720, open: open, pick: { id in withAnimation(.smooth) { selected = id } },
+                                   remove: { w in removing = w })
                 }
             }
             .transition(.opacity)
@@ -39,7 +40,12 @@ struct WalletsPage: View {
         .modifier(RemoveWalletDialog(vm: vm, wallet: $removing))
         .onAppear(perform: readRequest)
         .onChange(of: model.tabRequest) { _, _ in readRequest() }
-        .onChange(of: vm.wallets.map(\.id)) { _, ids in if selected != "all" && !ids.contains(selected) { selected = "all" } }
+        .onChange(of: vm.wallets.map(\.id)) { _, ids in
+            if selected != "all" && !ids.contains(selected) { selected = "all" }
+            if selected == "all" && ids.count == 1 { selected = ids[0] }
+        }
+        // With a single wallet, "All wallets" is the same thing with less on it: open that wallet.
+        .onAppear { if selected == "all" && vm.wallets.count == 1 { selected = vm.wallets[0].id } }
         .task { if !WalletsViewModel.runningTests { await vm.refresh() } }
     }
 
@@ -68,6 +74,7 @@ struct WalletsPage: View {
     private func open(_ s: WalletSheet) {
         var s = s
         if !vm.hasWallet, s.needsWallet { s = .addWallet(.local, start: nil) }
+        if case .receive = s { sheet = nil; model.fundGoal = .wallet; return }
         if sheet == nil { sheet = s; return }
         sheet = nil
         Task { @MainActor in try? await Task.sleep(for: .milliseconds(380)); sheet = s }

@@ -65,8 +65,16 @@ struct SettingsPage: View {
                 Toggle("Balance", isOn: $showBalance).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
             Hairline()
-            SettingRow(title: "Markets", sub: "BTC, ETH, SOL and HYPE prices, when the balance is off") {
+            SettingRow(title: "Markets", sub: "BTC, ETH, SOL and HYPE, when the balance is off") {
                 Toggle("Markets", isOn: $showMarkets).labelsHidden().toggleStyle(.switch).tint(Theme.text)
+            }
+            if showMarkets {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Card style").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    MarketStylePicker()
+                }
+                .padding(.bottom, 14)
+                .transition(.opacity)
             }
             Hairline()
             SettingRow(title: "Today", sub: "To-dos and events for today") {

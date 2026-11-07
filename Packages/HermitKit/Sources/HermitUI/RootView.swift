@@ -49,6 +49,10 @@ public struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .sheet(item: $model.fundGoal) { g in
+            FundSheet(goal: g).environment(model).tint(Theme.text)
+        }
+        .approvalHost(sheetOpen: model.fundGoal != nil) { model.fundGoal = nil }
         .sheet(item: $model.approval) { a in
             ApprovalSheet(approval: a) { model.approved(a) }
                 .environment(model)
