@@ -76,7 +76,11 @@ public final class ModelStore {
             var ids = await BackgroundDownloads.shared.modelsInFlight()
             if let pending = UserDefaults.standard.string(forKey: Self.downloadingKey) { ids.insert(pending) }
             guard let self else { return }
-            for id in ids where self.state(id) != .ready { self.download(id) }
+            // Transfers iOS kept for a model that's no longer in the catalog (MiniCPM before Hermit 1.1) are cancelled,
+            // not resumed: they'd fail into a retired folder forever and hold up the real download.
+            let known = Set(ModelCatalog.all.map(\.id))
+            for id in ids where !known.contains(id) { BackgroundDownloads.shared.discard(model: id) }
+            for id in ids where known.contains(id) && self.state(id) != .ready { self.download(id) }
         }
         // Back in front: a download the user started that isn't running (interrupted while Hermit was away) continues
         // by itself, without a Try again tap.
