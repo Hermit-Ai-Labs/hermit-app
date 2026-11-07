@@ -12,9 +12,8 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
     @State private var contentHeight: CGFloat = 300
     @State private var headHeight: CGFloat = 56
     @State private var footHeight: CGFloat = 72
-    @State private var bottomInset: CGFloat = 34
 
-    private var fitted: CGFloat { ceil(headHeight + contentHeight + footHeight + bottomInset) }
+    private var fitted: CGFloat { ceil(headHeight + contentHeight + footHeight) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -23,7 +22,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
                 PayIconButton(symbol: "xmark", label: "Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
-            .padding(.leading, 22).padding(.trailing, 14).padding(.top, 16).padding(.bottom, 10)
+            .padding(.leading, 22).padding(.trailing, 14).padding(.top, SheetMetricsTop.value).padding(.bottom, 10)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
             #if os(iOS)
             // The form scrolls on iPhone, so a tall one never squeezes the title off the top of a short sheet.
@@ -37,7 +36,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
             #endif
             HStack(spacing: 10) { foot() }
                 #if os(iOS)
-                .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 8)
+                .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 20)
                 #else
                 .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 22)
                 #endif
@@ -49,13 +48,12 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         #else
         // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Theme.bg)
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = min($0, 44) }
+        .ignoresSafeArea(.container, edges: .bottom)
         // Exactly as tall as the form, header and button row; a form taller than the screen opens full height and scrolls.
         .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
-        .presentationBackground(Theme.bg)
+        .glassSheetBackground()
         #endif
     }
 }
@@ -328,4 +326,13 @@ struct PayExploreSheet: View {
         } foot: { EmptyView() }
         .onAppear { focused = true }
     }
+}
+
+/// Space above a sheet's title, clear of the grab handle (30 on iPhone, 16 on the Mac).
+enum SheetMetricsTop {
+    #if os(iOS)
+    static let value: CGFloat = 30
+    #else
+    static let value: CGFloat = 16
+    #endif
 }

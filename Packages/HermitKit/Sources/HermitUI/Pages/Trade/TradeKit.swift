@@ -339,7 +339,7 @@ extension View {
         #if os(macOS)
         return self.frame(width: width).frame(minHeight: height ?? 0, idealHeight: height).background(Theme.bg)
         #else
-        return self.background(Theme.bg).presentationDetents(height == nil ? [.medium, .large] : [.large])
+        return self.glassSheetBackground().presentationDetents(height == nil ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible).presentationCornerRadius(20)
         #endif
     }

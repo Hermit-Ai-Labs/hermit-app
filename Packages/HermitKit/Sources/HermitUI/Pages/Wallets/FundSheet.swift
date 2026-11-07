@@ -244,8 +244,8 @@ struct FundSheet: View {
                     Text("Same address on Ethereum, Base, Arbitrum, BNB, Polygon and Monad").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         .multilineTextAlignment(.center)
                 }
-                Text(addr).font(.system(size: 12.5, design: .monospaced)).multilineTextAlignment(.center).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(shortAddr(addr, keep: 8)).font(.system(size: 14, design: .monospaced)).lineLimit(1)
+                    .accessibilityLabel(addr)
                 HStack(spacing: 8) {
                     Button { Clip.copy(addr); model.toast("Address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
                         .buttonStyle(OutlineButton())

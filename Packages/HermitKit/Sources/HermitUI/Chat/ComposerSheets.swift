@@ -34,15 +34,15 @@ struct SheetScaffold<Content: View, Foot: View>: View {
             }
         }
         .foregroundStyle(Theme.text)
-        .background(Theme.bg)
         #if os(macOS)
+        .background(Theme.bg)
         .frame(width: width)
         .frame(minHeight: 200, idealHeight: 460, maxHeight: 640)
         #else
         .presentationDetents(detents)
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
-        .presentationBackground(Theme.bg)
+        .glassSheetBackground()
         #endif
     }
 }

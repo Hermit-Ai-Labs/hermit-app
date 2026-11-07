@@ -127,6 +127,8 @@ struct SavedAddress: Identifiable, Hashable, Sendable {
 }
 
 func shortAddr(_ a: String) -> String { a.count > 14 ? "\(a.prefix(6))…\(a.suffix(4))" : a }
+/// Longer middle truncation for an address shown on its own line: "0xA3B0b5…7dd52D".
+func shortAddr(_ a: String, keep: Int) -> String { a.count > keep * 2 + 2 ? "\(a.prefix(keep))…\(a.suffix(keep - 2))" : a }
 
 /// Dollar and number formatting that does not depend on the device locale.
 enum MoneyFmt {

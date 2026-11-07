@@ -65,11 +65,10 @@ private struct WalletMenuSheet: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .background(Theme.bg)
         .presentationDetents([.height(min(height + 30, 640))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(24)
-        .presentationBackground(Theme.bg)
+        .glassSheetBackground()
     }
 }
 #endif
@@ -104,7 +103,7 @@ struct WalletMenu: View {
         .padding(8)
         .frame(width: width)
         .frame(maxWidth: width == nil ? .infinity : nil)
-        .background(Theme.bg)
+        .background(width == nil ? Color.clear : Theme.bg)   // clear on the iPhone sheet's glass, paper in the Mac popover
     }
 
     private func header(_ title: String, _ sub: String) -> some View {

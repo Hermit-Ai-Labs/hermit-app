@@ -155,7 +155,7 @@ struct TradeTerminal: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(24)
-                .presentationBackground(Theme.bg)
+                .glassSheetBackground()
         }
         #else
         .popover(isPresented: $pickOpen, arrowEdge: .bottom) {

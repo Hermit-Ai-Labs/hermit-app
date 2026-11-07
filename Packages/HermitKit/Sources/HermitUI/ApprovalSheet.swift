@@ -94,10 +94,10 @@ struct ApprovalSheet: View {
         .padding(24)
         #if os(macOS)
         .frame(width: 420)
+        .background(Theme.bg)
         #else
         .frame(maxWidth: .infinity, alignment: .top)
         #endif
-        .background(Theme.bg)
         .task { await scan() }
         .animation(.smooth(duration: 0.3), value: phase)
     }

@@ -21,16 +21,15 @@ struct SheetChrome<Content: View, Foot: View>: View {
     @State private var contentHeight: CGFloat = 320
     @State private var headHeight: CGFloat = 62
     @State private var footHeight: CGFloat = 0
-    @State private var bottomInset: CGFloat = 34
 
     private var hasFoot: Bool { Foot.self != EmptyView.self }
     /// The home indicator already leaves room under the button on iPhone.
     #if os(iOS)
-    private let footBottom: CGFloat = 8
+    private let footBottom: CGFloat = 20
     #else
     private let footBottom: CGFloat = 20
     #endif
-    private var fittedHeight: CGFloat { ceil(headHeight + contentHeight + (hasFoot ? footHeight : 0) + bottomInset) }
+    private var fittedHeight: CGFloat { ceil(headHeight + contentHeight + (hasFoot ? footHeight : 0)) }
     #if os(iOS)
     private var fitsScreen: Bool { fittedHeight <= SheetMetrics.maxHeight }
     #else
@@ -60,7 +59,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("Close")
             }
-            .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 14)
+            .padding(.horizontal, 22).padding(.top, SheetMetricsTop.value).padding(.bottom, 14)
             .animation(.snappy, value: onBack == nil)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
 
@@ -73,23 +72,25 @@ struct SheetChrome<Content: View, Foot: View>: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footHeight = $0 }
             }
         }
-        .background(Theme.bg)
         #if os(macOS)
+        .background(Theme.bg)
         .frame(width: width)
         #else
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = min($0, 44) }
+        // iOS 26 sheets float above the home indicator: lay out to the sheet's own bottom edge and pad it ourselves,
+        // so the height we ask for is exactly what's drawn (no extra band under the last row).
+        .ignoresSafeArea(.container, edges: .bottom)
         // Exactly as tall as what's in it: title row, content, button row and the home indicator. No empty band at the bottom.
         // Content taller than the screen gets the full sheet and scrolls.
         .presentationDetents([.height(min(fittedHeight, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         #endif
         .presentationCornerRadius(20)
-        .presentationBackground(Theme.bg)
+        .glassSheetBackground()
     }
 
     @ViewBuilder private var scroll: some View {
         let inner = VStack(alignment: .leading, spacing: 14) { content() }
-            .padding(.horizontal, 22).padding(.bottom, hasFoot ? 6 : 22)
+            .padding(.horizontal, 22).padding(.bottom, hasFoot ? 6 : 24)
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         if SnapshotMode.active { inner.fixedSize(horizontal: false, vertical: true) } else {
@@ -151,8 +152,8 @@ struct FieldBox: ViewModifier {
     var focused = false
     func body(content: Content) -> some View {
         content.padding(.horizontal, 12).frame(minHeight: 40)
-            .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(focused ? Theme.text.opacity(0.5) : Theme.border))
+            .background(Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? Theme.text.opacity(0.5) : Color.white.opacity(0.75)))
     }
 }
 
@@ -580,19 +581,18 @@ extension View {
 /// and scrolls. For sheets that don't use SheetChrome (the approval sheet, flow cards).
 struct FitSheet: ViewModifier {
     @State private var height: CGFloat = 420
-    @State private var inset: CGFloat = 34
     func body(content: Content) -> some View {
-        let fitted = ceil(height + inset)
+        let fitted = ceil(height + 20)
         ScrollView {
-            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            content.padding(.top, 10).padding(.bottom, 10)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset = min($0, 44) }
-        .background(Theme.bg)
+        .ignoresSafeArea(.container, edges: .bottom)
         .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
-        .presentationBackground(Theme.bg)
+        .glassSheetBackground()
     }
 }
 
@@ -609,6 +609,24 @@ extension View {
         modifier(FitSheet())
         #else
         self
+        #endif
+    }
+}
+
+extension View {
+    /// Liquid glass (design A1): the app blurred through a light frosted pane with a bright top edge. iPhone only;
+    /// the Mac keeps paper.
+    @ViewBuilder func glassSheetBackground() -> some View {
+        #if os(iOS)
+        presentationBackground {
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                Color.white.opacity(0.5)
+                LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12))
+            }
+        }
+        #else
+        presentationBackground(Theme.bg)
         #endif
     }
 }

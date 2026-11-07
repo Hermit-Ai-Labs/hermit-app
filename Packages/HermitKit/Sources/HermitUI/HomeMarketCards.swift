@@ -92,36 +92,41 @@ struct HomeMarketsCard: View {
 
     // MARK: Styles
 
-    /// Holo: foil drifting behind; "Crypto today" and the mood word on the left, the big number on the right; frosted chips.
+    /// Holo: the pastel wash behind; "Crypto today" and the mood word on the left, a tall italic serif number on the right;
+    /// frosted coin chips below. Close sits in the card's top-right corner.
     private var holo: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 18) {
+            // The number sits on the same line as the mood word (last text baselines line up).
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
                     label("Crypto today")
-                    Text(moodWord).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
+                    Text(moodWord).font(.system(size: 14.5, weight: .medium)).foregroundStyle(Theme.text)
                 }
                 Spacer(minLength: 8)
-                Text(Self.pct(mood)).font(.display(44)).monospacedDigit().foregroundStyle(tint(mood))
-                    .contentTransition(.numericText()).lineLimit(1).minimumScaleFactor(0.6)
-                hideButton(hide)
+                // Newsreader Regular, upright: a step bolder than the light display cut.
+                Text(Self.pct(mood)).font(.serif(54)).tracking(-1).monospacedDigit().foregroundStyle(tint(mood))
+                    .contentTransition(.numericText()).lineLimit(1).minimumScaleFactor(0.5)
             }
+            .padding(.top, 18).padding(.trailing, 22)   // clear of the close button in the corner
             HStack(spacing: 7) {
                 ForEach(Self.coins, id: \.0) { c, _ in
-                    VStack(spacing: 4) {
-                        logo(c, 24)
-                        Text(Self.price(px(c))).font(.system(size: 12.5, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-                        Text(Self.pct(ch(c))).font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(tint(ch(c)))
+                    VStack(spacing: 6) {
+                        logo(c, 28)
+                        Text(Self.price(px(c))).font(.system(size: 13, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                        Text(Self.pct(ch(c))).font(.system(size: 11.5, weight: .semibold)).monospacedDigit().foregroundStyle(tint(ch(c)))
                     }
-                    .frame(maxWidth: .infinity).padding(.vertical, 9)
-                    .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
-        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             HoloWash().clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         }
         .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.border))
+        .overlay(alignment: .topTrailing) { hideButton(hide).padding(8) }
     }
 
     /// Stocks widget: rows with logo, name, 24h line, price and a solid change pill.

@@ -396,8 +396,8 @@ struct WalletReceiveSheet: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 Button { Clip.copy(addr); model.toast("Address copied") } label: {
                     HStack(alignment: .center, spacing: 10) {
-                        Text(addr).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text)
-                            .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        Text(shortAddr(addr, keep: 10)).font(.system(size: 13.5, design: .monospaced)).foregroundStyle(Theme.text)
+                            .lineLimit(1).accessibilityLabel(addr)
                         Spacer(minLength: 4)
                         Image(systemName: "doc.on.doc").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     }
