@@ -92,7 +92,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
             .padding(.horizontal, 22).padding(.bottom, hasFoot ? 6 : 22)
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-        if SnapshotMode.active { inner } else {
+        if SnapshotMode.active { inner.fixedSize(horizontal: false, vertical: true) } else {
             ScrollView { inner }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(.automatic)

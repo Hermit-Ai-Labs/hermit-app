@@ -83,6 +83,7 @@ struct WalletsPage: View {
             TokenSheet(group: g, vm: vm) { action in
                 let best = g.parts.max { $0.amount < $1.amount }
                 if action == "send" { open(.send(from: best?.walletID, chain: best?.chain, token: g.symbol)) }
+                if action == "receive" { open(.receive(wallet: best?.walletID)) }
             }
         case .activity(let a):
             ActivityDetailSheet(item: a, vm: vm)

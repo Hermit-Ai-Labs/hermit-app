@@ -85,7 +85,6 @@ struct Composer: View {
             HStack(spacing: 2) {
                 plusMenu
                 tool("paperclip", "Attach a file") { importing = true }
-                tool("mic", "Voice input is coming soon") {}.disabled(true).opacity(0.45)
                 Spacer(minLength: 8)
                 if let label, !label.isEmpty {
                     Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1).padding(.trailing, 6)
@@ -156,9 +155,6 @@ struct Composer: View {
                     }
                 } label: { Label("Project", systemImage: "folder"); Text(model.chatProject ?? "None") }
             }
-            Divider()
-            Button {} label: { Label("Connectors", systemImage: "powerplug"); Text("Soon") }.disabled(true)
-            Button {} label: { Label("Plugins", systemImage: "puzzlepiece"); Text("Soon") }.disabled(true)
         } label: {
             Image(systemName: "plus").font(.system(size: 15)).foregroundStyle(Theme.muted)
                 .frame(width: compact ? 36 : 30, height: compact ? 36 : 30).contentShape(Rectangle())

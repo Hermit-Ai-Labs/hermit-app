@@ -53,7 +53,7 @@ struct AutomationsPage: View {
                 AutomationRow(automation: a)
                 Divider().overlay(Theme.border)
             }
-            Label("Scheduled runs are coming soon. Until then, open an automation and press Run now.", systemImage: "clock")
+            Label("Open an automation and press Run now to run it.", systemImage: "clock")
                 .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 14)
         }
     }
@@ -283,7 +283,7 @@ struct AutomationThread: View {
                 VStack(alignment: .leading, spacing: 0) {
                     TxLine("When", d.trigger)
                     TxLine("Asks Hermit", d.prompt)
-                    Text(scheduled ? "Scheduled runs are coming soon. Until then it runs when you press Run now."
+                    Text(scheduled ? "Runs when you press Run now."
                                    : "It runs when you press Run now.")
                         .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 8)
                 }
@@ -346,7 +346,7 @@ struct AutomationThread: View {
         if has(#"^(run( it)?( now)?|test( it)?)[.!]?$"#) {
             model.runAutomation(a.name)
         } else if has(#"^(pause|stop|turn (it )?off|resume|turn (it )?on|start)"#) {
-            say(Message(role: .assistant, text: "Scheduled runs are coming soon, so there is nothing to pause yet. Say \"run it now\" to run it.", note: true))
+            say(Message(role: .assistant, text: "There is nothing to pause: it only runs when you ask. Say \"run it now\" to run it.", note: true))
         } else if has(#"every|each|daily|hourly|morning|evening|night|\b\d{1,2}\s*(am|pm)\b|\d{1,2}:\d{2}|"# + AutomationDraft.weekdays.joined(separator: "|")) {
             // "Make it every Tuesday at 10" changes the time; a longer sentence also replaces the prompt.
             let d = AutomationDraft.from(text)

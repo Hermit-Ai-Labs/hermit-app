@@ -24,7 +24,10 @@ Legend: [x] done · [~] in progress · [ ] to do · ⚠ review risk
 - [ ] App Privacy questionnaire in App Store Connect: "Data not collected" (true today; recheck after connectors).
 - [ ] Export compliance: ITSAppUsesNonExemptEncryption=false is set; standard crypto only, exempt.
 
-## 1. Look and feel (no white space, no cut text, every logo)
+## 1. Look and feel
+
+- [x] Every "Coming soon" / greyed placeholder removed or made to work (Payments → wallet Send, Explore → Open site,
+      unbuilt tabs hidden: Trade Strategies, Earn Airdrops, Wallets DApps/Accounts, Payments APIs, Connectors except Calendar). (no white space, no cut text, every logo)
 
 - [x] Sheets size to their content (Send, Receive, Create, Import, Pay, Schedule): no empty band under the buttons.
 - [x] Earn chain tabs ("All chains, Ethereum, Base, …") scroll sideways on the phone.
@@ -40,11 +43,11 @@ Legend: [x] done · [~] in progress · [ ] to do · ⚠ review risk
 
 - [x] Create / import / back up / delete, Face ID unlock, Secure Enclave seal.
 - [x] Send native + ERC-20 + SPL with review screen and hazard check; mainnet on.
-- [ ] Generic contract call: approve + call with simulation and a readable review screen (needed by Earn, Swap, Bridge, HL deposit).
+- [x] Generic contract call: approve + call with simulation and a readable review screen (needed by Earn, Swap, Bridge, HL deposit).
 - [ ] EIP-712 typed-data signing with a readable review (needed by Hyperliquid orders, Polymarket orders, Permit2).
 - [ ] Solana: sign and send arbitrary transactions (Jupiter swaps, Kamino deposits).
 - [ ] Receive: QR + copy for every chain (verify Robinhood Chain, Monad).
-- [ ] QR scanner for addresses (VisionKit DataScanner; camera usage string).
+- [x] QR scanner for addresses (VisionKit DataScanner; camera usage string).
 - [ ] Swap (EVM: 0x or LI.FI quotes; Solana: Jupiter). Fee disclosed on the review screen.
 - [ ] Bridge (LI.FI / Across) between supported chains.
 - [ ] Gas top-up: swap a little of a token into the native coin when the user has none.
@@ -54,21 +57,21 @@ Legend: [x] done · [~] in progress · [ ] to do · ⚠ review risk
 ## 3. Trade (Hyperliquid + trade.xyz)
 
 - [x] Markets list, prices, charts, market picker sheet, Predictions tab removed.
-- [ ] Deposit: USDC on Arbitrum → Hyperliquid bridge (one contract call), live balance on Hyperliquid.
+- [x] Deposit: USDC on Arbitrum → Hyperliquid bridge (one contract call), live balance on Hyperliquid.
 - [ ] Withdraw: signed `withdraw3` action back to Arbitrum.
 - [ ] Agent key: approve a Hyperliquid API wallet once (EIP-712), kept in the Keychain, so orders don't need Face ID each tap.
-- [ ] Place / cancel orders: market and limit, long and short, leverage, TP/SL, reduce-only. Review screen shows size,
+- [x] Place / cancel orders: market and limit, long and short, leverage, TP/SL, reduce-only. Review screen shows size,
       liquidation price and fees.
-- [ ] Positions tab: live positions, PnL, close, edit TP/SL. Open orders and fills.
+- [x] Positions tab: live positions, PnL, close, edit TP/SL. Open orders and fills.
 - [ ] Spot buy/sell on Hyperliquid spot.
 - [ ] Builder fee (optional revenue): disclosed in the review screen and terms.
 - [ ] Restricted-country check before any order (device region + Hyperliquid's own error).
 
 ## 4. Earn
 
-- [ ] DeFi Deposit: Aave v3 supply/withdraw (Ethereum, Base, Arbitrum), ERC-4626 vaults (Morpho, Euler), Kamino / Jupiter
+- [~] DeFi Deposit: Aave v3 supply/withdraw (done; ERC-4626 + Solana to do) (Ethereum, Base, Arbitrum), ERC-4626 vaults (Morpho, Euler), Kamino / Jupiter
       Lend on Solana. Each pool row → deposit sheet → approve + supply → position appears under Positions.
-- [ ] Positions tab: real positions read from chain (aTokens, vault shares), with withdraw.
+- [x] Positions tab: real positions read from chain (aTokens, vault shares), with withdraw.
 - [ ] Arbitrage / funding tab: either a working one-tap basis trade on Hyperliquid (spot long + perp short) or hide it.
 - [ ] Airdrops / reverse tabs: read-only info is fine; remove any button that doesn't act.
 

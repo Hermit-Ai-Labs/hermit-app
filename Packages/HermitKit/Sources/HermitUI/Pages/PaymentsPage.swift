@@ -12,7 +12,7 @@ struct PaymentsPage: View {
     enum PayTab: String, Hashable, CaseIterable { case schedule, payees, transfer, apis }
 
     private var tabs: [(PayTab, String)] {
-        [(.schedule, "Schedule"), (.payees, store.payees.isEmpty ? "Payees" : "Payees \(store.payees.count)"), (.transfer, "Transfer"), (.apis, "APIs")]
+        [(.schedule, "Schedule"), (.payees, store.payees.isEmpty ? "Payees" : "Payees \(store.payees.count)"), (.transfer, "Transfer")]
     }
 
     var body: some View {

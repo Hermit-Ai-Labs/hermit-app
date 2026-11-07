@@ -1,19 +1,98 @@
 import SwiftUI
+import HermitWallet
 import HermitCore
 
 // MARK: Positions
 
-/// Everything already earning. Deposits, carry bots and airdrop farms aren't wired up yet, so each section is empty.
+/// Everything already earning, read from chain for the first wallet: Aave v3 deposits (aToken balances, which grow with
+/// interest) with Withdraw, and the Hyperliquid account. Nothing here is sample data.
 struct EarnPositions: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.askApproval) private var ask
+    @State private var rows: [AaveRow] = []
+    @State private var loaded = false
+    @State private var error: String?
+    private var vm: WalletsViewModel { .shared }
+    private var hl: HyperliquidStore { .shared }
+
+    struct AaveRow: Identifiable, Hashable {
+        var id: String { chain.id + token.symbol }
+        let chain: Chain, token: Token, amount: UInt128
+        var text: String { Units.format(amount, decimals: token.decimals, maxFraction: 4) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             TradeSection(title: "DeFi", top: 0) {
-                TradeEmpty(icon: "leaf", title: "Nothing deposited yet",
-                           note: "Deposits open soon. Browse real yields in DeFi meanwhile.")
+                if !vm.hasWallet {
+                    TradeEmpty(icon: "leaf", title: "No wallet yet", note: "Create a wallet, then deposit into a pool from DeFi.")
+                } else if !loaded {
+                    MarketStatus(kind: .loading("Reading your deposits"))
+                } else if rows.isEmpty {
+                    TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Open a pool in DeFi and tap Deposit. It shows here, earning.")
+                }
+                ForEach(rows) { r in
+                    HStack(spacing: 12) {
+                        MarketLogo(key: TradeData.logo(r.token.symbol), name: r.token.symbol, size: 30)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Aave \(r.token.symbol)").font(.system(size: 14, weight: .medium))
+                            Text(r.chain.name).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                        }
+                        Spacer(minLength: 8)
+                        Text("\(r.text) \(r.token.symbol)").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                        Button("Withdraw") { withdraw(r) }.buttonStyle(TradeSmallButton())
+                    }
+                    .padding(.vertical, 11)
+                }
             }
-            TradeSection(title: "Arbitrage") { MarketStatus(kind: .empty("No strategies running")) }
-            TradeSection(title: "Airdrops") { MarketStatus(kind: .empty("No airdrop farms")) }
+            TradeSection(title: "Hyperliquid") {
+                if let a = hl.account, a.accountValue > 0 {
+                    HStack {
+                        Text("Account value").foregroundStyle(Theme.muted)
+                        Spacer()
+                        Text("$" + a.accountValue.tradeGrouped(2)).monospacedDigit()
+                        Button("Open") { model.open(.trade, tab: "positions") }.buttonStyle(TradeSmallButton())
+                    }
+                    .font(.system(size: 14)).padding(.vertical, 11)
+                } else {
+                    MarketStatus(kind: .empty("No funds on Hyperliquid"))
+                }
+            }
+            if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).padding(.top, 10) }
         }
+        .task(id: vm.firstWalletID) { await load(); await hl.refresh() }
+    }
+
+    private func load() async {
+        guard let w = vm.wallets.first, let owner = EVMAddress(w.record.evmAddress) else { loaded = true; return }
+        var out: [AaveRow] = []
+        let jobs = Chain.mainnets.filter { AaveV3.pool(on: $0) != nil }.flatMap { c in
+            c.tokens.filter { TokenTable.stableSymbols.contains($0.symbol) }.map { (c, $0, vm.service.evm(c)) }
+        }
+        await withTaskGroup(of: AaveRow?.self) { g in
+            for (chain, token, client) in jobs {
+                g.addTask {
+                    guard let aToken = try? await AaveV3.aToken(chain: chain, token: token, client: client),
+                          let bal = try? await client.tokenBalance(token: aToken, owner: owner), bal > 0 else { return nil }
+                    return AaveRow(chain: chain, token: token, amount: bal)
+                }
+            }
+            for await r in g { if let r { out.append(r) } }
+        }
+        rows = out.sorted { $0.chain.name < $1.chain.name }
+        loaded = true
+    }
+
+    private func withdraw(_ r: AaveRow) {
+        guard let w = vm.wallets.first, let owner = EVMAddress(w.record.evmAddress), let pool = AaveV3.pool(on: r.chain) else { return }
+        let call = AaveV3.withdrawCall(token: r.token, amount: nil, owner: owner, pool: pool)
+        let svc = vm.service, wid = w.record.id, chain = r.chain
+        ask(Approval(kind: "Withdraw on \(r.chain.name)", title: "Withdraw \(r.text) \(r.token.symbol)",
+                     lines: [["From", "Aave v3, \(r.chain.name)"], ["Amount", "All, about \(r.text) \(r.token.symbol)"], ["To", w.name]],
+                     checks: ["Simulated before it's signed", "Signed on this phone with your wallet's key"],
+                     success: "Withdrew \(r.token.symbol)") {
+            try await svc.executeCalls(walletID: wid, chain: chain, [call]).last ?? ""
+        }) { Task { await load(); await vm.refresh() } }
     }
 }
 
@@ -96,23 +175,11 @@ struct EarnArbitrage: View {
                     .monospacedDigit()
                     Button("Ask") { model.send("Walk me through a \(p.sym) funding carry trade. Hyperliquid funding is \(p.fundPct.tradeTrim(4))% an hour right now.") }
                         .buttonStyle(TradeSmallButton())
-                    if !compact { Button("Start") {}.buttonStyle(TradeSmallButton(kind: .primary)).disabled(true) }
                 }
                 .padding(.vertical, 12)
             }
             if !feed.perps.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume")
-                        Spacer()
-                        TradeSoon(text: "Strategies open soon").fixedSize()
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume")
-                        TradeSoon(text: "Strategies open soon").fixedSize()
-                    }
-                }
-                .padding(.top, 8)
+                MarketSource(text: "Live funding from Hyperliquid, perps over $20M daily volume").padding(.top, 8)
             }
         }
         .marketPoll(every: 30) { await feed.refreshPerps() }

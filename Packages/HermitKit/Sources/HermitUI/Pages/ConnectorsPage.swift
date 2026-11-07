@@ -13,10 +13,9 @@ struct ConnectorsPage: View {
     private var calendar: CalendarStore { .shared }
 
     var body: some View {
-        Page(title: "Connectors", subtitle: "Apps, paid APIs and skills Hermit can use",
-             tabs: [("apps", "Apps"), ("apis", "Buy APIs"), ("skills", "Skills")], tab: $tab) {
-            Button {} label: { Label("MCP", systemImage: "plus") }.buttonStyle(OutlineButton())
-                .comingSoon("Custom MCP servers are coming soon")
+        // Only what works today. Other apps, paid APIs, skills and MCP servers come back as each one is built.
+        Page(title: "Connectors", subtitle: "Apps Hermit can use on this phone", tabs: [("apps", "Apps")], tab: $tab) {
+            EmptyView()
         } content: { t in
             switch t {
             case "apis": apis
@@ -46,8 +45,8 @@ struct ConnectorsPage: View {
                 }
             }
             .padding(.vertical, 11)
-            Hairline()
-            RowList(items: ConnectorSeed.apps) { c in
+            if Self.showUnbuilt { Hairline() }
+            if Self.showUnbuilt { RowList(items: ConnectorSeed.apps) { c in
                 HStack(spacing: 12) {
                     LogoMark(c.name, size: 34)
                     VStack(alignment: .leading, spacing: 2) {
@@ -58,9 +57,12 @@ struct ConnectorsPage: View {
                     soon("Connect")
                 }
                 .padding(.vertical, 11)
-            }
+            } }
         }
     }
+
+    /// Off in shipped builds: rows whose Connect doesn't work yet.
+    static let showUnbuilt = false
 
     private var apis: some View {
         RowList(items: ConnectorSeed.apis) { a in

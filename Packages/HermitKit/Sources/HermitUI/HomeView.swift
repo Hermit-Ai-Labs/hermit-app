@@ -60,9 +60,7 @@ struct HomeView: View {
             } else {
                 HStack(spacing: compact ? 28 : 22) {
                     walletAction("Send", "arrow.up.right") { model.open(.wallets, tab: "send") }
-                    walletAction("Swap", "arrow.left.arrow.right", soon: true) {}
                     walletAction("Receive", "arrow.down.left") { model.open(.wallets, tab: "receive") }
-                    walletAction("Buy", "creditcard", soon: true) {}
                 }
                 .padding(.top, 22)
             }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Expandable opportunity row: tap for the pool's real history and stats, then ask Hermit about it.
-/// Depositing isn't wired to a wallet yet, so that button is greyed.
+/// Aave v3 pools on Ethereum, Base and Arbitrum get Deposit; every pool gets Ask.
 struct EarnPoolRow: View {
     let pool: EarnData.Pool
     @Environment(AppModel.self) private var model
@@ -77,12 +77,13 @@ struct EarnPoolDetail: View {
                             ("Chain", pool.chainName), ("Asset", pool.stablecoin ? "Stablecoin" : pool.symbol)])
                 .padding(.top, 14)
             HStack(spacing: 8) {
-                Button("Deposit") {}.buttonStyle(TradeSmallButton(kind: .primary)).disabled(true)
+                if EarnRoute.aave(pool) != nil {
+                    Button("Deposit") { EarnFlow.shared.deposit = pool }.buttonStyle(TradeSmallButton(kind: .primary))
+                }
                 Button { model.send("Is \(pool.name) \(pool.symbol) on \(pool.chainName) at \(EarnPoolRow.pct(pool.apy)) APY a good place for my money? What are the risks?") } label: {
                     Label("Ask", systemImage: "sparkles")
                 }
                 .buttonStyle(TradeSmallButton(kind: .brand))
-                Text("Deposits open soon").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.leading, 4)
             }
             .padding(.top, 14)
             MarketSource(text: "Data from DefiLlama. Yields change; past APY isn't a promise.").padding(.top, 10)

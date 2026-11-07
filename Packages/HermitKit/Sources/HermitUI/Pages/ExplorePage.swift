@@ -25,7 +25,6 @@ struct ExplorePage: View {
                 case .trending: trending(compact)
                 case .all: all(compact)
                 }
-                TradeSoon(text: "Connecting apps from Explore opens soon").padding(.top, 24)
             }
         }
         .payWidth($width)

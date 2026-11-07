@@ -4,6 +4,8 @@ import HermitWallet
 
 enum AllWalletsTab: String, CaseIterable, Hashable {
     case tokens, dapps, gas, activity, accounts
+    /// The tabs that work today. DApps (WalletConnect) and Accounts come back when they're built.
+    static let shipped: [AllWalletsTab] = [.tokens, .gas, .activity]
     var title: String {
         switch self { case .tokens: "Tokens"; case .dapps: "DApps"; case .gas: "Gas"; case .activity: "Activity"; case .accounts: "Accounts" }
     }
@@ -76,8 +78,6 @@ struct BalanceCard<Sub: View>: View {
                 RoundAction(title: "Transfer", symbol: "arrow.left.arrow.right") { open(.transfer(from: walletID)) }
                     .disabled(vm.wallets.count < 2).opacity(vm.wallets.count < 2 ? 0.4 : 1)
                     .help(vm.wallets.count < 2 ? "Add a second wallet to move money between them" : "Move money between your wallets")
-                RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") {}
-                    .notYet("Bridging isn't available yet")
             }
             .padding(.top, 22)
         }
@@ -201,7 +201,7 @@ struct AllWalletsView: View {
                     VStack(spacing: 14) { balance; AllocationCard(vm: vm) }
                 }
             }
-            PageTabs(tabs: AllWalletsTab.allCases.map { ($0, $0.title) }, selection: $tab).padding(.top, 22)
+            PageTabs(tabs: AllWalletsTab.shipped.map { ($0, $0.title) }, selection: $tab).padding(.top, 22)
             Group {
                 switch tab {
                 case .tokens: TokensList(vm: vm, walletID: nil, open: open)
@@ -333,7 +333,7 @@ struct GasList: View {
                 Segmented(options: [(false, "Mainnets"), (true, "Testnets")], selection: $testnets)
             }
             RowList(items: tanks) { g in gasRow(g) }
-            Text("Auto top-up and gas swaps aren't available yet. Send the network's coin to your address to refill.")
+            Text("To refill, send the network's coin to your address from Add funds.")
                 .font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
         }
     }
@@ -349,12 +349,6 @@ struct GasList: View {
             Spacer()
             Text(g.usd.map { MoneyFmt.usd($0, digits: 2) } ?? (g.chain.isTestnet ? "Testnet" : "—"))
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).monospacedDigit()
-            HStack(spacing: 6) {
-                gasButton("arrow.down.to.line", label: "Top up \(g.chain.name) gas")
-                gasButton("arrow.up.right", label: "Withdraw \(g.chain.name) gas")
-            }
-            .notYet("Gas top-ups and withdrawals aren't available yet")
-            .padding(.leading, 6)
         }
         .padding(.vertical, 11)
     }

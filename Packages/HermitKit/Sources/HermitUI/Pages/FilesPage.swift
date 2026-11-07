@@ -17,8 +17,6 @@ struct FilesPage: View {
         ZStack {
             Page(title: "Files", tabs: [(0, "Files")], tab: .constant(0)) {
                 HStack(spacing: 8) {
-                    Button {} label: { Label("Record", systemImage: "mic") }.buttonStyle(OutlineButton())
-                        .comingSoon("Recording is coming soon")
                     Button { importing = true } label: { Label("Add files", systemImage: "plus") }.buttonStyle(BlackButton())
                         .keyboardShortcut("o", modifiers: .command)
                 }

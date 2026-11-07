@@ -1,21 +1,27 @@
 import SwiftUI
 
-/// Connect control. Connecting apps isn't wired up yet, so it's a greyed Connect with a tooltip, never a fake "Connected".
+/// Opens the app's own site in Safari.
 struct ExploreConnectButton: View {
     let dapp: ExploreDapp
     var block = false
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Button {} label: {
-            Text("Connect")
-                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.disabledText)
+        if let url = dapp.url {
+            Button { openURL(url) } label: {
+                HStack(spacing: 5) {
+                    Text("Open")
+                    Image(systemName: "arrow.up.right").font(.system(size: 10.5, weight: .semibold))
+                }
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
                 .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
-                .background(Theme.disabledFill, in: RoundedRectangle(cornerRadius: 9))
+                .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel("Open \(dapp.name) in Safari")
         }
-        .buttonStyle(.plain)
-        .disabled(true)
-        .help("Connecting apps opens soon")
-        .accessibilityLabel("Connect \(dapp.name), opens soon")
     }
 }
 

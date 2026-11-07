@@ -91,9 +91,7 @@ struct TokenSheet: View {
             }
             HStack(spacing: 0) {
                 RoundAction(title: "Send", symbol: "arrow.up.right") { onAction("send") }.frame(maxWidth: .infinity)
-                ForEach([("Swap", "arrow.left.arrow.right"), ("Bridge", "point.3.connected.trianglepath.dotted"), ("Earn", "leaf")], id: \.0) { a in
-                    RoundAction(title: a.0, symbol: a.1) {}.frame(maxWidth: .infinity).notYet("\(a.0) isn't available in the wallet yet")
-                }
+                RoundAction(title: "Receive", symbol: "arrow.down.to.line") { onAction("receive") }.frame(maxWidth: .infinity)
             }
             SectionLabel("Where it is")
             RowList(items: group.parts.sorted { $0.amount > $1.amount }) { h in

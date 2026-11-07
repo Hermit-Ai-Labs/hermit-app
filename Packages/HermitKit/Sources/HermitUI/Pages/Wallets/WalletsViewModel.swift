@@ -40,6 +40,10 @@ final class WalletsViewModel {
 
     var hasWallet: Bool { !wallets.isEmpty }
 
+    /// Set by Payments (Transfer, Pay now) just before opening Send, which reads it once.
+    struct SendPrefill { var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil }
+    @ObservationIgnored var sendPrefill: SendPrefill?
+
     /// Dollar value of every wallet's mainnet coins. nil when it isn't known: no wallet, balances not loaded yet,
     /// a network didn't answer, or there is no price for something held. Testnet coins count as nothing.
     var totalUSD: Double? {

@@ -78,7 +78,7 @@ extension PaySheet where Header == PaySheetTitle {
 }
 
 /// New or existing scheduled payment: payee, address, amount, token, date, repeat and a note.
-/// Pay now stays greyed out until sending from Hermit is live.
+/// Pay now opens the wallet's Send, filled in.
 struct PayScheduleSheet: View {
     @Environment(AppModel.self) var model
     @Environment(\.dismiss) var dismiss
@@ -155,8 +155,17 @@ struct PayScheduleSheet: View {
             }
             if !isNew {
                 HStack(spacing: 10) {
-                    Button("Pay now") {}.buttonStyle(PayPillButton(kind: .accent)).comingSoon(payNotLive)
-                    Text("\(payNotLive).").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                    Button("Pay now") {
+                        dismiss()
+                        let amt = amount, addr = f.addr, token = f.token
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(350))
+                            payViaWallet(model, address: addr, amount: amt, token: token)
+                        }
+                    }
+                    .buttonStyle(PayPillButton(kind: .accent))
+                    .disabled(!PayAddress.valid(f.addr) || (Double(amount) ?? 0) <= 0)
+                    Text("Opens Send with this filled in.").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 }
             }
         } foot: {

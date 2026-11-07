@@ -140,5 +140,5 @@ public enum TokenTable {
     ]
 
     /// Dollar-pegged tokens count 1:1 towards the daily limit.
-    static let stableSymbols: Set<String> = ["USDC", "USDT", "USDT0"]
+    public static let stableSymbols: Set<String> = ["USDC", "USDT", "USDT0"]
 }

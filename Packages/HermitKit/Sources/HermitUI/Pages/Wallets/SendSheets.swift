@@ -54,6 +54,7 @@ struct WalletSendSheet: View {
     @State private var address = ""
     @State private var amount = ""
     @State private var adding = false
+    @State private var scanning = false
     @State private var error: String?
     @State private var busy = false
     // Add address form
@@ -64,10 +65,15 @@ struct WalletSendSheet: View {
     init(vm: WalletsViewModel, fromID: String, chain: Chain?, token: String?) {
         self.vm = vm
         let w = vm.wallet(fromID) ?? vm.wallets.first
-        let c = chain ?? Chain.defaultSend
+        let pre = vm.sendPrefill
+        vm.sendPrefill = nil
+        let c = pre?.chain ?? chain ?? Chain.defaultSend
         _fromID = State(initialValue: w?.id ?? "")
         _chain = State(initialValue: c)
-        _token = State(initialValue: token.flatMap { t in vm.tokens(chain: c).contains(t) ? t : nil } ?? c.nativeSymbol)
+        let want = pre?.token ?? token
+        _token = State(initialValue: want.flatMap { t in vm.tokens(chain: c).contains(t) ? t : nil } ?? c.nativeSymbol)
+        _address = State(initialValue: pre?.address ?? "")
+        _amount = State(initialValue: pre?.amount ?? "")
     }
 
     private var wallet: WalletAccount? { vm.wallet(fromID) }
@@ -109,8 +115,12 @@ struct WalletSendSheet: View {
                         .textInputAutocapitalization(.never)
                         #endif
                     Button("Paste") { paste() }.buttonStyle(.plain).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
-                    Button {} label: { Image(systemName: "qrcode.viewfinder").font(.system(size: 15)).foregroundStyle(Theme.text) }
-                        .buttonStyle(PressStyle()).accessibilityLabel("Scan QR code").notYet("QR scanning isn't available yet")
+                    #if os(iOS)
+                    if QRScannerView.available {
+                        Button { scanning = true } label: { Image(systemName: "qrcode.viewfinder").font(.system(size: 15)).foregroundStyle(Theme.text) }
+                            .buttonStyle(PressStyle()).accessibilityLabel("Scan QR code")
+                    }
+                    #endif
                 }
                 .modifier(FieldBox())
             }
@@ -180,6 +190,11 @@ struct WalletSendSheet: View {
             .keyboardShortcut(.defaultAction)
         }
         .animation(.smooth(duration: 0.25), value: address)
+        #if os(iOS)
+        .fullScreenCover(isPresented: $scanning) {
+            QRScannerSheet { code in address = QRScannerView.address(from: code); scanning = false }
+        }
+        #endif
         .onChange(of: chain) { _, c in
             if !vm.tokens(chain: c).contains(token) { token = c.nativeSymbol }
             error = nil

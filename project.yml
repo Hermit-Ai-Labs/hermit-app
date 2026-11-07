@@ -71,6 +71,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSFaceIDUsageDescription: Hermit asks for Face ID before any money moves.
+        NSCameraUsageDescription: Hermit uses the camera only to scan a wallet address QR code. Nothing is recorded or sent.
         ITSAppUsesNonExemptEncryption: false
         NSCalendarsFullAccessUsageDescription: Hermit shows your calendar events next to your tasks. They stay on this device.
         # The model download runs in a background URLSession; BGContinuedProcessingTask keeps its Live Activity live.

@@ -1,4 +1,5 @@
 import SwiftUI
+import HermitWallet
 import HermitCore
 
 /// Markets: one segmented switch for the market type, then the matching screen, then Explore more.
@@ -30,6 +31,10 @@ struct TradeMarkets: View {
 /// the live order book and trades, and the order form (greyed until trading is wired to an exchange).
 struct TradeTerminal: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.askApproval) private var askApproval
+    @State private var placing = false
+    @State private var orderError: String?
+    private var hl: HyperliquidStore { .shared }
     private var feed: MarketFeed { .shared }
 
     @State private var coin = "HYPE"
@@ -342,7 +347,7 @@ struct TradeTerminal: View {
                 field("Limit price", color: Theme.muted) { TradeField(placeholder: px > 0 ? px.tradePx : "", text: $limitText) }
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            slider("Margin", value: "$" + margin.tradeGrouped(), binding: $margin, range: 50...5000, step: 10)
+            slider("Margin", value: "$" + margin.tradeGrouped(), binding: $margin, range: 5...5000, step: 5)
             slider("Leverage", value: "\(Int(lev))x", binding: $lev, range: 1...Double(max(2, mkt?.maxLev ?? 10)), step: 1)
             HStack(spacing: 12) {
                 field("Take profit", color: Theme.green) { TradeField(placeholder: "", text: $tpText) }
@@ -364,16 +369,87 @@ struct TradeTerminal: View {
                 .background(TradeColor.amberSoft, in: RoundedRectangle(cornerRadius: 10))
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
-            VStack(spacing: 8) {
-                Button {} label: { Text("\(side == "long" ? "Long" : "Short") \(sym)") }
-                    .buttonStyle(TradeBlockButton(color: side == "long" ? Theme.green : Theme.red))
-                    .disabled(true)
-                TradeSoon(text: "Trading opens soon")
-            }
+            submit
             askField
         }
         .animation(.snappy(duration: 0.25), value: type)
         .animation(.snappy(duration: 0.25), value: lev > 10)
+    }
+
+    // MARK: Placing the order
+
+    private var notional: Double { margin * lev }
+    private var orderPrice: Double? { type == "Limit" ? parse(limitText) : (px > 0 ? px : nil) }
+
+    /// Wallet → funded Hyperliquid account → the order. Each step says what's missing instead of a dead button.
+    @ViewBuilder private var submit: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !hl.hasWallet {
+                Button("Create a wallet to trade") { model.open(.wallets, tab: "create") }
+                    .buttonStyle(TradeBlockButton(color: Theme.text))
+            } else if hl.account != nil && hl.available < margin {
+                Button { hl.openDeposit(model, amount: margin - hl.available) } label: { Text("Deposit USDC to trade") }
+                    .buttonStyle(TradeBlockButton(color: Theme.text))
+                Text(hl.available > 0 ? "You have $\(hl.available.tradeGrouped(2)) on Hyperliquid. Send USDC on Arbitrum; it arrives in about a minute."
+                                      : "Send USDC on Arbitrum to your Hyperliquid account; it arrives in about a minute. Minimum $5.")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Button { Task { await review() } } label: {
+                    HStack(spacing: 6) {
+                        if placing { ProgressView().controlSize(.small).tint(.white) }
+                        Text("\(side == "long" ? "Long" : "Short") \(sym)")
+                    }
+                }
+                .buttonStyle(TradeBlockButton(color: side == "long" ? Theme.green : Theme.red))
+                .disabled(placing || orderPrice == nil || notional < 10)
+                HStack {
+                    Text(hl.account.map { "$\($0.withdrawable.tradeGrouped(2)) available on Hyperliquid" } ?? "Checking your Hyperliquid balance")
+                    Spacer()
+                    if hl.account != nil { Button("Deposit") { hl.openDeposit(model) }.buttonStyle(.plain).foregroundStyle(Theme.text) }
+                }
+                .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            }
+            if let orderError {
+                Text(orderError).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+        .task(id: hl.address) { await hl.refresh() }
+    }
+
+    /// Builds the exact order, shows it on the review sheet, and signs + sends it only after Approve (Face ID).
+    private func review() async {
+        orderError = nil
+        guard let price = orderPrice, let trader = hl.trader() else { return }
+        placing = true
+        defer { placing = false }
+        guard let asset = await hl.asset(coin) else { orderError = "\(sym) isn't tradable on Hyperliquid right now."; return }
+        let isBuy = side == "long"
+        let size = Hyperliquid.roundSize(notional / price, szDecimals: asset.szDecimals)
+        guard size > 0 else { orderError = "That size is too small for \(sym)."; return }
+        let limit = type == "Limit" ? Hyperliquid.roundPrice(price, szDecimals: asset.szDecimals)
+                                    : Hyperliquid.marketPrice(mid: price, isBuy: isBuy, asset: asset)
+        let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: limit, size: size, tif: type == "Limit" ? .gtc : .ioc,
+                                      takeProfit: tp, stopLoss: sl)
+        let leverage = min(Int(lev), asset.maxLeverage)
+        var lines: [[String]] = [
+            ["Market", "\(sym) perp on \(coin.hasPrefix("xyz:") ? "trade.xyz" : "Hyperliquid")"],
+            ["Side", isBuy ? "Long" : "Short"],
+            ["Size", "\(Hyperliquid.wire(size)) \(sym), about $\((size * price).tradeGrouped())"],
+            ["Margin", "$\(margin.tradeGrouped()) at \(leverage)x"],
+            [type == "Limit" ? "Limit price" : "Worst price", "$" + limit.tradePx],
+            ["Liquidation, est.", "$" + liq.tradePx],
+        ]
+        if let tp { lines.append(["Take profit", "$" + tp.tradePx]) }
+        if let sl { lines.append(["Stop loss", "$" + sl.tradePx]) }
+        lines.append(["Fees", "Hyperliquid's taker fee, about 0.045%"])
+        let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(sym)", lines: lines,
+                                checks: ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
+                                success: "\(isBuy ? "Long" : "Short") \(sym) sent") {
+            let r = try await trader.place(order, leverage: leverage)
+            return r.summary
+        }
+        askApproval(approval) { Task { try? await Task.sleep(for: .seconds(1.5)); await hl.refresh() } }
     }
 
     private func sideButton(_ s: String, _ title: String, _ color: Color) -> some View {
@@ -673,10 +749,6 @@ struct TradeSpot: View {
                 Text("Before fees and slippage")
             }
             .font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.horizontal, 2).padding(.vertical, 4)
-            Button {} label: { Text("Swap") }
-                .buttonStyle(TradeBlockButton(color: Theme.text))
-                .disabled(true)
-            TradeSoon(text: "Swaps open soon")
         }
     }
 
@@ -713,14 +785,11 @@ struct TradeMemes: View {
         VStack(alignment: .leading, spacing: 0) {
             TradeTickerStatus()
             TradeRows(data: TradeData.memeTokens.map { TradeRowItem(token: $0) }) { i in
-                TradeTokenRow(token: i.token, selected: sel == i.token, showMini: width >= 480) { pick(i.token) } trailing: {
-                    Button("Buy") {}.buttonStyle(TradeSmallButton()).disabled(true)
-                }
+                TradeTokenRow(token: i.token, selected: sel == i.token, showMini: width >= 480) { pick(i.token) } trailing: { EmptyView() }
             }
             HStack {
                 if !feed.tickers.isEmpty { MarketSource(text: "Prices from \(feed.tickerSource)") }
                 Spacer()
-                TradeSoon(text: "Buying opens soon").fixedSize()
             }
             .padding(.top, 8)
             detail.padding(.top, 36)
@@ -788,7 +857,6 @@ struct TradePredictions: View {
                 HStack {
                     MarketSource(text: "Live odds from Polymarket, busiest first")
                     Spacer()
-                    TradeSoon(text: "Betting opens soon").fixedSize()
                 }
                 .padding(.top, 8)
             }
@@ -812,12 +880,12 @@ struct TradePredictions: View {
                         Capsule().fill(Theme.green).scaleEffect(x: m.prices[0], anchor: .leading)
                     }
                     .padding(.top, 8)
-                HStack(spacing: 8) {
-                    Button("\(m.outcomes[0]) \(cents(m.prices[0]))") {}.buttonStyle(TradeSmallButton(kind: .tint(Theme.green)))
-                    Button("\(m.outcomes[1]) \(cents(m.prices[1]))") {}.buttonStyle(TradeSmallButton(kind: .tint(Theme.red)))
+                HStack(spacing: 14) {
+                    Text("\(m.outcomes[0]) \(cents(m.prices[0]))").foregroundStyle(Theme.green)
+                    Text("\(m.outcomes[1]) \(cents(m.prices[1]))").foregroundStyle(Theme.red)
                 }
-                .disabled(true)
-                .padding(.top, 10)
+                .font(.system(size: 13, weight: .medium)).monospacedDigit()
+                .padding(.top, 8)
             }
         }
         .padding(.vertical, 12)

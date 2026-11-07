@@ -16,7 +16,56 @@ struct ExploreDapp: Identifiable, Hashable {
     var llama: String? = nil
 }
 
+extension ExploreDapp {
+    /// The app's own site, opened in Safari.
+    var url: URL? { ExploreData.sites[name].flatMap { URL(string: "https://" + $0) } }
+}
+
 enum ExploreData {
+    static let sites: [String: String] = [
+        "Hyperliquid": "app.hyperliquid.xyz",
+        "Aave": "app.aave.com",
+        "Pendle": "app.pendle.finance",
+        "Ethena": "app.ethena.fi",
+        "Jupiter": "jup.ag",
+        "Uniswap": "app.uniswap.org",
+        "Lido": "stake.lido.fi",
+        "Pump.fun": "pump.fun",
+        "Morpho": "app.morpho.org",
+        "Kamino": "app.kamino.finance",
+        "Polymarket": "polymarket.com",
+        "Legion": "legion.cc",
+        "Lighter": "app.lighter.xyz",
+        "trade.xyz": "trade.xyz",
+        "Aster": "www.asterdex.com",
+        "Paradex": "app.paradex.trade",
+        "Extended": "app.extended.exchange",
+        "Variational": "variational.io",
+        "Kalshi": "kalshi.com",
+        "Predict.fun": "predict.fun",
+        "Opinion": "opinion.trade",
+        "Limitless": "limitless.exchange",
+        "Coinbase Sales": "www.coinbase.com",
+        "MetaDAO": "metadao.fi",
+        "Echo": "echo.xyz",
+        "Jupiter Lend": "jup.ag/lend",
+        "Curvance": "curvance.com",
+        "Kuru": "kuru.io",
+        "Aerodrome": "aerodrome.finance",
+        "USD.AI": "usd.ai",
+        "Falcon": "falcon.finance",
+        "Maple": "maple.finance",
+        "Plasma": "plasma.to",
+        "Kinetiq": "kinetiq.xyz",
+        "Infrared": "infrared.finance",
+        "Ondo": "ondo.finance",
+        "xStocks": "xstocks.com",
+        "BUIDL": "securitize.io",
+        "Virtuals": "app.virtuals.io",
+        "x402": "x402.org",
+        "Infinex": "infinex.xyz"
+    ]
+
     static let categories = ["All", "New", "Perps", "DEX", "Lending", "Yield", "Stablecoin", "Staking", "RWA",
                              "Prediction", "Presale", "Launchpad", "AI agents", "Wallet"]
 

@@ -138,7 +138,7 @@ public final class WalletService {
 
     // MARK: Clients
 
-    func evm(_ c: Chain) -> EVMClient {
+    public func evm(_ c: Chain) -> EVMClient {
         if let x = evmClients[c.id] { return x }
         let x = EVMClient(url: c.rpc); evmClients[c.id] = x; return x
     }

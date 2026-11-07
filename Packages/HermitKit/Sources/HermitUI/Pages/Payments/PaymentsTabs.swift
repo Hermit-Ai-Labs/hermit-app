@@ -2,7 +2,11 @@ import SwiftUI
 import HermitCore
 
 /// Shown wherever a pay button is greyed out.
-let payNotLive = "Sending from Hermit isn't live yet"
+/// Payments hands the money part to the wallet: Send opens filled in, with its review screen, safety check and Face ID.
+@MainActor func payViaWallet(_ model: AppModel, address: String, amount: String, token: String) {
+    WalletsViewModel.shared.sendPrefill = .init(address: address, amount: amount, token: token)
+    model.open(.wallets, tab: "send")
+}
 
 // MARK: Schedule
 
@@ -118,7 +122,7 @@ struct PayStatusCard: View {
             Text(due.isEmpty ? "Nothing due" : due.count == 1 ? "1 payment due" : "\(due.count) payments due")
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(due.isEmpty ? Theme.text : Theme.amber)
             if fill { Spacer(minLength: 0) }
-            Text("\(payNotLive). Scheduled payments show on your calendar so you can pay them from Wallets.")
+            Text("Scheduled payments show on your calendar. Open one and tap Pay now to send it from your wallet.")
                 .font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
         }
         .padding(18).frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .topLeading).card()
@@ -200,6 +204,7 @@ enum PayAddress {
 // MARK: Transfer
 
 struct PayTransfer: View {
+    @Environment(AppModel.self) private var model
     let compact: Bool
     @State var to = ""
     @State var amount = ""
@@ -267,12 +272,12 @@ struct PayTransfer: View {
                 }
                 .frame(maxWidth: compact ? 130 : .infinity)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Button("Review") {}
-                    .buttonStyle(PayWideButton(kind: .accent))
-                    .comingSoon(payNotLive)
-                Text("\(payNotLive). Send from Wallets for now.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Button("Review") {
+                let addr = saved?.addr ?? to.trimmingCharacters(in: .whitespacesAndNewlines)
+                payViaWallet(model, address: addr, amount: amount, token: token)
             }
+            .buttonStyle(PayWideButton(kind: .accent))
+            .disabled(to.trimmingCharacters(in: .whitespaces).isEmpty || (saved == nil && PayAddress.kind(to) == .invalid))
         }
         .animation(.snappy(duration: 0.25), value: to)
     }

@@ -6,7 +6,8 @@ import HermitCore
 struct EarnPage: View {
     @Environment(AppModel.self) private var model
     @State private var tab = "defi"
-    static let tabs = [("positions", "Positions"), ("defi", "DeFi"), ("arb", "Arbitrage"), ("airdrops", "Airdrops"), ("reverse", "Reverse")]
+    @Bindable private var flow = EarnFlow.shared
+    static let tabs = [("positions", "Positions"), ("defi", "DeFi"), ("arb", "Funding"), ("reverse", "Reverse")]
 
     var body: some View {
         Page(title: "Earn", tabs: Self.tabs, tab: $tab) { t in
@@ -23,6 +24,8 @@ struct EarnPage: View {
                 }
             }
         }
+        .sheet(item: $flow.deposit) { p in EarnDepositSheet(pool: p).environment(model).tint(Theme.text) }
+        .approvalHost(sheetOpen: flow.deposit != nil) { flow.deposit = nil }
         .onAppear {
             if let r = model.tabRequest, Self.tabs.contains(where: { $0.0 == r }) { tab = r; model.tabRequest = nil }
         }
