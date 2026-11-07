@@ -5,6 +5,7 @@ import HermitWallet
 struct WalletPicker: View {
     let vm: WalletsViewModel
     @Binding var selected: String
+    var onRemove: (WalletAccount) -> Void = { _ in }
     let onAdd: (WalletAccount.Custody) -> Void
     @State private var open = false
     @State private var hover = false
@@ -31,15 +32,20 @@ struct WalletPicker: View {
         #if os(iOS)
         // iPhone: a bottom sheet. A popover here opened upwards over the navigation bar.
         .sheet(isPresented: $open) {
-            WalletMenuSheet(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd)
+            WalletMenuSheet(vm: vm, selected: $selected, close: { open = false }, onRemove: remove, onAdd: onAdd)
         }
         #else
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            WalletMenu(vm: vm, selected: $selected, close: { open = false }, onAdd: onAdd)
+            WalletMenu(vm: vm, selected: $selected, close: { open = false }, onRemove: remove, onAdd: onAdd)
         }
         #endif
     }
 
+    /// Close the list first, then ask (a dialog can't sit on a closing sheet).
+    private func remove(_ w: WalletAccount) {
+        open = false
+        Task { @MainActor in try? await Task.sleep(for: .milliseconds(350)); onRemove(w) }
+    }
 }
 
 #if os(iOS)
@@ -48,12 +54,13 @@ private struct WalletMenuSheet: View {
     let vm: WalletsViewModel
     @Binding var selected: String
     let close: () -> Void
+    let onRemove: (WalletAccount) -> Void
     let onAdd: (WalletAccount.Custody) -> Void
     @State private var height: CGFloat = 300
 
     var body: some View {
         ScrollView {
-            WalletMenu(vm: vm, selected: $selected, close: close, onAdd: onAdd, width: nil)
+            WalletMenu(vm: vm, selected: $selected, close: close, onRemove: onRemove, onAdd: onAdd, width: nil)
                 .padding(.top, 18).padding(.bottom, 8)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
@@ -72,6 +79,7 @@ struct WalletMenu: View {
     let vm: WalletsViewModel
     @Binding var selected: String
     let close: () -> Void
+    var onRemove: (WalletAccount) -> Void = { _ in }
     let onAdd: (WalletAccount.Custody) -> Void
     /// Fixed width in the Mac popover; nil fills the iPhone sheet.
     var width: CGFloat? = 350
@@ -86,6 +94,10 @@ struct WalletMenu: View {
             ForEach(vm.wallets) { w in
                 row(id: w.id, symbol: w.symbol, title: w.name, sub: w.shortAddress, mono: true, usd: vm.totalUSD == nil ? nil : vm.total(w.id),
                     chains: Chain.mainnets)
+                    .contextMenu {
+                        Button { withAnimation(.smooth(duration: 0.25)) { selected = w.id }; close() } label: { Label("Open", systemImage: "wallet.bifold") }
+                        Button(role: .destructive) { onRemove(w) } label: { Label("Remove from this phone", systemImage: "trash") }
+                    }
             }
             addRow("Create or import a wallet") { close(); onAdd(.local) }
         }

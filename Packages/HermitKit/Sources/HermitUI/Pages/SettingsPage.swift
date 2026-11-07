@@ -7,7 +7,8 @@ struct SettingsPage: View {
     @State private var tab = "profile"
     @AppStorage("settings.askAbove") private var askAbove = 100
     @AppStorage("settings.dailyLimit") private var daily = 2000
-    @AppStorage("home.showBalance") private var showBalance = true
+    @AppStorage("home.balanceOn") private var showBalance = false
+    @AppStorage("home.showMarkets") private var showMarkets = true
     @AppStorage("home.showToday") private var showToday = true
 
     var body: some View {
@@ -64,11 +65,16 @@ struct SettingsPage: View {
                 Toggle("Balance", isOn: $showBalance).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
             Hairline()
+            SettingRow(title: "Markets", sub: "BTC, ETH, SOL and HYPE prices, when the balance is off") {
+                Toggle("Markets", isOn: $showMarkets).labelsHidden().toggleStyle(.switch).tint(Theme.text)
+            }
+            Hairline()
             SettingRow(title: "Today", sub: "To-dos and events for today") {
                 Toggle("Today", isOn: $showToday).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
         }
         .onChange(of: showBalance) { _, v in model.toast(v ? "Balance shown on Home" : "Balance hidden on Home") }
+        .onChange(of: showMarkets) { _, v in model.toast(v ? "Markets shown on Home" : "Markets hidden on Home") }
         .onChange(of: showToday) { _, v in model.toast(v ? "Today shown on Home" : "Today hidden on Home") }
     }
 }

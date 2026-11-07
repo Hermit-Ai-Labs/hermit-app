@@ -24,10 +24,10 @@ final class HyperliquidStore {
     var available: Double { account?.withdrawable ?? 0 }
 
     func refresh() async {
-        if assets.isEmpty, let a = try? await Hyperliquid.assets() { assets = a }
         guard let address, !SnapshotMode.active else { account = nil; state = .ready; return }
         do { account = try await Hyperliquid.account(address); state = .ready }
         catch { if account == nil { state = .failed } }
+        if assets.isEmpty, let a = try? await Hyperliquid.assets() { assets = a }
     }
 
     func asset(_ coin: String) async -> Hyperliquid.Asset? {

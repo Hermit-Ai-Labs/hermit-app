@@ -19,7 +19,7 @@ struct ModelSheet: View {
     private var list: some View {
         let store = model.models
         return VStack(spacing: 0) {
-            ForEach(Array(ModelCatalog.all.enumerated()), id: \.element.id) { i, spec in
+            ForEach(Array(ModelCatalog.all.filter(\.supported).enumerated()), id: \.element.id) { i, spec in
                 if i > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
                 row(store, spec)
             }
@@ -70,7 +70,7 @@ struct ModelSheet: View {
                 }
                 Text(spec.detail).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(usable ? store.sizeLine(spec) : !spec.supported ? "Coming soon" : "Needs \(spec.minMemoryGB) GB of memory")
+                Text(usable ? store.sizeLine(spec) : "Needs \(spec.minMemoryGB) GB of memory")
                     .font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit()
                     .contentTransition(.numericText())
             }

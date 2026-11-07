@@ -52,7 +52,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         .background(Theme.bg)
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         // Exactly as tall as the form, header and button row; a form taller than the screen opens full height and scrolls.
-        .presentationDetents(fitted < UIScreen.main.bounds.height - 70 ? [.height(fitted)] : [.large])
+        .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
         .presentationBackground(Theme.bg)

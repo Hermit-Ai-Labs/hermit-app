@@ -10,18 +10,19 @@ struct WalletsPage: View {
     @State private var vm = WalletsViewModel.shared
     @State private var selected = "all"
     @State private var sheet: WalletSheet?
+    @State private var removing: WalletAccount?
     @State private var allTab: AllWalletsTab = .tokens
     @State private var width: CGFloat = 900
 
     var body: some View {
         Page(title: "Wallets", tabs: [(0, "Wallets")], tab: .constant(0)) {
-            WalletPicker(vm: vm, selected: $selected) { custody in open(.addWallet(custody, start: nil)) }
+            WalletPicker(vm: vm, selected: $selected, onRemove: { w in removing = w }) { custody in open(.addWallet(custody, start: nil)) }
         } content: { _ in
             Group {
                 if !vm.hasWallet {
                     NoWalletView(open: open)
                 } else if let w = vm.wallet(selected) {
-                    OneWalletView(vm: vm, wallet: w, wide: width > 720, open: open).id(w.id)
+                    OneWalletView(vm: vm, wallet: w, wide: width > 720, open: open) { removing = w }.id(w.id)
                 } else {
                     AllWalletsView(vm: vm, tab: $allTab, wide: width > 720, open: open)
                 }
@@ -35,6 +36,7 @@ struct WalletsPage: View {
             sheetView(s).environment(model).tint(Theme.text)
         }
         .approvalHost(sheetOpen: sheet != nil) { sheet = nil }
+        .modifier(RemoveWalletDialog(vm: vm, wallet: $removing))
         .onAppear(perform: readRequest)
         .onChange(of: model.tabRequest) { _, _ in readRequest() }
         .onChange(of: vm.wallets.map(\.id)) { _, ids in if selected != "all" && !ids.contains(selected) { selected = "all" } }

@@ -386,7 +386,7 @@ extension View {
         #if os(macOS)
         frame(width: w)
         #else
-        frame(maxWidth: .infinity).presentationDetents([.large]).presentationCornerRadius(20)
+        frame(maxWidth: .infinity).fitSheet()
         #endif
     }
 }

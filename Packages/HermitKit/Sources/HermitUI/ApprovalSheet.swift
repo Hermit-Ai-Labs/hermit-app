@@ -95,7 +95,7 @@ struct ApprovalSheet: View {
         #if os(macOS)
         .frame(width: 420)
         #else
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
         #endif
         .background(Theme.bg)
         .task { await scan() }

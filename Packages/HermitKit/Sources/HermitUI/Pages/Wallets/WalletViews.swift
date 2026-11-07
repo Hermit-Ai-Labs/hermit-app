@@ -467,8 +467,8 @@ struct OneWalletView: View {
     let wallet: WalletAccount
     let wide: Bool
     let open: (WalletSheet) -> Void
+    let remove: () -> Void
     @State private var tab = "tokens"
-    @State private var confirmDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -489,8 +489,9 @@ struct OneWalletView: View {
                     VStack(spacing: 14) { header; NetworksCard(vm: vm, wallet: wallet) }
                 }
             }
+            manage.padding(.top, 14)
             PageTabs(tabs: [("tokens", "Tokens"), ("gas", "Gas"), ("activity", "Activity"), ("security", "Security")], selection: $tab)
-                .padding(.top, 24)
+                .padding(.top, 20)
             Group {
                 switch tab {
                 case "tokens": TokensList(vm: vm, walletID: wallet.id, open: open)
@@ -504,12 +505,18 @@ struct OneWalletView: View {
             .transition(.opacity)
         }
         .animation(.smooth(duration: 0.22), value: tab)
-        .confirmationDialog("Remove \(wallet.name) from this device?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Remove wallet", role: .destructive) {
-                do { try vm.deleteWallet(wallet.id); model.toast("\(wallet.name) removed") } catch { model.toast(error.localizedDescription) }
+    }
+
+    /// The wallet's own actions, in plain sight: back up its words, or remove it from this phone.
+    private var manage: some View {
+        HStack(spacing: 8) {
+            Button { open(.phrase(wallet.id)) } label: {
+                Label(wallet.backedUp ? "Recovery phrase" : "Back up words", systemImage: "key")
             }
-        } message: {
-            Text("Its keys are deleted from this device. Any money on it can only be recovered with its recovery phrase.")
+            .buttonStyle(OutlineButton())
+            Button(role: .destructive, action: remove) { Label("Remove", systemImage: "trash") }
+                .buttonStyle(DangerOutlineButton())
+            Spacer(minLength: 0)
         }
     }
 
@@ -545,9 +552,54 @@ struct OneWalletView: View {
             ButtonPair {
                 Button("Show recovery phrase") { open(.phrase(wallet.id)) }.buttonStyle(WideButton())
             } second: {
-                Button("Remove from this phone", role: .destructive) { confirmDelete = true }.buttonStyle(WideButton(kind: .plain))
+                Button("Remove from this phone", role: .destructive, action: remove).buttonStyle(DangerWideButton())
             }
             NoteBox(symbol: "lock.shield", text: "Every send and every look at your words asks for Face ID, Touch ID or your passcode.")
+        }
+    }
+}
+
+/// Red outline button for removing things.
+struct DangerOutlineButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.red)
+            .padding(.horizontal, 12).frame(height: 32)
+            .background(Theme.red.opacity(configuration.isPressed ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.red.opacity(0.35)))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+struct DangerWideButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.red)
+            .frame(maxWidth: .infinity).frame(height: 42)
+            .background(Theme.red.opacity(configuration.isPressed ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.red.opacity(0.35)))
+            .contentShape(Rectangle())
+    }
+}
+
+/// One confirmation for removing a wallet, wherever it's asked from. Says what's on it and whether its words are backed up.
+struct RemoveWalletDialog: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let vm: WalletsViewModel
+    @Binding var wallet: WalletAccount?
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Remove \(wallet?.name ?? "wallet") from this phone?",
+                                   isPresented: Binding(get: { wallet != nil }, set: { if !$0 { wallet = nil } }),
+                                   titleVisibility: .visible, presenting: wallet) { w in
+            Button("Remove \(w.name)", role: .destructive) {
+                do { try vm.deleteWallet(w.id); model.toast("\(w.name) removed") } catch { model.toast(error.localizedDescription) }
+            }
+            if !w.backedUp { Button("Back up words first") { wallet = nil; model.open(.wallets, tab: w.id) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { w in
+            let usd = vm.total(w.id)
+            let money = usd > 0.01 ? "It holds \(MoneyFmt.usd(usd, digits: 2)). " : ""
+            Text(money + (w.backedUp
+                ? "Its keys are deleted from this phone. You can restore it any time with its recovery phrase."
+                : "Its words aren't backed up: once removed, this wallet and anything on it can't be recovered."))
         }
     }
 }

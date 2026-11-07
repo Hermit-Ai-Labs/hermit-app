@@ -53,10 +53,7 @@ public struct RootView: View {
             ApprovalSheet(approval: a) { model.approved(a) }
                 .environment(model)
                 .foregroundStyle(Theme.text)
-                #if os(iOS)
-                .presentationDetents([.large])
-                .presentationCornerRadius(20)
-                #endif
+                .fitSheet()
         }
     }
 

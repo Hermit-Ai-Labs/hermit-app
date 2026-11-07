@@ -32,7 +32,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
     #endif
     private var fittedHeight: CGFloat { ceil(headHeight + contentHeight + (hasFoot ? footHeight : 0) + bottomInset) }
     #if os(iOS)
-    private var fitsScreen: Bool { fittedHeight < UIScreen.main.bounds.height - 70 }
+    private var fitsScreen: Bool { fittedHeight <= SheetMetrics.maxHeight }
     #else
     private var fitsScreen: Bool { contentHeight <= 580 }
     #endif
@@ -80,7 +80,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         // Exactly as tall as what's in it: title row, content, button row and the home indicator. No empty band at the bottom.
         // Content taller than the screen gets the full sheet and scrolls.
-        .presentationDetents(fitsScreen ? [.height(fittedHeight)] : [.large])
+        .presentationDetents([.height(min(fittedHeight, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         #endif
         .presentationCornerRadius(20)
@@ -572,5 +572,43 @@ struct ApprovalHost: ViewModifier {
 extension View {
     func approvalHost(sheetOpen: Bool, close: @escaping () -> Void) -> some View {
         modifier(ApprovalHost(closeSheets: close, sheetOpen: sheetOpen))
+    }
+}
+
+#if os(iOS)
+/// A bottom sheet exactly as tall as what's in it (plus the home indicator); taller than the screen, it opens full height
+/// and scrolls. For sheets that don't use SheetChrome (the approval sheet, flow cards).
+struct FitSheet: ViewModifier {
+    @State private var height: CGFloat = 420
+    @State private var inset: CGFloat = 34
+    func body(content: Content) -> some View {
+        let fitted = ceil(height + inset)
+        ScrollView {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset = $0 }
+        .background(Theme.bg)
+        .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(20)
+        .presentationBackground(Theme.bg)
+    }
+}
+
+enum SheetMetrics {
+    /// The tallest a sheet gets: the screen less the status bar and a peek of the page behind.
+    @MainActor static var maxHeight: CGFloat { UIScreen.main.bounds.height - 64 }
+}
+#endif
+
+extension View {
+    /// See FitSheet. No-op on the Mac, where sheets size to their content anyway.
+    @ViewBuilder func fitSheet() -> some View {
+        #if os(iOS)
+        modifier(FitSheet())
+        #else
+        self
+        #endif
     }
 }

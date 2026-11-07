@@ -387,7 +387,16 @@ struct TradeTerminal: View {
             if !hl.hasWallet {
                 Button("Create a wallet to trade") { model.open(.wallets, tab: "create") }
                     .buttonStyle(TradeBlockButton(color: Theme.text))
-            } else if hl.account != nil && hl.available < margin {
+            } else if hl.account == nil {
+                Button {} label: {
+                    HStack(spacing: 6) {
+                        if hl.state != .failed { ProgressView().controlSize(.small) }
+                        Text(hl.state == .failed ? "Couldn't reach Hyperliquid" : "Checking your balance")
+                    }
+                }
+                .buttonStyle(TradeBlockButton(color: Theme.text)).disabled(true)
+                if hl.state == .failed { Button("Retry") { Task { await hl.refresh() } }.buttonStyle(TradeSmallButton()) }
+            } else if hl.available < margin {
                 Button { hl.openDeposit(model, amount: margin - hl.available) } label: { Text("Deposit USDC to trade") }
                     .buttonStyle(TradeBlockButton(color: Theme.text))
                 Text(hl.available > 0 ? "You have $\(hl.available.tradeGrouped(2)) on Hyperliquid. Send USDC on Arbitrum; it arrives in about a minute."
@@ -423,6 +432,13 @@ struct TradeTerminal: View {
         guard let price = orderPrice, let trader = hl.trader() else { return }
         placing = true
         defer { placing = false }
+        // Check the balance again right before review: never offer an order the account can't pay for.
+        await hl.refresh()
+        guard let acct = hl.account else { orderError = "Couldn't read your Hyperliquid balance. Try again."; return }
+        guard acct.withdrawable >= margin else {
+            orderError = "You have $\(acct.withdrawable.tradeGrouped(2)) on Hyperliquid; this order needs $\(margin.tradeGrouped()) of margin. Deposit USDC first."
+            return
+        }
         guard let asset = await hl.asset(coin) else { orderError = "\(sym) isn't tradable on Hyperliquid right now."; return }
         let isBuy = side == "long"
         let size = Hyperliquid.roundSize(notional / price, szDecimals: asset.szDecimals)

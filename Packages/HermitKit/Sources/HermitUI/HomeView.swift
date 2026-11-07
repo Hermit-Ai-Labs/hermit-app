@@ -7,7 +7,9 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
     @State private var appeared = SnapshotMode.active
-    @AppStorage("home.showBalance") private var showBalance = true
+    // Off by default: the balance stays private unless you turn it on in Settings. Markets takes its place.
+    @AppStorage("home.balanceOn") private var showBalance = false
+    @AppStorage("home.showMarkets") private var showMarkets = true
     @AppStorage("home.showToday") private var showToday = true
 
     /// Things the on-device model answers well on its own.
@@ -93,12 +95,15 @@ struct HomeView: View {
         let today = showToday && (model.chatProject != nil || !TodayCard.rows(model, project: nil).isEmpty)
         // With no wallet yet, the Create your wallet card above already says it: no second prompt here.
         let balance = showBalance && (model.chatProject != nil || !(wallets.loaded && wallets.wallets.isEmpty))
-        let both = balance && today
+        let markets = showMarkets && !balance && model.chatProject == nil
+        let both = (balance || markets) && today
         let layout = compact || !both ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-        if balance || today {
+        if balance || markets || today {
             layout {
                 if balance {
                     if let p = model.project(model.chatProject) { ProjectMoneyCard(project: p) } else { HomeBalanceCard { showBalance = false } }
+                } else if markets {
+                    HomeMarketsCard { showMarkets = false }
                 }
                 if today { TodayCard(project: model.chatProject) { showToday = false } }
             }
@@ -181,6 +186,52 @@ struct HomeBalanceCard: View {
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .card()
+    }
+}
+
+/// Live prices on Home, in place of the balance: BTC, ETH, SOL and HYPE from Hyperliquid, with the day's move.
+/// Tap a coin to open it on Trade.
+struct HomeMarketsCard: View {
+    @Environment(AppModel.self) private var model
+    let hide: () -> Void
+    private var feed: MarketFeed { .shared }
+    static let coins = ["BTC", "ETH", "SOL", "HYPE"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Markets").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Spacer()
+                hideButton(hide)
+            }
+            HStack(spacing: 0) {
+                ForEach(Self.coins, id: \.self) { c in
+                    Button { model.open(.trade, tab: "markets") } label: { cell(c) }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+        .marketPoll(every: 30) { await feed.refreshPerps() }
+    }
+
+    private func cell(_ c: String) -> some View {
+        let p = feed.perps[c]
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                MarketLogo(key: TradeData.logo(c), name: c, size: 16)
+                Text(c).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
+            }
+            Text(p.map { "$" + $0.px.tradePx } ?? "—").font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.7).contentTransition(.numericText())
+            Text(p.map { String(format: "%+.1f%%", $0.ch) } ?? " ").font(.system(size: 12)).monospacedDigit()
+                .foregroundStyle((p?.ch ?? 0) >= 0 ? Theme.green : Theme.red)
+        }
+        .redacted(reason: p == nil ? .placeholder : [])
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
