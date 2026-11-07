@@ -19,13 +19,15 @@ struct SwapSheet: View {
     @State private var error: String?
 
     static let chains: [Chain] = Chain.mainnets.filter { Relay.Place.chain($0).relayID != nil }
+    /// Cross-network moves (Bridge). Off makes this a same-network swap only.
+    static let crossChain = true
 
     init(vm: WalletsViewModel, fromID: String, bridge: Bool, token: String? = nil, chain: Chain? = nil) {
         self.vm = vm
         _walletID = State(initialValue: vm.wallet(fromID)?.id ?? vm.firstWalletID ?? "")
         let from = chain.flatMap { Relay.Place.chain($0).relayID != nil ? $0 : nil } ?? .base
         _fromChain = State(initialValue: from)
-        _toChain = State(initialValue: bridge ? (from == .arbitrum ? .base : .arbitrum) : from)
+        _toChain = State(initialValue: bridge && Self.crossChain ? (from == .arbitrum ? .base : .arbitrum) : from)
         _fromSym = State(initialValue: token ?? "USDC")
         _toSym = State(initialValue: token == from.nativeSymbol ? "USDC" : from.nativeSymbol)
     }
@@ -64,7 +66,7 @@ struct SwapSheet: View {
                     .font(.system(size: 14)).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading).modifier(FieldBox())
                     MenuField(selection: $toSym, options: symbols(toChain), title: { $0 }, logo: { $0 }).frame(maxWidth: 120)
                 }
-                MenuField(selection: $toChain, options: Self.chains, title: { $0.name }, logo: { $0.logo })
+                if Self.crossChain { MenuField(selection: $toChain, options: Self.chains, title: { $0.name }, logo: { $0.logo }) }
             }
             if let q = quote {
                 DetailLines(lines: [("Route", "Relay"), ("Fees", MoneyFmt.usd(q.feeUSD, digits: 2) + " incl. network"),
@@ -79,7 +81,13 @@ struct SwapSheet: View {
                 .buttonStyle(WideButton())
                 .disabled(quote == nil || quoting || value <= 0 || value > (held?.amount ?? 0))
         }
-        .onChange(of: fromChain) { _, c in if !symbols(c).contains(fromSym) { fromSym = c.nativeSymbol } }
+        .onChange(of: fromChain) { _, c in
+            if !symbols(c).contains(fromSym) { fromSym = c.nativeSymbol }
+            if !Self.crossChain {
+                toChain = c
+                if !symbols(c).contains(toSym) || toSym == fromSym { toSym = fromSym == "USDC" || c.token("USDC") == nil ? c.nativeSymbol : "USDC" }
+            }
+        }
         .onChange(of: toChain) { _, c in if !symbols(c).contains(toSym) { toSym = c.nativeSymbol } }
         .task(id: quoteKey) { await requote() }
     }
@@ -89,8 +97,9 @@ struct SwapSheet: View {
     }
 
     private func flip() {
-        let (c, s) = (fromChain, fromSym)
-        fromChain = toChain; fromSym = toSym; toChain = c; toSym = s; amount = ""
+        let s = fromSym
+        fromSym = toSym; toSym = s; amount = ""
+        if Self.crossChain { let c = fromChain; fromChain = toChain; toChain = c }
     }
 
     private func address(_ c: Chain, _ w: WalletAccount) -> String { c.kind == .solana ? w.record.solanaAddress : w.record.evmAddress }

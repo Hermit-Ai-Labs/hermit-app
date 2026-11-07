@@ -82,6 +82,7 @@ struct BalanceCard<Sub: View>: View {
                     RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") { open(.swap(from: walletID, bridge: true, token: nil, chain: nil)) }
                 }
             }
+            .frame(maxWidth: .infinity)   // centred under the balance
             .padding(.top, 22)
         }
         .padding(20)
