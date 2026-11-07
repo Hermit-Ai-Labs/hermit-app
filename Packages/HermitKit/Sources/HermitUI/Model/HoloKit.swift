@@ -52,6 +52,27 @@ struct HoloFoil: View {
     }
 }
 
+/// The pastel holo wash from the site's Holo mood card: pink, sky, lemon, mint and lavender in one radial gradient whose
+/// centre drifts corner to corner every nine seconds, laid over white at 60%. Frozen with Reduce Motion.
+struct HoloWash: View {
+    static let pastels: [Color] = [Color(hex: 0xFBBBE6), Color(hex: 0xAFE3FD), Color(hex: 0xFDF7B4), Color(hex: 0xB3F9D6), Color(hex: 0xE9C5FC)]
+    var body: some View {
+        HoloClock { t in
+            GeometryReader { g in
+                let k = (sin(t * 2 * .pi / 18) + 1) / 2          // 0…1…0 over 18 s (9 s each way)
+                RadialGradient(stops: [.init(color: Self.pastels[0], location: 0), .init(color: Self.pastels[1], location: 0.3),
+                                       .init(color: Self.pastels[2], location: 0.55), .init(color: Self.pastels[3], location: 0.75),
+                                       .init(color: Self.pastels[4], location: 1)],
+                               center: UnitPoint(x: 0.2 + 0.6 * k, y: 0.1 + 0.8 * k), startRadius: 0,
+                               endRadius: max(g.size.width, g.size.height) * 1.1)
+                    .opacity(0.6)
+            }
+        }
+        .background(Color.white)
+        .allowsHitTesting(false)
+    }
+}
+
 /// The download button: one icon that keeps changing between four holo looks (ring, disc, glow, foil),
 /// crossfading every few seconds. Purple arrow, white on the disc.
 struct HoloIconButton: View {

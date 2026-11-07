@@ -112,15 +112,14 @@ struct HomeMarketsCard: View {
                         Text(Self.price(px(c))).font(.system(size: 12.5, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
                         Text(Self.pct(ch(c))).font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(tint(ch(c)))
                     }
-                    .frame(maxWidth: .infinity).padding(.vertical, 8)
-                    .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                    .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            ZStack { Color.white; HoloFoil(strength: 0.45) }
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            HoloWash().clipShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         }
         .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.border))
     }

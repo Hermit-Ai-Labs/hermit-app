@@ -65,7 +65,7 @@ struct SettingsPage: View {
                 Toggle("Balance", isOn: $showBalance).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
             Hairline()
-            SettingRow(title: "Markets", sub: "BTC, ETH, SOL and HYPE, when the balance is off") {
+            SettingRow(title: "Markets", sub: "Live prices on Home") {
                 Toggle("Markets", isOn: $showMarkets).labelsHidden().toggleStyle(.switch).tint(Theme.text)
             }
             if showMarkets {
