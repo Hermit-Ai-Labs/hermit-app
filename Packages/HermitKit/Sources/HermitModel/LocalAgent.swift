@@ -95,13 +95,16 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                     let start = Date()
                     var firstToken: TimeInterval?
                     var filter = OutputFilter()
-                    for try await item in try await engine.stream(prompt) {
+                    generation: for try await item in try await engine.stream(prompt) {
                         switch item {
                         case .chunk(let raw):
                             let text = filter.push(raw)
-                            guard !text.isEmpty else { continue }
-                            if firstToken == nil { firstToken = Date().timeIntervalSince(start); cont.yield(.steps(0)) }
-                            cont.yield(.text(text))
+                            if !text.isEmpty {
+                                if firstToken == nil { firstToken = Date().timeIntervalSince(start); cont.yield(.steps(0)) }
+                                cont.yield(.text(text))
+                            }
+                            // The model began a new turn or started repeating itself: end the reply here.
+                            if filter.finished { break generation }
                         case .info(let info):
                             onStats?(GenerationStats(loadTime: loadTime, timeToFirstToken: firstToken ?? 0,
                                                      promptTokens: info.promptTokenCount, tokens: info.generationTokenCount,
@@ -169,14 +172,17 @@ actor LocalEngine {
         return session.streamDetails(to: prompt)
     }
 
-    /// Sampling from the model's generation_config.json (temperature, top_p, top_k), with sane defaults.
+    /// Sampling for a small chat model on a phone. The model's generation_config.json asks for temperature 1.0 and no
+    /// repetition penalty, which lets a 2B model wander and loop, so Hermit caps the temperature at 0.6, uses top-p 0.9,
+    /// and always applies a mild repetition penalty over the last 64 tokens.
     static func parameters(_ directory: URL) -> GenerateParameters {
         let json = (try? Data(contentsOf: directory.appending(path: "generation_config.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         func num(_ k: String) -> Double? { (json[k] as? NSNumber)?.doubleValue }
-        var p = GenerateParameters(maxTokens: 1024, temperature: Float(num("temperature") ?? 0.7),
-                                   topP: Float(num("top_p") ?? 0.95), topK: Int(num("top_k") ?? 0))
-        if let r = num("repetition_penalty"), r != 1 { p.repetitionPenalty = Float(r) }
+        var p = GenerateParameters(maxTokens: 640, temperature: Float(min(num("temperature") ?? 0.6, 0.6)),
+                                   topP: Float(min(num("top_p") ?? 0.9, 0.9)), topK: Int(num("top_k") ?? 0))
+        p.repetitionPenalty = Float(max(num("repetition_penalty") ?? 1.15, 1.15))
+        p.repetitionContextSize = 64
         if json["do_sample"] as? Bool == false { p.temperature = 0 }
         return p
     }
@@ -188,9 +194,18 @@ struct OutputFilter {
     private var buffer = ""
     private var started = false
     private var inThink = false
+    /// Everything shown so far, to spot a sentence coming round again.
+    private var shown = ""
+    /// True once the reply should end: the model wrote a turn marker, or repeated a whole sentence.
+    private(set) var finished = false
+    static let stopMarkers = ["<|im_start|>", "<|im_end|>", "</s>"]
 
     mutating func push(_ chunk: String) -> String {
+        guard !finished else { return "" }
         buffer += chunk
+        if let cut = Self.stopMarkers.compactMap({ buffer.range(of: $0)?.lowerBound }).min() {
+            buffer = String(buffer[..<cut]); finished = true
+        }
         var out = ""
         while !buffer.isEmpty {
             if inThink {
@@ -210,6 +225,33 @@ struct OutputFilter {
             out = String(out.drop { $0.isWhitespace })
             if !out.isEmpty { started = true }
         }
-        return out.replacingOccurrences(of: " · ", with: ", ").replacingOccurrences(of: "·", with: ",")
+        out = out.replacingOccurrences(of: " · ", with: ", ").replacingOccurrences(of: "·", with: ",")
+        // Repetition guard: once a finished sentence of 25+ characters has already appeared, stop before it.
+        let before = shown
+        shown += out
+        if let repeatAt = Self.repeatedSentence(in: shown), repeatAt >= before.count {
+            finished = true
+            return String(shown.prefix(repeatAt).dropFirst(before.count))
+        }
+        return out
+    }
+
+    /// Offset where a complete sentence (ending in . ! or ?) starts again after appearing earlier, if it does.
+    static func repeatedSentence(in text: String) -> Int? {
+        var seen = Set<String>()
+        var start = text.startIndex
+        var i = text.startIndex
+        while i < text.endIndex {
+            let c = text[i]
+            i = text.index(after: i)
+            guard ".!?".contains(c) else { continue }
+            let sentence = text[start..<i].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if sentence.count >= 25 {
+                if seen.contains(sentence) { return text.distance(from: text.startIndex, to: start) }
+                seen.insert(sentence)
+            }
+            start = i
+        }
+        return nil
     }
 }
