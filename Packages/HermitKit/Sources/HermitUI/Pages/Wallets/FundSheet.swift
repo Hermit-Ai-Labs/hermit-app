@@ -262,7 +262,7 @@ struct FundSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             NoteBox(symbol: "lightbulb", text: tip)
-            DisclosureGroup("From Binance, step by step") {
+            DisclosureGroup("From an exchange, step by step") {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(binanceSteps.enumerated()), id: \.offset) { i, s in
                         HStack(alignment: .top, spacing: 8) {
@@ -287,7 +287,7 @@ struct FundSheet: View {
     }
 
     private var binanceSteps: [String] {
-        ["Open Binance → Wallet → Withdraw.", "Choose USDC (or the coin you have).",
+        ["In your exchange app, open Withdraw (or Send).", "Choose USDC (or the coin you have).",
          family == .evm ? "Network: Arbitrum One or Base. Paste the address above." : "Network: Solana. Paste the Solana address above.",
          "Withdraw, then come back here. It usually lands in 1–3 minutes."]
     }

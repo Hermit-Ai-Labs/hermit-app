@@ -65,6 +65,7 @@ struct ConnectorsPage: View {
                 }
             }
             .padding(.vertical, 11)
+            if Self.showBinance {
             Hairline()
             HStack(spacing: 12) {
                 LogoMark("binance", size: 34)
@@ -81,6 +82,7 @@ struct ConnectorsPage: View {
                 }
             }
             .padding(.vertical, 11)
+            }
             Text("MCP servers").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 22).padding(.bottom, 4)
             if store.servers.isEmpty {
                 Button { sheet = .addMCP } label: {
@@ -131,6 +133,8 @@ struct ConnectorsPage: View {
 
     /// Off in shipped builds: rows whose Connect doesn't work yet.
     static let showUnbuilt = false
+    /// Binance is built (ConnectorSheets.swift) but off for the first TestFlight; flip to bring it back.
+    static let showBinance = false
 
     private var apis: some View {
         RowList(items: ConnectorSeed.apis) { a in
