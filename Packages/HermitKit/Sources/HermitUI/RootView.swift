@@ -37,6 +37,11 @@ public struct RootView: View {
                 split
             }
         }
+        // Inside .environment(model): the approval host reads AppModel from the environment.
+        .sheet(item: $model.fundGoal) { g in
+            FundSheet(goal: g).environment(model).tint(Theme.text)
+        }
+        .approvalHost(sheetOpen: model.fundGoal != nil) { model.fundGoal = nil }
         .environment(model)
         .environment(\.compact, compact)
         .foregroundStyle(Theme.text)
@@ -49,10 +54,6 @@ public struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .sheet(item: $model.fundGoal) { g in
-            FundSheet(goal: g).environment(model).tint(Theme.text)
-        }
-        .approvalHost(sheetOpen: model.fundGoal != nil) { model.fundGoal = nil }
         .sheet(item: $model.approval) { a in
             ApprovalSheet(approval: a) { model.approved(a) }
                 .environment(model)
