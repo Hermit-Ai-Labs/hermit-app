@@ -67,7 +67,7 @@ struct TradeFlow: Layout {
         let maxW = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
         for s in subviews {
-            let sz = s.sizeThatFits(.unspecified)
+            let sz = Self.size(s, maxW)
             if x > 0, x + sz.width > maxW { y += line + lineSpacing; x = 0; line = 0 }
             x += sz.width + spacing; line = max(line, sz.height); widest = max(widest, x - spacing)
         }
@@ -76,11 +76,17 @@ struct TradeFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
         for s in subviews {
-            let sz = s.sizeThatFits(.unspecified)
+            let sz = Self.size(s, bounds.width)
             if x > bounds.minX, x + sz.width > bounds.maxX { y += line + lineSpacing; x = bounds.minX; line = 0 }
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(sz))
             x += sz.width + spacing; line = max(line, sz.height)
         }
+    }
+
+    /// Natural size, but never wider than the row: a wide item gets the row's width (and scrolls inside, if it can).
+    private static func size(_ s: LayoutSubview, _ maxW: CGFloat) -> CGSize {
+        let sz = s.sizeThatFits(.unspecified)
+        return sz.width <= maxW ? sz : s.sizeThatFits(ProposedViewSize(width: maxW, height: nil))
     }
 }
 
@@ -435,7 +441,20 @@ struct MarketLogo: View {
     var remote: URL? = nil
 
     var body: some View {
-        if let key { LogoMark(key, size: size) } else {
+        if let key { LogoMark(key, size: size) }
+        else if remote == nil, let file = Self.bundled(name) {
+            Image.logo(file).resizable().interpolation(.high).scaledToFill()
+                .frame(width: size, height: size).clipShape(Circle())
+                .overlay(Circle().strokeBorder(Theme.border.opacity(0.6)))
+                .accessibilityHidden(true)
+        } else if remote == nil, let a = Self.asset(name) {
+            Group {
+                if let flag = a.flag { Text(flag).font(.system(size: size * 0.62)) }
+                else { Image(systemName: a.symbol).font(.system(size: size * 0.42, weight: .semibold)).foregroundStyle(a.tint) }
+            }
+            .frame(width: size, height: size).background(a.tint.opacity(0.13), in: Circle())
+            .accessibilityHidden(true)
+        } else {
             let urls = remote.map { [$0] } ?? Self.iconCandidates(name)
             if urls.isEmpty { letter } else { RemoteIcon(urls: urls, size: size) { letter } }
         }
@@ -446,6 +465,50 @@ struct MarketLogo: View {
             .font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(Theme.muted)
             .frame(width: size, height: size).background(Theme.hover, in: Circle())
             .accessibilityHidden(true)
+    }
+
+    /// "xyz:TSLA" → "TSLA", "kPEPE" → "PEPE", "HYPE / USDC" → "HYPE".
+    static func symbol(_ name: String) -> String {
+        var sym = String(name.split(separator: " ").first ?? "")
+        if let i = sym.lastIndex(of: ":") { sym = String(sym[sym.index(after: i)...]) }
+        sym = sym.filter { $0.isLetter || $0.isNumber }
+        if sym.count > 2, sym.first == "k", sym.dropFirst().allSatisfy({ $0.isUppercase || $0.isNumber }) { sym.removeFirst() }
+        return sym
+    }
+
+    /// Logos bundled with the app (every Hyperliquid perp and trade.xyz stock when this build was made), as "mk-<symbol>".
+    private static let bundledNames: Set<String> = {
+        let urls = Bundle.module.urls(forResourcesWithExtension: "png", subdirectory: nil) ?? []
+        return Set(urls.map { $0.deletingPathExtension().lastPathComponent }.filter { $0.hasPrefix("mk-") })
+    }()
+
+    static func bundled(_ name: String) -> String? {
+        let f = "mk-" + symbol(name).lowercased()
+        return bundledNames.contains(f) ? f : nil
+    }
+
+    /// Commodities, currencies and indices on trade.xyz have no company logo: a flag or a drawn mark instead.
+    static func asset(_ name: String) -> (flag: String?, symbol: String, tint: Color)? {
+        let metal = Color(hex: 0xB8902F), oil = Color(hex: 0x2B2B2B), gas = Color(hex: 0x2F6FDB), crop = Color(hex: 0x4E8A2E)
+        switch symbol(name).uppercased() {
+        case "GOLD": return (nil, "circle.hexagongrid.fill", metal)
+        case "SILVER", "PLATINUM", "PALLADIUM", "ALUMINIUM": return (nil, "circle.hexagongrid.fill", Color(hex: 0x8A8F98))
+        case "COPPER": return (nil, "circle.hexagongrid.fill", Color(hex: 0xB86B3C))
+        case "CL", "BRENTOIL", "HO": return (nil, "drop.fill", oil)
+        case "NATGAS", "TTF": return (nil, "flame.fill", gas)
+        case "CORN", "WHEAT": return (nil, "leaf.fill", crop)
+        case "URANIUM": return (nil, "atom", Color(hex: 0x3C8D5A))
+        case "VIX", "VOL": return (nil, "waveform.path.ecg", Theme.red)
+        case "DXY": return ("💵", "", crop)
+        case "SP500", "XYZ100": return ("🇺🇸", "", gas)
+        case "JPY", "JP225": return ("🇯🇵", "", Theme.red)
+        case "EUR": return ("🇪🇺", "", gas)
+        case "GBP": return ("🇬🇧", "", gas)
+        case "KRW", "KR200": return ("🇰🇷", "", gas)
+        case "NIFTY": return ("🇮🇳", "", metal)
+        case "IBOV": return ("🇧🇷", "", crop)
+        default: return nil
+        }
     }
 
     /// CoinCap's icon set, by symbol. Hyperliquid's thousand-unit tokens (kPEPE, kBONK) use the plain symbol.

@@ -19,8 +19,23 @@ struct SheetChrome<Content: View, Foot: View>: View {
     @ViewBuilder var foot: () -> Foot
     @Environment(\.dismiss) private var dismiss
     @State private var contentHeight: CGFloat = 320
+    @State private var headHeight: CGFloat = 62
+    @State private var footHeight: CGFloat = 0
+    @State private var bottomInset: CGFloat = 34
 
     private var hasFoot: Bool { Foot.self != EmptyView.self }
+    /// The home indicator already leaves room under the button on iPhone.
+    #if os(iOS)
+    private let footBottom: CGFloat = 8
+    #else
+    private let footBottom: CGFloat = 20
+    #endif
+    private var fittedHeight: CGFloat { ceil(headHeight + contentHeight + (hasFoot ? footHeight : 0) + bottomInset) }
+    #if os(iOS)
+    private var fitsScreen: Bool { fittedHeight < UIScreen.main.bounds.height - 70 }
+    #else
+    private var fitsScreen: Bool { contentHeight <= 580 }
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,21 +62,25 @@ struct SheetChrome<Content: View, Foot: View>: View {
             }
             .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 14)
             .animation(.snappy, value: onBack == nil)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
 
             scroll
 
             if hasFoot {
                 HStack(spacing: 8) { foot() }
-                    .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 20)
-                    .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1).opacity(contentHeight > 560 ? 1 : 0) }
+                    .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, footBottom)
+                    .overlay(alignment: .top) { Rectangle().fill(Theme.border).frame(height: 1).opacity(fitsScreen ? 0 : 1) }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footHeight = $0 }
             }
         }
         .background(Theme.bg)
         #if os(macOS)
         .frame(width: width)
         #else
-        // Content plus the title row, the button row and the home indicator. Tall content gets the full sheet.
-        .presentationDetents(contentHeight > 480 ? [.large] : [.height(contentHeight + (hasFoot ? 205 : 110))])
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
+        // Exactly as tall as what's in it: title row, content, button row and the home indicator. No empty band at the bottom.
+        // Content taller than the screen gets the full sheet and scrolls.
+        .presentationDetents(fitsScreen ? [.height(fittedHeight)] : [.large])
         .presentationDragIndicator(.visible)
         #endif
         .presentationCornerRadius(20)

@@ -85,7 +85,19 @@ struct PageTabs<Tab: Hashable>: View {
 struct Segmented<T: Hashable>: View {
     let options: [(T, String)]
     @Binding var selection: T
+    /// Fits on one line when it can; otherwise it scrolls sideways (All chains, Ethereum, Base, … on a phone).
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            bar
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) { bar.padding(.trailing, 1) }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: selection) { _, v in withAnimation(.smooth) { proxy.scrollTo(v, anchor: .center) } }
+            }
+        }
+    }
+
+    private var bar: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.0) { o in
                 Button { withAnimation(.snappy(duration: 0.2)) { selection = o.0 } } label: {
@@ -96,9 +108,11 @@ struct Segmented<T: Hashable>: View {
                         .shadow(color: .black.opacity(selection == o.0 ? 0.06 : 0), radius: 2, y: 1)
                 }
                 .buttonStyle(.plain)
+                .id(o.0)
             }
         }
         .padding(2).background(Theme.hover, in: RoundedRectangle(cornerRadius: 9))
+        .fixedSize()
     }
 }
 

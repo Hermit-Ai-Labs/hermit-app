@@ -10,6 +10,11 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
     @ViewBuilder var foot: () -> Foot
     @Environment(\.dismiss) var dismiss
     @State private var contentHeight: CGFloat = 300
+    @State private var headHeight: CGFloat = 56
+    @State private var footHeight: CGFloat = 72
+    @State private var bottomInset: CGFloat = 34
+
+    private var fitted: CGFloat { ceil(headHeight + contentHeight + footHeight + bottomInset) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -19,6 +24,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.leading, 22).padding(.trailing, 14).padding(.top, 16).padding(.bottom, 10)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
             #if os(iOS)
             // The form scrolls on iPhone, so a tall one never squeezes the title off the top of a short sheet.
             ScrollView {
@@ -30,7 +36,12 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
             paySheetContent(content)
             #endif
             HStack(spacing: 10) { foot() }
+                #if os(iOS)
+                .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 8)
+                #else
                 .padding(.horizontal, 22).padding(.top, 20).padding(.bottom, 22)
+                #endif
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footHeight = $0 }
         }
         #if os(macOS)
         .background(Theme.bg)
@@ -39,8 +50,9 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.bg)
-        // Short forms get a sheet their size; tall ones open full height.
-        .presentationDetents(contentHeight > 420 ? [.large] : [.height(contentHeight + 190), .large])
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
+        // Exactly as tall as the form, header and button row; a form taller than the screen opens full height and scrolls.
+        .presentationDetents(fitted < UIScreen.main.bounds.height - 70 ? [.height(fitted)] : [.large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
         .presentationBackground(Theme.bg)
