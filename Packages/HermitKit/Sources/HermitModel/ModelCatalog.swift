@@ -2,7 +2,7 @@ import Foundation
 
 /// One model Hermit can run on this device.
 public struct ModelSpec: Identifiable, Hashable, Sendable {
-    /// Hugging Face repo, e.g. "rahulol/Hermit-MiniCPM5-2B-MLX-4bit". Files come from huggingface.co/<id>/resolve/main.
+    /// Hugging Face repo, e.g. "rahulol/Hermit-1.1-4B-MLX-4bit". Files come from huggingface.co/<id>/resolve/main.
     public let id: String
     /// Short name for the UI: "Hermit 1.1".
     public let name: String
@@ -22,13 +22,18 @@ public struct ModelSpec: Identifiable, Hashable, Sendable {
 }
 
 public enum ModelCatalog {
-    /// The model Hermit chats with: Hermit 1.1, our MLX 4-bit build of MiniCPM5 2B (SonGT1/MiniCPM5-abliterated-2B, Apache-2.0).
-    public static let defaultID = "rahulol/Hermit-MiniCPM5-2B-MLX-4bit"
+    /// Hermit 1.1 is Qwen3-4B-Instruct-2507 (Apache-2.0) on iPhones and Macs with 8 GB, and Hermit 1.1 Lite,
+    /// Qwen3-1.7B (Apache-2.0), on smaller ones. Both are MLX 4-bit copies on Hermit's own Hugging Face repos.
+    public static let fullID = "rahulol/Hermit-1.1-4B-MLX-4bit"
+    public static let liteID = "rahulol/Hermit-1.1-Lite-MLX-4bit"
+    /// iPhone 15 Pro and later report about 7.5 GB, so 7 is the line.
+    public static var defaultID: String { deviceMemoryGB >= 7 ? fullID : liteID }
 
     public static let all: [ModelSpec] = [
-        // Llama architecture, 4.5 bits per weight, about 1.5 GB of memory while it answers.
-        ModelSpec(id: defaultID, name: "Hermit 1.1",
-                  detail: "Hermit's own model. Fast, private, runs on every iPhone and Mac.", approxBytes: 1_426_101_824, minMemoryGB: 6),
+        ModelSpec(id: fullID, name: "Hermit 1.1",
+                  detail: "Hermit's full model. Sharp answers, private, offline.", approxBytes: 2_280_000_000, minMemoryGB: 7),
+        ModelSpec(id: liteID, name: "Hermit 1.1 Lite",
+                  detail: "Smaller and quicker. Runs on every iPhone.", approxBytes: 980_000_000, minMemoryGB: 5),
     ]
 
     /// The spec for an id, or a plain one built from the repo name if it isn't in the list.

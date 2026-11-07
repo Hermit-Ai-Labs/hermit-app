@@ -140,6 +140,27 @@ actor LocalEngine {
 
     func isLoaded(_ id: String) -> Bool { loadedID == id && session != nil }
 
+    /// Hermit never shows reasoning. Templates that switch it off with `enable_thinking is false` don't take effect in
+    /// swift-jinja, so a downloaded template with that switch is rewritten to always close the think block.
+    static func closeThinkInTemplate(_ directory: URL) {
+        let url = directory.appending(path: "chat_template.jinja")
+        guard let t = try? String(contentsOf: url, encoding: .utf8), t.contains("enable_thinking"), t.contains("<|im_start|>") else { return }
+        let fixed = """
+        {{- bos_token }}
+        {%- for message in messages %}
+        {%- if message.role == 'assistant' %}
+        {{- '<|im_start|>assistant\n<think>\n\n</think>\n\n' + message.content + '<|im_end|>\n' }}
+        {%- else %}
+        {{- '<|im_start|>' + message.role + '\n' + message.content + '<|im_end|>\n' }}
+        {%- endif %}
+        {%- endfor %}
+        {%- if add_generation_prompt %}
+        {{- '<|im_start|>assistant\n<think>\n\n</think>\n\n' }}
+        {%- endif %}
+        """
+        try? fixed.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// Loads the model (once). Returns how long it took, or nil if it was already loaded.
     func load(id: String, directory: URL) async throws -> TimeInterval? {
         if isLoaded(id) { return nil }
@@ -147,6 +168,7 @@ actor LocalEngine {
         // Freed GPU buffers are cached for reuse; keep that cache small on 8 GB devices.
         Memory.cacheLimit = (ModelCatalog.deviceMemoryGB <= 8 ? 64 : 512) << 20
         let start = Date()
+        Self.closeThinkInTemplate(directory)
         let container = try await LLMModelFactory.shared.loadContainer(from: directory, using: TransformersTokenizerLoader())
         self.container = container
         session = ChatSession(container, instructions: instructions,
@@ -174,8 +196,8 @@ actor LocalEngine {
         return session.streamDetails(to: prompt)
     }
 
-    /// Sampling for a small chat model on a phone. The model's generation_config.json asks for temperature 1.0 and no
-    /// repetition penalty, which lets a 2B model wander and loop, so Hermit caps the temperature at 0.6, uses top-p 0.9,
+    /// Sampling for a small chat model on a phone. Some models ship temperature 1.0 and no repetition penalty, which
+    /// lets them wander and loop, so Hermit caps the temperature at 0.6, uses top-p 0.9,
     /// and always applies a mild repetition penalty over the last 256 tokens (long enough to cover a repeating paragraph).
     static func parameters(_ directory: URL) -> GenerateParameters {
         let json = (try? Data(contentsOf: directory.appending(path: "generation_config.json")))
@@ -183,7 +205,7 @@ actor LocalEngine {
         func num(_ k: String) -> Double? { (json[k] as? NSNumber)?.doubleValue }
         var p = GenerateParameters(maxTokens: 640, temperature: Float(min(num("temperature") ?? 0.6, 0.6)),
                                    topP: Float(min(num("top_p") ?? 0.9, 0.9)), topK: Int(num("top_k") ?? 0))
-        p.repetitionPenalty = Float(max(num("repetition_penalty") ?? 1.15, 1.15))
+        p.repetitionPenalty = Float(max(num("repetition_penalty") ?? 1.05, 1.05))
         p.repetitionContextSize = 256
         if json["do_sample"] as? Bool == false { p.temperature = 0 }
         return p
@@ -211,6 +233,9 @@ struct OutputFilter {
             if inThink {
                 guard let end = buffer.range(of: "</think>") else { return out }
                 buffer = String(buffer[end.upperBound...]); inThink = false; continue
+            }
+            if let stray = buffer.range(of: "</think>") {   // reasoning that never opened a tag: drop it
+                buffer = String(buffer[stray.upperBound...]); pending = ""; releasedTail = 0; continue
             }
             if let open = buffer.range(of: "<think>") {
                 out += buffer[..<open.lowerBound]; buffer = String(buffer[open.upperBound...]); inThink = true; continue
