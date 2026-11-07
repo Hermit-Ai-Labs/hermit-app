@@ -53,7 +53,7 @@ public enum Relay {
         guard let o = from.relayID, let d = to.relayID else { throw WalletError.blocked("Relay doesn't cover this network.") }
         let body: [String: Any] = ["user": user, "recipient": recipient, "originChainId": o, "destinationChainId": d,
                                    "originCurrency": from.currency(fromToken), "destinationCurrency": to.currency(toToken),
-                                   "tradeType": "EXACT_INPUT", "amount": String(amount), "referrer": "hermit.my"]
+                                   "tradeType": "EXACT_INPUT", "amount": String(amount)]   // no "referrer": Relay wants an API key for it
         var req = URLRequest(url: api.appending(path: "quote"), timeoutInterval: 25)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")

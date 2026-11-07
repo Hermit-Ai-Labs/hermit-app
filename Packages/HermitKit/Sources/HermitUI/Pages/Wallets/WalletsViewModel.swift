@@ -39,6 +39,8 @@ final class WalletsViewModel {
     // MARK: Home API
 
     var hasWallet: Bool { !wallets.isEmpty }
+    /// Anything on a mainnet worth swapping or bridging. Swap and Bridge stay hidden until there is.
+    var hasFunds: Bool { holdings.contains { !$0.chain.isTestnet && $0.amount > 0 } }
 
     /// Set by Payments (Transfer, Pay now) just before opening Send, which reads it once.
     struct SendPrefill { var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil }

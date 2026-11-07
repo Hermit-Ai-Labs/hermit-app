@@ -152,7 +152,7 @@ struct FieldBox: ViewModifier {
     var focused = false
     func body(content: Content) -> some View {
         content.padding(.horizontal, 12).frame(minHeight: 40)
-            .background(Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? Theme.text.opacity(0.5) : Color.white.opacity(0.75)))
     }
 }
@@ -614,14 +614,14 @@ extension View {
 }
 
 extension View {
-    /// Liquid glass (design A1): the app blurred through a light frosted pane with a bright top edge. iPhone only;
+    /// Liquid glass, paper tint (design A3): the app blurred through a frosted pane tinted to Hermit's paper, bright top edge. iPhone only;
     /// the Mac keeps paper.
     @ViewBuilder func glassSheetBackground() -> some View {
         #if os(iOS)
         presentationBackground {
             ZStack {
                 Rectangle().fill(.ultraThinMaterial)
-                Color.white.opacity(0.5)
+                Color(red: 244 / 255, green: 242 / 255, blue: 236 / 255).opacity(0.66)   // design A3: glass tinted to Hermit's paper
                 LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12))
             }
         }

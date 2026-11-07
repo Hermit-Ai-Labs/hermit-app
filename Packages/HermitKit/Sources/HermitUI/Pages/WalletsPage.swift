@@ -57,8 +57,8 @@ struct WalletsPage: View {
         if let t = AllWalletsTab(rawValue: r) { selected = "all"; allTab = t; return }
         switch r {
         case "send": open(.send(from: nil, chain: nil, token: nil))
-        case "swap": open(.swap(from: nil, bridge: false, token: nil, chain: nil))
-        case "bridge": open(.swap(from: nil, bridge: true, token: nil, chain: nil))
+        case "swap": if vm.hasFunds { open(.swap(from: nil, bridge: false, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
+        case "bridge": if vm.hasFunds { open(.swap(from: nil, bridge: true, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
         case "receive", "deposit": open(.receive(wallet: nil))
         case "transfer": open(.transfer(from: nil))
         case "history": open(.history(wallet: nil))
