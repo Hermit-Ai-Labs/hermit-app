@@ -112,6 +112,8 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                         default: break
                         }
                     }
+                    let rest = filter.flush()
+                    if !rest.isEmpty { cont.yield(.text(rest)) }
                 } catch is CancellationError {
                 } catch {
                     if !Task.isCancelled { cont.yield(.text("\n\nThe model stopped: \(error.localizedDescription)")) }
@@ -174,7 +176,7 @@ actor LocalEngine {
 
     /// Sampling for a small chat model on a phone. The model's generation_config.json asks for temperature 1.0 and no
     /// repetition penalty, which lets a 2B model wander and loop, so Hermit caps the temperature at 0.6, uses top-p 0.9,
-    /// and always applies a mild repetition penalty over the last 64 tokens.
+    /// and always applies a mild repetition penalty over the last 256 tokens (long enough to cover a repeating paragraph).
     static func parameters(_ directory: URL) -> GenerateParameters {
         let json = (try? Data(contentsOf: directory.appending(path: "generation_config.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
@@ -182,7 +184,7 @@ actor LocalEngine {
         var p = GenerateParameters(maxTokens: 640, temperature: Float(min(num("temperature") ?? 0.6, 0.6)),
                                    topP: Float(min(num("top_p") ?? 0.9, 0.9)), topK: Int(num("top_k") ?? 0))
         p.repetitionPenalty = Float(max(num("repetition_penalty") ?? 1.15, 1.15))
-        p.repetitionContextSize = 64
+        p.repetitionContextSize = 256
         if json["do_sample"] as? Bool == false { p.temperature = 0 }
         return p
     }
@@ -194,8 +196,6 @@ struct OutputFilter {
     private var buffer = ""
     private var started = false
     private var inThink = false
-    /// Everything shown so far, to spot a sentence coming round again.
-    private var shown = ""
     /// True once the reply should end: the model wrote a turn marker, or repeated a whole sentence.
     private(set) var finished = false
     static let stopMarkers = ["<|im_start|>", "<|im_end|>", "</s>"]
@@ -226,32 +226,51 @@ struct OutputFilter {
             if !out.isEmpty { started = true }
         }
         out = out.replacingOccurrences(of: " · ", with: ", ").replacingOccurrences(of: "·", with: ",")
-        // Repetition guard: once a finished sentence of 25+ characters has already appeared, stop before it.
-        let before = shown
-        shown += out
-        if let repeatAt = Self.repeatedSentence(in: shown), repeatAt >= before.count {
-            finished = true
-            return String(shown.prefix(repeatAt).dropFirst(before.count))
+        return guardRepeats(out)
+    }
+
+    // MARK: Repetition guard
+    // Text is released a sentence (or line) at a time. A sentence or line that already appeared ends the reply before
+    // it is shown. A long unfinished sentence is released early unless it is the start of one we've already shown.
+
+    private var pending = ""
+    private var seen = Set<String>()
+    private var releasedTail = 0   // characters of `pending` already shown while its sentence was still open
+    private var repeated = false
+
+    private mutating func guardRepeats(_ text: String) -> String {
+        pending += text
+        var out = ""
+        while let end = pending.firstIndex(where: { ".!?\n".contains($0) }) {
+            let cut = pending.index(after: end)
+            let piece = String(pending[..<cut])
+            let key = Self.key(piece)
+            if key.count >= 18 {
+                if seen.contains(key) { finished = true; repeated = true; pending = ""; return out }
+                seen.insert(key)
+            }
+            out += piece.dropFirst(releasedTail)
+            releasedTail = 0
+            pending = String(pending[cut...])
+        }
+        // Open sentence: show it once it's clearly new, so long sentences still stream.
+        let tailKey = Self.key(pending)
+        if pending.count - releasedTail > 0, tailKey.count >= 40, !seen.contains(where: { $0.hasPrefix(tailKey) }) {
+            out += pending.dropFirst(releasedTail)
+            releasedTail = pending.count
         }
         return out
     }
 
-    /// Offset where a complete sentence (ending in . ! or ?) starts again after appearing earlier, if it does.
-    static func repeatedSentence(in text: String) -> Int? {
-        var seen = Set<String>()
-        var start = text.startIndex
-        var i = text.startIndex
-        while i < text.endIndex {
-            let c = text[i]
-            i = text.index(after: i)
-            guard ".!?".contains(c) else { continue }
-            let sentence = text[start..<i].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if sentence.count >= 25 {
-                if seen.contains(sentence) { return text.distance(from: text.startIndex, to: start) }
-                seen.insert(sentence)
-            }
-            start = i
-        }
-        return nil
+    private static func key(_ s: String) -> String {
+        s.lowercased().split(whereSeparator: { $0.isWhitespace || $0 == "*" || $0 == "#" }).joined(separator: " ")
+    }
+
+    /// Whatever is still held back when the reply ends normally.
+    mutating func flush() -> String {
+        guard !repeated else { return "" }
+        let rest = String(pending.dropFirst(releasedTail))
+        pending = ""; releasedTail = 0
+        return rest
     }
 }
