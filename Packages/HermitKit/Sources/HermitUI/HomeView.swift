@@ -25,7 +25,16 @@ struct HomeView: View {
     var body: some View {
         Group {
             if SnapshotMode.active { content.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped() } else {
-                ScrollView { content }.scrollIndicators(.never).scrollDismissesKeyboard(.interactively)
+                ScrollViewReader { proxy in
+                    ScrollView { content }.scrollIndicators(.never).scrollDismissesKeyboard(.interactively)
+                        #if DEBUG
+                        .task {
+                            // Screenshots of the cards under the composer.
+                            guard UserDefaults.standard.bool(forKey: "hermitScrollEnd") else { return }
+                            try? await Task.sleep(for: .seconds(1)); withAnimation { proxy.scrollTo("home-end", anchor: .bottom) }
+                        }
+                        #endif
+                }
             }
         }
         .onAppear { withAnimation(.spring(duration: 0.6, bounce: 0.25)) { appeared = true } }
@@ -62,6 +71,7 @@ struct HomeView: View {
             } else {
                 HStack(spacing: compact ? 28 : 22) {
                     walletAction("Send", "arrow.up.right") { model.open(.wallets, tab: "send") }
+                    walletAction("Swap", "arrow.triangle.2.circlepath") { model.open(.wallets, tab: "swap") }
                     walletAction("Receive", "arrow.down.left") { model.open(.wallets, tab: "receive") }
                 }
                 .padding(.top, 22)
@@ -70,7 +80,8 @@ struct HomeView: View {
             chips.padding(.top, 14)
             cards.padding(.top, compact ? 28 : 48)
             if compact && model.chatProject == nil && !model.projectList.isEmpty { projects.padding(.top, 32) }
-            Spacer(minLength: 40)
+            // Room for the floating tab bar, so the last card can scroll fully into view.
+            Color.clear.frame(height: compact ? 110 : 40).id("home-end")
         }
         .frame(maxWidth: 640)
         .frame(maxWidth: .infinity)
@@ -189,49 +200,107 @@ struct HomeBalanceCard: View {
     }
 }
 
-/// Live prices on Home, in place of the balance: BTC, ETH, SOL and HYPE from Hyperliquid, with the day's move.
-/// Tap a coin to open it on Trade.
+/// Live prices on Home, in place of the balance (design C): the welcome screen's dial, its needle the market's mood
+/// (the average 24h move of BTC, ETH, SOL and HYPE on Hyperliquid), and the four coins under it. Tap to open Trade.
 struct HomeMarketsCard: View {
     @Environment(AppModel.self) private var model
     let hide: () -> Void
     private var feed: MarketFeed { .shared }
     static let coins = ["BTC", "ETH", "SOL", "HYPE"]
 
+    private var mood: Double? {
+        let ch = Self.coins.compactMap { feed.perps[$0]?.ch }
+        return ch.isEmpty ? nil : ch.reduce(0, +) / Double(ch.count)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Markets").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text("MARKET MOOD").font(.system(size: 10.5, weight: .medium, design: .monospaced)).tracking(0.8).foregroundStyle(Theme.faint)
                 Spacer()
-                hideButton(hide)
+                Text("24H").font(.system(size: 10.5, weight: .medium, design: .monospaced)).tracking(0.8).foregroundStyle(Theme.faint)
+                hideButton(hide).padding(.leading, 4)
             }
-            HStack(spacing: 0) {
-                ForEach(Self.coins, id: \.self) { c in
-                    Button { model.open(.trade, tab: "markets") } label: { cell(c) }
-                        .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Button { model.open(.trade, tab: "markets") } label: {
+                VStack(spacing: 0) {
+                    VStack(spacing: 6) {
+                        MoodDial(value: mood ?? 0)
+                            .frame(height: 78)
+                            .animation(.smooth(duration: 0.9), value: mood)
+                        Text(mood.map { String(format: "%@%.1f%%", $0 >= 0 ? "+" : "−", abs($0)) } ?? "—")
+                            .font(.display(26)).monospacedDigit()
+                            .foregroundStyle((mood ?? 0) >= 0 ? Theme.green : Theme.red)
+                            .contentTransition(.numericText())
+                    }
+                    .padding(.top, 8)
+                    Rectangle().fill(Theme.border).frame(height: 1).padding(.top, 12)
+                    HStack(spacing: 4) {
+                        ForEach(Self.coins, id: \.self) { c in cell(c).frame(maxWidth: .infinity, alignment: .leading) }
+                    }
+                    .padding(.top, 11)
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Market mood \(mood.map { String(format: "%.1f percent", $0) } ?? "loading"). Opens Trade.")
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .card()
         .marketPoll(every: 30) { await feed.refreshPerps() }
     }
 
+    /// "$76,101", "$2,247", "$90.17", "$78.84": whole dollars past 1,000, cents below.
+    static func price(_ v: Double) -> String {
+        "$" + v.formatted(.number.precision(.fractionLength(v >= 1000 ? 0 : 2)))
+    }
+
     private func cell(_ c: String) -> some View {
         let p = feed.perps[c]
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
-                MarketLogo(key: TradeData.logo(c), name: c, size: 16)
-                Text(c).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
+                MarketLogo(key: TradeData.logo(c), name: c, size: 15)
+                Text(c).font(.system(size: 11, weight: .medium, design: .monospaced)).tracking(0.5).foregroundStyle(Theme.text)
             }
-            Text(p.map { "$" + $0.px.tradePx } ?? "—").font(.system(size: 14, weight: .semibold)).monospacedDigit()
+            Text(p.map { Self.price($0.px) } ?? "—").font(.display(16)).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.7).contentTransition(.numericText())
-            Text(p.map { String(format: "%+.1f%%", $0.ch) } ?? " ").font(.system(size: 12)).monospacedDigit()
+            Text(p.map { String(format: "%@%.1f%%", $0.ch >= 0 ? "+" : "−", abs($0.ch)) } ?? " ")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle((p?.ch ?? 0) >= 0 ? Theme.green : Theme.red)
         }
         .redacted(reason: p == nil ? .placeholder : [])
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Half dial with ticks, Fear on the left and Greed on the right. ±6% average move swings the needle to the ends.
+struct MoodDial: View, Animatable {
+    var value: Double
+    var animatableData: Double { get { value } set { value = newValue } }
+
+    var body: some View {
+        Canvas { ctx, size in
+            let c = CGPoint(x: size.width / 2, y: size.height - 2)
+            let r = min(size.width / 2 - 34, size.height - 6)
+            for i in 0...40 {
+                let a = Double.pi + Double(i) / 40 * .pi
+                let long = i % 5 == 0
+                let inner = r - (long ? 11 : 6)
+                var p = Path()
+                p.move(to: CGPoint(x: c.x + cos(a) * inner, y: c.y + sin(a) * inner))
+                p.addLine(to: CGPoint(x: c.x + cos(a) * r, y: c.y + sin(a) * r))
+                ctx.stroke(p, with: .color(long ? Theme.text : Theme.text.opacity(0.22)), lineWidth: long ? 1.3 : 1)
+            }
+            let t = max(-1, min(1, value / 6))
+            let a = -Double.pi / 2 + t * (80 * .pi / 180)
+            var n = Path()
+            n.move(to: c)
+            n.addLine(to: CGPoint(x: c.x + cos(a) * (r - 16), y: c.y + sin(a) * (r - 16)))
+            ctx.stroke(n, with: .color(Theme.accent), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)), with: .color(Theme.accent))
+            let label = { (s: String) in Text(s).font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(Theme.faint) }
+            ctx.draw(label("FEAR"), at: CGPoint(x: c.x - r - 4, y: c.y - 4), anchor: .trailing)
+            ctx.draw(label("GREED"), at: CGPoint(x: c.x + r + 4, y: c.y - 4), anchor: .leading)
+        }
+        .accessibilityHidden(true)
     }
 }
 

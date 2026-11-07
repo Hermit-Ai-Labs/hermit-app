@@ -91,6 +91,7 @@ struct TokenSheet: View {
             }
             HStack(spacing: 0) {
                 RoundAction(title: "Send", symbol: "arrow.up.right") { onAction("send") }.frame(maxWidth: .infinity)
+                RoundAction(title: "Swap", symbol: "arrow.triangle.2.circlepath") { onAction("swap") }.frame(maxWidth: .infinity)
                 RoundAction(title: "Receive", symbol: "arrow.down.to.line") { onAction("receive") }.frame(maxWidth: .infinity)
             }
             SectionLabel("Where it is")

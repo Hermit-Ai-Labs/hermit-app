@@ -50,7 +50,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.bg)
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = min($0, 44) }
         // Exactly as tall as the form, header and button row; a form taller than the screen opens full height and scrolls.
         .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)

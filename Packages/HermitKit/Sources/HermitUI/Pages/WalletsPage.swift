@@ -51,6 +51,8 @@ struct WalletsPage: View {
         if let t = AllWalletsTab(rawValue: r) { selected = "all"; allTab = t; return }
         switch r {
         case "send": open(.send(from: nil, chain: nil, token: nil))
+        case "swap": open(.swap(from: nil, bridge: false, token: nil, chain: nil))
+        case "bridge": open(.swap(from: nil, bridge: true, token: nil, chain: nil))
         case "receive", "deposit": open(.receive(wallet: nil))
         case "transfer": open(.transfer(from: nil))
         case "history": open(.history(wallet: nil))
@@ -75,6 +77,8 @@ struct WalletsPage: View {
         switch s {
         case .send(let from, let chain, let token):
             WalletSendSheet(vm: vm, fromID: from ?? currentWallet ?? "", chain: chain, token: token)
+        case .swap(let from, let bridge, let token, let chain):
+            SwapSheet(vm: vm, fromID: from ?? currentWallet ?? "", bridge: bridge, token: token, chain: chain)
         case .transfer(let from):
             TransferSheet(vm: vm, fromID: from ?? currentWallet ?? "")
         case .receive(let w):
@@ -86,6 +90,7 @@ struct WalletsPage: View {
                 let best = g.parts.max { $0.amount < $1.amount }
                 if action == "send" { open(.send(from: best?.walletID, chain: best?.chain, token: g.symbol)) }
                 if action == "receive" { open(.receive(wallet: best?.walletID)) }
+                if action == "swap" { open(.swap(from: best?.walletID, bridge: false, token: g.symbol, chain: best?.chain)) }
             }
         case .activity(let a):
             ActivityDetailSheet(item: a, vm: vm)
@@ -99,6 +104,7 @@ struct WalletsPage: View {
 
 enum WalletSheet: Identifiable {
     case send(from: String?, chain: Chain?, token: String?)
+    case swap(from: String?, bridge: Bool, token: String?, chain: Chain?)
     case transfer(from: String?)
     case receive(wallet: String?)
     case history(wallet: String?)
@@ -110,6 +116,7 @@ enum WalletSheet: Identifiable {
     var id: String {
         switch self {
         case .send: "send"
+        case .swap: "swap"
         case .transfer: "transfer"
         case .receive: "receive"
         case .history: "history"
@@ -121,6 +128,6 @@ enum WalletSheet: Identifiable {
     }
 
     var needsWallet: Bool {
-        switch self { case .send, .transfer, .receive, .phrase: true; default: false }
+        switch self { case .send, .swap, .transfer, .receive, .phrase: true; default: false }
     }
 }

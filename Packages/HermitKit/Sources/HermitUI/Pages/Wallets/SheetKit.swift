@@ -77,7 +77,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
         #if os(macOS)
         .frame(width: width)
         #else
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = min($0, 44) }
         // Exactly as tall as what's in it: title row, content, button row and the home indicator. No empty band at the bottom.
         // Content taller than the screen gets the full sheet and scrolls.
         .presentationDetents([.height(min(fittedHeight, SheetMetrics.maxHeight))])
@@ -587,7 +587,7 @@ struct FitSheet: ViewModifier {
             content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { inset = min($0, 44) }
         .background(Theme.bg)
         .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)

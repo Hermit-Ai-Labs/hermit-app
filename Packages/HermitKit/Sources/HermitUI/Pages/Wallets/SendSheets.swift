@@ -57,6 +57,8 @@ struct WalletSendSheet: View {
     @State private var scanning = false
     @State private var error: String?
     @State private var busy = false
+    /// A fixed destination (Hyperliquid deposit): network, token and address are locked, with a minimum.
+    @State private var fixed: WalletsViewModel.SendPrefill?
     // Add address form
     @State private var newLabel = ""
     @State private var newKind: ChainKind = .evm
@@ -74,6 +76,7 @@ struct WalletSendSheet: View {
         _token = State(initialValue: want.flatMap { t in vm.tokens(chain: c).contains(t) ? t : nil } ?? c.nativeSymbol)
         _address = State(initialValue: pre?.address ?? "")
         _amount = State(initialValue: pre?.amount ?? "")
+        _fixed = State(initialValue: pre?.label == nil ? nil : pre)
     }
 
     private var wallet: WalletAccount? { vm.wallet(fromID) }
@@ -90,7 +93,106 @@ struct WalletSendSheet: View {
     }
 
     var body: some View {
-        if adding { addAddress } else { form }
+        if fixed != nil { depositForm } else if adding { addAddress } else { form }
+    }
+
+    // MARK: Fixed deposit (Hyperliquid)
+
+    /// No USDC yet: the wallet's own Arbitrum address as a QR to fund from an exchange or another wallet. Never the bridge
+    /// itself (Hyperliquid credits whoever sends, so an exchange sending to the bridge would credit the exchange).
+    /// The balance is re-read every 10 seconds; the form appears as soon as the USDC lands.
+    private var fundPanel: some View {
+        let addr = wallet?.address(on: chain) ?? ""
+        return VStack(spacing: 12) {
+            Text("Add \(token) on \(chain.name) to your wallet").font(.system(size: 15, weight: .semibold))
+            AddressQR(text: addr)
+                .frame(width: 168, height: 168)
+                .padding(12).background(.white, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.border))
+                .overlay { LogoMark(chain.logo, size: 32).padding(3).background(.white, in: Circle()) }
+            Button { Clip.copy(addr); model.toast("Address copied") } label: {
+                HStack(spacing: 8) {
+                    Text(addr).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
+                    Spacer(minLength: 4)
+                    Image(systemName: "doc.on.doc").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+            }
+            .buttonStyle(PressStyle())
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Waiting for \(token). This switches to Deposit when it arrives.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+            }
+            NoteBox(symbol: "exclamationmark.triangle", text: "Send only \(token) on the \(chain.name) network, at least \(Int(minimum)), plus a little ETH on \(chain.name) for fees.",
+                    tint: Theme.amber)
+        }
+        .frame(maxWidth: .infinity)
+        .task(id: fromID) {
+            while !Task.isCancelled && available < minimum {
+                try? await Task.sleep(for: .seconds(10))
+                await vm.refresh()
+            }
+        }
+    }
+
+    private var minimum: Double { fixed?.address == Hyperliquid.bridge ? 5 : 0 }
+    private var depositOK: Bool { value >= minimum && value > 0 && value <= available && !busy && wallet != nil }
+
+    /// Deposit to a known contract: no address to type, no whitelist, the minimum enforced (Hyperliquid loses
+    /// deposits under 5 USDC), and a way to get USDC onto the right network when there isn't any.
+    private var depositForm: some View {
+        SheetChrome(title: fixed?.label ?? "Deposit", subtitle: "\(token) on \(chain.name)") {
+            if vm.wallets.count > 1 {
+                FormField(label: "From") {
+                    MenuField(selection: $fromID, options: vm.wallets.map(\.id), title: { vm.wallet($0)?.name ?? $0 }, symbol: { vm.wallet($0)?.symbol })
+                }
+            }
+            if available < minimum {
+                fundPanel
+            } else {
+            FormField(label: "To") {
+                HStack(spacing: 10) {
+                    LogoMark("hyperliquid", size: 28)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Your Hyperliquid account").font(.system(size: 13.5, weight: .medium))
+                        Text("Bridge \(shortAddr(address)) on \(chain.name)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "checkmark.shield.fill").font(.system(size: 14)).foregroundStyle(Theme.green)
+                }
+                .modifier(FieldBox())
+            }
+            FormField(label: "Amount (\(token))", trailing: "\(held?.exact ?? "0") on \(chain.name)") { AmountTextField(text: $amount) }
+            WrapRow {
+                ForEach([("25%", 0.25), ("50%", 0.5)], id: \.0) { q in
+                    SelectChip(title: q.0, on: amount == fractionText(held, q.1) && available > 0) { amount = fractionText(held, q.1) }
+                }
+                SelectChip(title: "Max", on: amount == (held?.exact ?? "") && available > 0) { amount = held?.exact ?? "0" }
+            }
+            if value > 0 && value < minimum {
+                Text("The minimum is \(Int(minimum)) \(token). Hyperliquid doesn't credit smaller deposits.").font(.system(size: 12.5)).foregroundStyle(Theme.red)
+            } else if value > available {
+                Text("Only \(held?.exact ?? "0") \(token) on \(chain.name).").font(.system(size: 12.5)).foregroundStyle(Theme.red)
+            } else {
+                NoteBox(symbol: "clock", text: "Arrives on Hyperliquid in about a minute. You also need a little ETH on \(chain.name) for the network fee.")
+            }
+            }
+            if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
+        } foot: {
+            if available < minimum {
+                Button("Bridge from another network") { model.open(.wallets, tab: "bridge") }.buttonStyle(WideButton(kind: .plain))
+            } else {
+                Button { review() } label: {
+                    HStack(spacing: 6) {
+                        if busy { ProgressView().controlSize(.small).tint(.white) }
+                        Text(busy ? "Simulating" : "Review deposit")
+                    }
+                }
+                .buttonStyle(WideButton()).disabled(!depositOK)
+            }
+        }
     }
 
     // MARK: Send form
@@ -376,14 +478,14 @@ struct WalletReceiveSheet: View {
     var body: some View {
         let addr = vm.wallet(walletID)?.address(on: chain) ?? ""
         SheetChrome(title: title) {
-            FormField(label: "Wallet") {
-                MenuField(selection: $walletID, options: vm.wallets.map(\.id), title: { vm.wallet($0)?.name ?? $0 }, symbol: { vm.wallet($0)?.symbol })
+            if vm.wallets.count > 1 {
+                FormField(label: "Wallet") {
+                    MenuField(selection: $walletID, options: vm.wallets.map(\.id), title: { vm.wallet($0)?.name ?? $0 }, symbol: { vm.wallet($0)?.symbol })
+                }
             }
             FormField(label: "Network") {
                 VStack(alignment: .leading, spacing: 8) {
                     WrapRow { ForEach(Chain.mainnets) { c in SelectChip(title: c.name, logo: c.logo, on: c == chain) { chain = c } } }
-                    Text("Testnets").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
-                    WrapRow { ForEach(Chain.testnets) { c in SelectChip(title: c.name, logo: c.logo, on: c == chain) { chain = c } } }
                 }
             }
             VStack(spacing: 14) {

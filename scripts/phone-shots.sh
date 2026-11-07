@@ -11,6 +11,7 @@ BID=my.hermit.ios
 SHOTS=(
   "welcome|-hermitUser|"
   "home|-hermitRoute home"
+  "home-markets|-hermitRoute home -hermitScrollEnd YES"
   "drawer|-hermitRoute home -hermitDrawer YES"
   "trade-markets|-hermitRoute trade -hermitTab markets"
   "trade-positions|-hermitRoute trade -hermitTab positions"

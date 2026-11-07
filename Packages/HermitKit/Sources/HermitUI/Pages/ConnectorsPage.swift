@@ -10,18 +10,38 @@ struct ConnectorsPage: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     @State private var tab = "apps"
+    @State private var sheet: ConnectorSheet?
+    private var store: ConnectorStore { .shared }
+
+    enum ConnectorSheet: Identifiable {
+        case binanceConnect, binance, addMCP, server(ConnectorStore.MCPServer)
+        var id: String {
+            switch self { case .binanceConnect: "bc"; case .binance: "b"; case .addMCP: "m"; case .server(let s): s.id.uuidString }
+        }
+    }
     private var calendar: CalendarStore { .shared }
 
     var body: some View {
         // Only what works today. Other apps, paid APIs, skills and MCP servers come back as each one is built.
-        Page(title: "Connectors", subtitle: "Apps Hermit can use on this phone", tabs: [("apps", "Apps")], tab: $tab) {
-            EmptyView()
+        Page(title: "Connectors", subtitle: "Apps and tools Hermit can use", tabs: [("apps", "Apps")], tab: $tab) {
+            Button { sheet = .addMCP } label: { Label("MCP", systemImage: "plus") }.buttonStyle(OutlineButton())
         } content: { t in
             switch t {
             case "apis": apis
             case "skills": skills
             default: apps
             }
+        }
+        .sheet(item: $sheet) { s in
+            Group {
+                switch s {
+                case .binanceConnect: BinanceConnectSheet { model.toast("Binance connected") }
+                case .binance: BinanceSheet()
+                case .addMCP: MCPAddSheet()
+                case .server(let srv): MCPServerSheet(server: srv)
+                }
+            }
+            .environment(model).tint(Theme.text)
         }
         .onAppear {
             calendar.refreshAccess()
@@ -45,6 +65,54 @@ struct ConnectorsPage: View {
                 }
             }
             .padding(.vertical, 11)
+            Hairline()
+            HStack(spacing: 12) {
+                LogoMark("binance", size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Binance").font(.system(size: 14, weight: .medium))
+                    Text(store.binanceConnected ? "Balances and spot orders" : "Your exchange account, with your own API key")
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
+                Spacer()
+                if store.binanceConnected {
+                    Button("Open") { sheet = .binance }.buttonStyle(OutlineButton())
+                } else {
+                    Button("Connect") { sheet = .binanceConnect }.buttonStyle(BlackButton())
+                }
+            }
+            .padding(.vertical, 11)
+            Text("MCP servers").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 22).padding(.bottom, 4)
+            if store.servers.isEmpty {
+                Button { sheet = .addMCP } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted).frame(width: 34, height: 34)
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Add an MCP server").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
+                            Text("Any remote server, by its https address").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(store.servers) { s in
+                Button { sheet = .server(s) } label: {
+                    HStack(spacing: 12) {
+                        WalletSymbolTile(symbol: "point.3.connected.trianglepath.dotted", size: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(s.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
+                            Text(store.tools[s.id].map { "\($0.count) tools" } ?? (URL(string: s.url)?.host() ?? s.url))
+                                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
+                    }
+                    .padding(.vertical, 9).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             if Self.showUnbuilt { Hairline() }
             if Self.showUnbuilt { RowList(items: ConnectorSeed.apps) { c in
                 HStack(spacing: 12) {

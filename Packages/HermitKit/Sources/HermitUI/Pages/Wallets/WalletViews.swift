@@ -75,9 +75,8 @@ struct BalanceCard<Sub: View>: View {
             HStack(spacing: 18) {
                 RoundAction(title: oneWallet ? "Add funds" : "Deposit", symbol: "arrow.down.to.line") { open(.receive(wallet: walletID)) }
                 RoundAction(title: "Send", symbol: "arrow.up.right") { open(.send(from: walletID, chain: nil, token: nil)) }
-                RoundAction(title: "Transfer", symbol: "arrow.left.arrow.right") { open(.transfer(from: walletID)) }
-                    .disabled(vm.wallets.count < 2).opacity(vm.wallets.count < 2 ? 0.4 : 1)
-                    .help(vm.wallets.count < 2 ? "Add a second wallet to move money between them" : "Move money between your wallets")
+                RoundAction(title: "Swap", symbol: "arrow.triangle.2.circlepath") { open(.swap(from: walletID, bridge: false, token: nil, chain: nil)) }
+                RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") { open(.swap(from: walletID, bridge: true, token: nil, chain: nil)) }
             }
             .padding(.top, 22)
         }

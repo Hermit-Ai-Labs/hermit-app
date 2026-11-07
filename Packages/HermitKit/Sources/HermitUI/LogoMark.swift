@@ -94,6 +94,7 @@ public struct LogoMark: View {
         "x402": "x402",
         "usdt": "usdt",
         "bnb": "bnb",
+        "binance": "mk-bnb",
         "xrp": "xrp",
         "doge": "doge",
         "sui": "sui",
