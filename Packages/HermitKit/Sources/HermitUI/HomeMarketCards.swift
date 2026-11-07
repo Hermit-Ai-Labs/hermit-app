@@ -101,8 +101,8 @@ struct HomeMarketsCard: View {
                     Text(moodWord).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
                 }
                 Spacer(minLength: 8)
-                Text(Self.pct(mood)).font(.display(34)).monospacedDigit().foregroundStyle(tint(mood))
-                    .contentTransition(.numericText()).lineLimit(1).minimumScaleFactor(0.7)
+                Text(Self.pct(mood)).font(.display(44)).monospacedDigit().foregroundStyle(tint(mood))
+                    .contentTransition(.numericText()).lineLimit(1).minimumScaleFactor(0.6)
                 hideButton(hide)
             }
             HStack(spacing: 7) {

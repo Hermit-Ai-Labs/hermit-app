@@ -30,7 +30,7 @@ public struct ModelDownloadAttributes: ActivityAttributes {
         }
     }
 
-    /// "Woof 2B".
+    /// "Hermit 1.1".
     public var modelName: String
 
     public init(modelName: String) { self.modelName = modelName }

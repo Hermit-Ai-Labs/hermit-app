@@ -16,7 +16,7 @@ public final class HybridAgent: Agent, @unchecked Sendable {
         if store.readyModel != nil && !underTest { local.warmUp() }
     }
 
-    /// The button title that starts the download, e.g. "Download Woof 2B".
+    /// The button title that starts the download, e.g. "Download Hermit 1.1".
     public static func downloadTitle(_ spec: ModelSpec) -> String { "Download \(spec.name)" }
 
     public func reset() { local.reset() }

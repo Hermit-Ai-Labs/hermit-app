@@ -43,11 +43,29 @@ public final class ModelStore {
     /// The file list as fetched when the download started, so a relaunch can continue without the network.
     private static let filesCache = ".hermit-files.json"
 
+    /// Deletes downloaded models that aren't in the catalog any more (folders are named after the repo id).
+    private static func removeRetired(root: URL, keep: Set<String>) {
+        let fm = FileManager.default
+        guard let owners = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+        for owner in owners {
+            guard let repos = try? fm.contentsOfDirectory(at: owner, includingPropertiesForKeys: nil) else { continue }
+            for repo in repos where !keep.contains("\(owner.lastPathComponent)/\(repo.lastPathComponent)") {
+                try? fm.removeItem(at: repo)
+            }
+        }
+    }
+
     public init(root: URL? = nil) {
         self.root = root ?? URL.applicationSupportDirectory.appending(path: "Hermit/Models", directoryHint: .isDirectory)
-        let saved = UserDefaults.standard.string(forKey: Self.selectedKey) ?? ModelCatalog.defaultID
+        // A model that's no longer in the catalog (Woof, before Hermit 1.1) falls back to the default, and its files go.
+        let known = Set(ModelCatalog.all.map(\.id))
+        let saved = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap { known.contains($0) ? $0 : nil } ?? ModelCatalog.defaultID
         let spec = ModelCatalog.spec(saved)
         selectedID = spec.supported && ModelCatalog.fits(spec) ? saved : ModelCatalog.defaultID
+        if let d = UserDefaults.standard.string(forKey: Self.downloadingKey), !known.contains(d) {
+            UserDefaults.standard.removeObject(forKey: Self.downloadingKey)
+        }
+        Self.removeRetired(root: self.root, keep: known)
         for spec in ModelCatalog.all { states[spec.id] = isComplete(spec.id) ? .ready : .notDownloaded }
         if states[selectedID] == nil { states[selectedID] = isComplete(selectedID) ? .ready : .notDownloaded }
         #if os(iOS)
@@ -111,7 +129,7 @@ public final class ModelStore {
         selectedState == .ready ? (selected, directory(selectedID)) : nil
     }
 
-    /// The model name next to the send button: "Woof 2B", or "Woof 2B 42%" while it downloads.
+    /// The model name next to the send button: "Hermit 1.1", or "Hermit 1.1 42%" while it downloads.
     public var label: String {
         if case .downloading(let p) = selectedState { return "\(selected.name) \(Int(p * 100))%" }
         return selected.name
