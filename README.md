@@ -353,8 +353,8 @@ Hermit has no server. Chat history stays in memory on the device until New chat.
 - **Window (Q-001).** The repository's first commit is 2026-10-29 (tag
   [`pre-hackathon`](https://github.com/Hermit-Ai-Labs/hermit-app/tree/pre-hackathon), `266b8d3`). That is after the
   2026-10-19 announcement, so the whole history falls inside the window. That first commit brought in the UI design and
-  assets of Hermit's earlier web demo (`.demo-base` records the source commit `9314dbb`). Treat that design as
-  baseline.
+  assets of Hermit's earlier web demo (`.demo-base` records the source commit `9314dbb`, from 2026-10-27). That demo
+  repository started on 2026-10-26, so it is also inside the window.
 - **What is NEAR-specific (Q-002, Q-004).** The wallet, the on-device chat and other chains (EVM, Solana, Hyperliquid,
   Relay) were built first, on `main`. All NEAR work is on branch
   [`near-hackathon`](https://github.com/Hermit-Ai-Labs/hermit-app/tree/near-hackathon). It starts 2026-11-08, after
