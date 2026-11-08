@@ -173,11 +173,22 @@ final class ToolLoopTests: XCTestCase {
     }
 
     func testRoundLimit() async {
-        let model = ScriptedModel(Array(repeating: call("get_price", #"{"symbol": "BTC"}"#), count: 9))
+        let model = ScriptedModel((1...9).map { call("get_price", #"{"symbol": "C\#($0)"}"#) })
         let tools = FakeToolbox()
         let t = await ask(newChat(), "loop", model, tools)
         XCTAssertEqual(tools.names.count, 5)
         XCTAssertEqual(model.prompts.count, 5)
+        XCTAssertEqual(t.text, "I couldn't finish that here. Try asking another way.")
+    }
+
+    func testRepeatedCallsRunOnceAndStuckModelStops() async {
+        let calc = call("calculator", #"{"expression": "0.12 * 410.5"}"#)
+        let model = ScriptedModel([calc, calc + "\n" + calc, calc, calc, calc])
+        let tools = FakeToolbox(["calculator": #"{"result": "49.26"}"#])
+        let t = await ask(newChat(), "how much is 0.5 ETH in USD", model, tools)
+        XCTAssertEqual(tools.names, ["calculator"])
+        XCTAssertEqual(model.prompts.count, 3, "two turns of nothing new, then it stops")
+        XCTAssertEqual(t.steps, 1)
         XCTAssertEqual(t.text, "I couldn't finish that here. Try asking another way.")
     }
 
@@ -191,12 +202,14 @@ final class ToolLoopTests: XCTestCase {
     }
 
     func testRepeatGuardStillWorksAndIgnoresToolJSON() async {
-        // Two identical calls in a row are fine (JSON isn't checked for repeats); a repeated sentence still ends the reply.
+        // Two identical calls in a row are fine (JSON isn't checked for repeats, the second is answered from the first);
+        // a repeated sentence still ends the reply.
         let same = call("get_price", #"{"symbol": "BTC"}"#)
         let model = ScriptedModel([same + "\n" + same, "BTC is at $100,000 right now today. BTC is at $100,000 right now today. More"])
         let tools = FakeToolbox()
         let t = await ask(newChat(), "btc", model, tools)
-        XCTAssertEqual(tools.names, ["get_price", "get_price"])
+        XCTAssertEqual(tools.names, ["get_price"])
+        XCTAssertEqual(model.prompts[1].components(separatedBy: "<tool_response>").count, 3)
         XCTAssertEqual(t.text, "BTC is at $100,000 right now today.")
     }
 

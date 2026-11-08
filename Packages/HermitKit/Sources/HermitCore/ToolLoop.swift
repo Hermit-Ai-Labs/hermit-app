@@ -99,6 +99,7 @@ public actor ToolChat {
         var finalAnswer = false
         var prepared = false   // a money tool opened a review this message
         var said = ""          // everything shown, for the honesty check
+        var results: [String: String] = [:], repeatTurns = 0
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -164,8 +165,14 @@ public actor ToolChat {
             let run = Array(calls.prefix(config.maxCallsPerTurn))
             history.append(.assistant(content, calls: run))
             let typed = userText()
+            var fresh = 0
             for call in run {
                 if Task.isCancelled { return }
+                // The same call again in this message: answer from the first run (a repeated prepare_ never opens a
+                // second review).
+                let key = call.name + " " + call.argumentsJSON
+                if let earlier = results[key] { history.append(.tool(earlier)); continue }
+                fresh += 1
                 let args = (try? JSONSerialization.jsonObject(with: Data(call.argumentsJSON.utf8))) as? [String: Any] ?? [:]
                 cont.yield(.status(ToolStatus.label(call.name, arguments: args) + "…"))
                 steps += 1
@@ -181,8 +188,12 @@ public actor ToolChat {
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
-                history.append(.tool(ToolResult.clean(out.content)))
+                let cleaned = ToolResult.clean(out.content)
+                results[key] = cleaned
+                history.append(.tool(cleaned))
             }
+            // A model stuck asking the same thing: one more chance, then stop.
+            if fresh == 0 { repeatTurns += 1; if repeatTurns >= 2 { break rounds } }
             if round == config.maxRounds - 1 { break rounds }
         }
         if Task.isCancelled { return }
