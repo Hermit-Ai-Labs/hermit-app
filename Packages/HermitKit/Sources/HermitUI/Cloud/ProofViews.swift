@@ -60,7 +60,7 @@ struct ProofSheet: View {
             }
             .buttonStyle(PlainCardButton())
         }
-        .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 24)
+        .padding(.horizontal, 22).padding(.top, SheetMetricsTop.value).padding(.bottom, 24)
         .frame(maxWidth: 560)
         .proofSheetChrome()
     }
