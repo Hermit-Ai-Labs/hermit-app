@@ -215,7 +215,23 @@ struct Flow: Layout {
 
 /// Markdown **bold** inline, as the agent writes it.
 func rich(_ s: String) -> AttributedString {
-    (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    (try? AttributedString(markdown: approxTildes(s), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+}
+
+/// A lone ~ means "about" ("(~$1,130)"), never strikethrough: two of them in a reply used to strike out the text
+/// between. Only ~~text~~ still strikes through.
+func approxTildes(_ s: String) -> String {
+    guard s.contains("~") else { return s }
+    let c = Array(s)
+    var out = ""
+    for i in c.indices {
+        if c[i] == "~", (i == 0 || c[i - 1] != "~"), (i == c.count - 1 || c[i + 1] != "~"), (i == 0 || c[i - 1] != "\\") {
+            out += "\\~"
+        } else {
+            out.append(c[i])
+        }
+    }
+    return out
 }
 
 extension Double {
