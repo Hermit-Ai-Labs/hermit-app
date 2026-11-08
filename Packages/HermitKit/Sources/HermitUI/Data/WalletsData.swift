@@ -9,7 +9,9 @@ import HermitWallet
 extension Chain {
     /// The coin that pays for gas.
     var gasToken: String { nativeSymbol }
-    var placeholder: String { kind == .solana ? "Solana address" : "0x… address or ENS name" }
+    var placeholder: String {
+        switch kind { case .solana: "Solana address"; case .near: "alice.near or 64-character account"; case .evm: "0x… address or ENS name" }
+    }
     /// Testnets always send; mainnets only when this build has mainnet sends switched on.
     var sendsEnabled: Bool { isTestnet || WalletService.mainnetSendsEnabled }
 
@@ -19,6 +21,7 @@ extension Chain {
         switch kind {
         case .evm: return EVMAddress(s) != nil || ENS.looksLikeName(s)
         case .solana: return SolanaPublicKey(s) != nil
+        case .near: return NearAccount.isValid(s.lowercased())
         }
     }
 
@@ -27,10 +30,18 @@ extension Chain {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if EVMAddress(s) != nil { return .evm }
         if SolanaPublicKey(s) != nil { return .solana }
+        if NearAccount.isImplicit(s.lowercased()) || (s.contains(".") && NearAccount.isValid(s) && !ENS.looksLikeName(s)) { return .near }
         return nil
     }
 
     static var evmMainnets: [Chain] { mainnets.filter { $0.kind == .evm } }
+}
+
+extension ChainKind {
+    /// "EVM networks", "Solana", "NEAR": how address families are named on screen.
+    var familyName: String { switch self { case .evm: "EVM networks"; case .solana: "Solana"; case .near: "NEAR" } }
+    var shortName: String { switch self { case .evm: "EVM"; case .solana: "Solana"; case .near: "NEAR" } }
+    var familyLogo: String { switch self { case .evm: "ethereum"; case .solana: "solana"; case .near: "near" } }
 }
 
 /// One wallet on this device: one recovery phrase, one EVM address for every EVM chain and one Solana address.
@@ -123,7 +134,7 @@ struct SavedAddress: Identifiable, Hashable, Sendable {
     let added: Date?
     let payments: Int
     var hold: Bool { payments == 0 && (added.map { Date().timeIntervalSince($0) < 86_400 } ?? false) }
-    var networkName: String { kind == .evm ? "EVM networks" : "Solana" }
+    var networkName: String { kind.familyName }
 }
 
 func shortAddr(_ a: String) -> String { a.count > 14 ? "\(a.prefix(6))…\(a.suffix(4))" : a }

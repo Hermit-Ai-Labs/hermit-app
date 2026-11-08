@@ -59,6 +59,10 @@ struct WalletsPage: View {
         case "send": open(.send(from: nil, chain: nil, token: nil))
         case "swap": if vm.hasFunds { open(.swap(from: nil, bridge: false, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
         case "bridge": if vm.hasFunds { open(.swap(from: nil, bridge: true, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
+        case "quote": open(.tryQuote(from: nil))
+        case "fund-any": FundSheet.startAnyChain = true; model.fundGoal = .wallet
+        case "security", "policy": vm.openTab = "security"; if let w = vm.wallets.first, vm.wallets.count == 1 { selected = w.id }
+        case "agent-swap": if let i = vm.pendingSwap { vm.pendingSwap = nil; open(.agentSwap(i)) }
         case "receive", "deposit": open(.receive(wallet: nil))
         case "transfer": open(.transfer(from: nil))
         case "history": open(.history(wallet: nil))
@@ -86,6 +90,11 @@ struct WalletsPage: View {
             WalletSendSheet(vm: vm, fromID: from ?? currentWallet ?? "", chain: chain, token: token)
         case .swap(let from, let bridge, let token, let chain):
             SwapSheet(vm: vm, fromID: from ?? currentWallet ?? "", bridge: bridge, token: token, chain: chain)
+        case .tryQuote(let from):
+            SwapSheet(vm: vm, fromID: from ?? currentWallet ?? "", bridge: true, preview: true)
+        case .agentSwap(let i):
+            // Prepared by the assistant: the user still reviews and approves. Without funds it can only be previewed.
+            SwapSheet(vm: vm, fromID: currentWallet ?? "", bridge: true, preview: !vm.hasFunds, intent: i)
         case .transfer(let from):
             TransferSheet(vm: vm, fromID: from ?? currentWallet ?? "")
         case .receive(let w):
@@ -112,6 +121,8 @@ struct WalletsPage: View {
 enum WalletSheet: Identifiable {
     case send(from: String?, chain: Chain?, token: String?)
     case swap(from: String?, bridge: Bool, token: String?, chain: Chain?)
+    case tryQuote(from: String?)
+    case agentSwap(SwapIntent)
     case transfer(from: String?)
     case receive(wallet: String?)
     case history(wallet: String?)
@@ -124,6 +135,8 @@ enum WalletSheet: Identifiable {
         switch self {
         case .send: "send"
         case .swap: "swap"
+        case .tryQuote: "quote"
+        case .agentSwap(let i): "agent-\(i.id)"
         case .transfer: "transfer"
         case .receive: "receive"
         case .history: "history"
@@ -135,6 +148,6 @@ enum WalletSheet: Identifiable {
     }
 
     var needsWallet: Bool {
-        switch self { case .send, .swap, .transfer, .receive, .phrase: true; default: false }
+        switch self { case .send, .swap, .tryQuote, .agentSwap, .transfer, .receive, .phrase: true; default: false }
     }
 }

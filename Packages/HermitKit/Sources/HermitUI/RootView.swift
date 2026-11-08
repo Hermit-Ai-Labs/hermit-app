@@ -60,6 +60,17 @@ public struct RootView: View {
                 .foregroundStyle(Theme.text)
                 .fitSheet()
         }
+        .onAppear {
+            // prepare_swap from the assistant: open Wallets on the prefilled Swap review. The user approves (or not).
+            WalletsViewModel.shared.tools.presentSwap = { [model] intent in
+                WalletsViewModel.shared.pendingSwap = intent
+                model.open(.wallets, tab: "agent-swap")
+            }
+        }
+        // A NEAR Intents swap's live status, opened right after its deposit is approved (or from Wallets).
+        .sheet(item: Bindable(IntentsActivity.shared).focus) { f in
+            IntentsStatusSheet(depositAddress: f.id).environment(model).tint(Theme.text)
+        }
     }
 
     private var split: some View {

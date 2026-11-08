@@ -72,6 +72,7 @@ struct HomeView: View {
                 HStack(spacing: compact ? 28 : 22) {
                     walletAction("Send", "arrow.up.right") { model.open(.wallets, tab: "send") }
                     if wallets.hasFunds { walletAction("Swap", "arrow.triangle.2.circlepath") { model.open(.wallets, tab: "swap") } }
+                    else { walletAction("Quote", "sparkle.magnifyingglass") { model.open(.wallets, tab: "quote") } }
                     walletAction("Receive", "arrow.down.left") { model.open(.wallets, tab: "receive") }
                 }
                 .padding(.top, 22)

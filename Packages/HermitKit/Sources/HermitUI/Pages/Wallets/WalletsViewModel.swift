@@ -32,7 +32,15 @@ final class WalletsViewModel {
 
     init(service: WalletService) {
         self.service = service
+        tools = WalletTools(service: service)
         whitelistOnly = UserDefaults.standard.bool(forKey: "hermit.wallet.whitelistOnly")
+        #if DEBUG
+        // Simulator screenshots only (scripts/phone-shots.sh): `-hermitTestWallet YES` imports the public BIP-39 test phrase
+        // ("abandon … about") so wallet screens have real, public addresses to show. Never in a release build.
+        if UserDefaults.standard.bool(forKey: "hermitTestWallet"), service.wallets.isEmpty, !Self.runningTests {
+            _ = try? service.importWallet(phrase: Array(repeating: "abandon", count: 11).joined(separator: " ") + " about", name: "Test wallet")
+        }
+        #endif
         reloadLocal()
     }
 
@@ -45,6 +53,12 @@ final class WalletsViewModel {
     /// Set by Payments (Transfer, Pay now) just before opening Send, which reads it once.
     struct SendPrefill { var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil }
     @ObservationIgnored var sendPrefill: SendPrefill?
+    /// A swap the assistant prepared (WalletTools.prepare_swap), waiting for Wallets to open its review.
+    @ObservationIgnored var pendingSwap: SwapIntent?
+    /// A tab for the one-wallet view to open on ("security"), read once.
+    @ObservationIgnored var openTab: String?
+    /// The wallet tools the on-device model calls (get_balances, get_quote, prepare_swap). The app sets `presentSwap`.
+    let tools: WalletTools
 
     /// Dollar value of every wallet's mainnet coins. nil when it isn't known: no wallet, balances not loaded yet,
     /// a network didn't answer, or there is no price for something held. Testnet coins count as nothing.
@@ -155,7 +169,8 @@ final class WalletsViewModel {
     }
     /// Your own wallet that owns this address, if any.
     func ownWallet(for address: String) -> WalletAccount? {
-        wallets.first { $0.evmAddress?.caseInsensitiveCompare(address) == .orderedSame || $0.solanaAddress == address }
+        wallets.first { $0.evmAddress?.caseInsensitiveCompare(address) == .orderedSame || $0.solanaAddress == address
+            || ($0.record.nearAccount != nil && $0.record.nearAccount == address.lowercased()) }
     }
 
     // MARK: Wallets

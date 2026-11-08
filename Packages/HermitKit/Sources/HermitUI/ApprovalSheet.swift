@@ -36,6 +36,17 @@ struct ApprovalSheet: View {
             .padding(14).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
 
+            if !approval.warnings.isEmpty {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(approval.warnings, id: \.self) { w in
+                        Label(w, systemImage: "exclamationmark.triangle.fill").font(.system(size: 12.5)).foregroundStyle(Theme.amber)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.amber.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            }
+
             VStack(alignment: .leading, spacing: 9) {
                 HStack {
                     Label("Hazard scan", systemImage: "checkmark.shield").font(.system(size: 13, weight: .medium))

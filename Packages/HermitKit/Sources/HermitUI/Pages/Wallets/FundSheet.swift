@@ -47,8 +47,11 @@ struct FundSheet: View {
     private var vm: WalletsViewModel { .shared }
     private var hl: HyperliquidStore { .shared }
 
-    enum Stage { case source, amount, receive }
-    enum Family: String, CaseIterable { case evm = "EVM networks", solana = "Solana" }
+    enum Stage { case source, amount, receive, anyChain }
+    /// Set just before opening: start on "From any chain" (deep link `wallets/fund-any`).
+    @MainActor static var startAnyChain = false
+    @State private var anyBack: Stage = .source
+    enum Family: String, CaseIterable { case evm = "EVM networks", solana = "Solana", near = "NEAR" }
 
     private var wallet: WalletAccount? { vm.wallets.first }
     /// Balances worth moving, biggest first; the goal's own token on its own chain is left out (it's already there).
@@ -65,11 +68,13 @@ struct FundSheet: View {
             case .source: sourceView
             case .amount: amountView
             case .receive: receiveView
+            case .anyChain: AnyChainFundView(goal: goal, onBack: { withAnimation(.smooth) { stage = anyBack } })
             }
         }
         .animation(.smooth(duration: 0.25), value: stage)
         .task {
             if vm.wallets.isEmpty { return }
+            if Self.startAnyChain { Self.startAnyChain = false; anyBack = .receive; stage = .anyChain; return }
             if !vm.loaded { await vm.refresh() }
             if sources.isEmpty && goal != .wallet { stage = .receive }
             if goal == .wallet { stage = .receive }
@@ -108,7 +113,27 @@ struct FundSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(PressStyle())
+            anyChainRow(back: .source)
         }
+    }
+
+    /// BTC, Tron USDT, TON… anything NEAR Intents takes: a one-time deposit address that pays out here.
+    private func anyChainRow(back: Stage) -> some View {
+        Button { anyBack = back; withAnimation(.smooth) { stage = .anyChain } } label: {
+            HStack(spacing: 12) {
+                LogoMark("near", size: 38)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("From any chain, via NEAR Intents").font(.system(size: 14, weight: .medium))
+                    Text("BTC, ETH, SOL, USDT on Tron and 200 more").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
+            }
+            .padding(12).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
     }
 
     private var goalLine: String {
@@ -226,8 +251,8 @@ struct FundSheet: View {
     // MARK: 3. Receive
 
     private var receiveView: some View {
-        let evm = wallet?.record.evmAddress ?? "", sol = wallet?.record.solanaAddress ?? ""
-        let addr = family == .evm ? evm : sol
+        let evm = wallet?.record.evmAddress ?? "", sol = wallet?.record.solanaAddress ?? "", near = wallet?.record.nearAccount ?? ""
+        let addr = family == .evm ? evm : family == .solana ? sol : near
         return SheetChrome(title: goal == .wallet ? "Add funds" : "Add money to your wallet",
                            subtitle: "Send crypto to this address",
                            onBack: goal == .wallet || sources.isEmpty ? nil : { withAnimation(.smooth) { stage = .source } }) {
@@ -237,8 +262,17 @@ struct FundSheet: View {
                     .frame(width: 190, height: 190)
                     .padding(14).background(.white, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.border))
-                    .overlay { LogoMark(family == .evm ? "ethereum" : "solana", size: 36).padding(3).background(.white, in: Circle()) }
+                    .overlay { LogoMark(family == .evm ? "ethereum" : family == .solana ? "solana" : "near", size: 36).padding(3).background(.white, in: Circle()) }
                     .id(addr).transition(.opacity)
+                    .opacity(addr.isEmpty ? 0.15 : 1)
+                if addr.isEmpty {
+                    Text("This wallet has no NEAR account yet. Add it in Wallets (one Face ID).").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                }
+                if family == .near && !addr.isEmpty {
+                    Text("Your NEAR account. It becomes active with its first NEAR (about 0.01 is enough).").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                }
                 if family == .evm {
                     ChainStack(chains: Chain.evmMainnets.filter { $0.id != "robinhood" }, size: 18)
                     Text("Same address on Ethereum, Base, Arbitrum, BNB, Polygon and Monad").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -249,7 +283,7 @@ struct FundSheet: View {
                 HStack(spacing: 8) {
                     Button { Clip.copy(addr); model.toast("Address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
                         .buttonStyle(OutlineButton())
-                    ShareLink(item: addr, subject: Text("My wallet address"), message: Text(family == .evm ? "EVM address" : "Solana address")) {
+                    ShareLink(item: addr, subject: Text("My wallet address"), message: Text("\(family.rawValue) address")) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(OutlineButton())
@@ -261,6 +295,7 @@ struct FundSheet: View {
                 Text("Watching for incoming funds. This moves on by itself when they land.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            anyChainRow(back: .receive)
             NoteBox(symbol: "lightbulb", text: tip)
             DisclosureGroup("From an exchange, step by step") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -288,7 +323,8 @@ struct FundSheet: View {
 
     private var binanceSteps: [String] {
         ["In your exchange app, open Withdraw (or Send).", "Choose USDC (or the coin you have).",
-         family == .evm ? "Network: Arbitrum One or Base. Paste the address above." : "Network: Solana. Paste the Solana address above.",
+         family == .evm ? "Network: Arbitrum One or Base. Paste the address above."
+            : family == .solana ? "Network: Solana. Paste the Solana address above." : "Network: NEAR. Paste the NEAR account above (no memo needed).",
          "Withdraw, then come back here. It usually lands in 1–3 minutes."]
     }
 

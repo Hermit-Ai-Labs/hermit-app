@@ -135,12 +135,12 @@ struct WalletSendSheet: View {
                 }
                 let list = vm.whitelist.filter { $0.kind == chain.kind }
                 if list.isEmpty {
-                    Text("No saved \(chain.kind == .evm ? "EVM" : "Solana") addresses yet.").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                    Text("No saved \(chain.kind.shortName) addresses yet.").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
                 }
                 ForEach(list) { w in
                     SelectRow(title: w.label, subtitle: "\(shortAddr(w.address)), \(w.networkName)", mono: true,
                               on: address == w.address, action: { pick(w) }) {
-                        LogoMark(w.kind == .evm ? "ethereum" : "solana", size: 26)
+                        LogoMark(w.kind.familyLogo, size: 26)
                     } trailing: {
                         if w.hold { PillTag(text: "24h hold", color: Theme.amber) }
                         else { Image(systemName: "checkmark.shield.fill").font(.system(size: 14)).foregroundStyle(Theme.green) }
@@ -206,7 +206,9 @@ struct WalletSendSheet: View {
             if let s = saved, wrongNet { return ("exclamationmark.triangle.fill", "\(s.label) is saved as a \(s.networkName) address, not \(chain.name)", Theme.red) }
             if let s = saved, !s.hold { return ("checkmark.shield.fill", "Saved: \(s.label)", Theme.green) }
             if saved?.hold == true { return ("clock", "Unlocks 24 hours after it was saved", Theme.amber) }
-            if kindMismatch { return ("exclamationmark.triangle.fill", chain.kind == .solana ? "That is an EVM address. Pick an EVM network or paste a Solana address." : "That is a Solana address. Pick Solana or paste a 0x address.", Theme.red) }
+            if kindMismatch, let k = Chain.kind(of: address) {
+                return ("exclamationmark.triangle.fill", "That is a \(k.shortName) address. Pick a \(k.shortName) network or paste a \(chain.kind.shortName) address.", Theme.red)
+            }
             if !valid { return ("exclamationmark.circle", "Not a valid \(chain.name) address", Theme.red) }
             if let own = vm.ownWallet(for: address) { return ("person.crop.circle.badge.checkmark", "Your own wallet: \(own.name)", Theme.green) }
             if vm.whitelistOnly { return ("lock.fill", "Not saved. Add it first, or turn off Whitelist only.", Theme.red) }
@@ -224,7 +226,7 @@ struct WalletSendSheet: View {
     private func pick(_ w: SavedAddress) {
         if w.hold { model.toast("This address unlocks 24 hours after it was saved"); return }
         address = w.address
-        if w.kind != chain.kind { chain = w.kind == .solana ? .solanaDevnet : Chain.defaultSend }
+        if w.kind != chain.kind { chain = w.kind == .solana ? .solanaDevnet : w.kind == .near ? .near : Chain.defaultSend }
     }
 
     private func review() {
@@ -245,16 +247,16 @@ struct WalletSendSheet: View {
     // MARK: Add address
 
     private var addAddress: some View {
-        let probe: Chain = newKind == .evm ? .ethereum : .solana
+        let probe: Chain = newKind == .evm ? .ethereum : newKind == .near ? .near : .solana
         let ok = !newLabel.trimmingCharacters(in: .whitespaces).isEmpty && EVMOrSolana.valid(newAddress, kind: newKind)
         return SheetChrome(title: "Save an address", onBack: { withAnimation(.smooth) { adding = false } }) {
             FormField(label: "Label") { BoxedTextField(placeholder: "e.g. Coinbase deposit", text: $newLabel) }
-            FormField(label: "Type") { Segmented(options: [(ChainKind.evm, "EVM networks"), (.solana, "Solana")], selection: $newKind) }
-            FormField(label: "Address") { BoxedTextField(placeholder: newKind == .evm ? "0x…" : "Solana address", text: $newAddress, mono: true) }
+            FormField(label: "Type") { Segmented(options: [(ChainKind.evm, "EVM networks"), (.solana, "Solana"), (.near, "NEAR")], selection: $newKind) }
+            FormField(label: "Address") { BoxedTextField(placeholder: newKind == .evm ? "0x…" : newKind == .near ? "alice.near" : "Solana address", text: $newAddress, mono: true) }
             if !newAddress.isEmpty && !EVMOrSolana.valid(newAddress, kind: newKind) {
                 Label(Chain.kind(of: newAddress).map { $0 != newKind } == true
-                      ? "This looks like a \(newKind == .evm ? "Solana" : "EVM") address"
-                      : "Not a valid \(probe.kind == .evm ? "EVM" : "Solana") address", systemImage: "exclamationmark.circle")
+                      ? "This looks like a \(Chain.kind(of: newAddress)?.shortName ?? "different") address"
+                      : "Not a valid \(probe.kind.shortName) address", systemImage: "exclamationmark.circle")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.red)
             }
             NoteBox(symbol: "checkmark.shield", text: "For safety, a new address can be used 24 hours after you save it. Saved addresses stay on this device.")
@@ -276,7 +278,11 @@ struct WalletSendSheet: View {
 enum EVMOrSolana {
     static func valid(_ raw: String, kind: ChainKind) -> Bool {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return kind == .evm ? EVMAddress(s) != nil : SolanaPublicKey(s) != nil
+        switch kind {
+        case .evm: return EVMAddress(s) != nil
+        case .solana: return SolanaPublicKey(s) != nil
+        case .near: return NearAccount.isValid(s.lowercased())
+        }
     }
 }
 

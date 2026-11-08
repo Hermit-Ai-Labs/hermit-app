@@ -317,10 +317,12 @@ public struct Approval: Equatable, Sendable, Identifiable, Codable {
     /// Does the real work after Approve (sign and send) and returns a transaction hash. nil keeps the demo flow.
     /// Not saved with the chat and not part of equality.
     public var perform: (@Sendable () async throws -> String)?
+    /// Spending-policy warnings shown above Approve (a new address, a token with no price). Not saved with the chat.
+    public var warnings: [String] = []
     public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil,
-                live: LiveTrade? = nil, perform: (@Sendable () async throws -> String)? = nil) {
+                live: LiveTrade? = nil, warnings: [String] = [], perform: (@Sendable () async throws -> String)? = nil) {
         self.kind = kind; self.title = title; self.lines = lines; self.checks = checks; self.success = success; self.receipt = receipt
-        self.live = live; self.perform = perform
+        self.live = live; self.warnings = warnings; self.perform = perform
     }
 
     enum CodingKeys: String, CodingKey { case kind, title, lines, checks, success, receipt, live }

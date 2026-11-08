@@ -80,6 +80,9 @@ struct BalanceCard<Sub: View>: View {
                 }
                 if vm.hasFunds {
                     RoundAction(title: "Bridge", symbol: "point.3.connected.trianglepath.dotted") { open(.swap(from: walletID, bridge: true, token: nil, chain: nil)) }
+                } else {
+                    // No funds yet: live NEAR Intents quotes anyway (dry, nothing to sign).
+                    RoundAction(title: "Try a quote", symbol: "sparkle.magnifyingglass") { open(.tryQuote(from: walletID)) }
                 }
             }
             .frame(maxWidth: .infinity)   // centred under the balance
@@ -532,6 +535,8 @@ struct OneWalletView: View {
                     VStack(spacing: 14) { header; NetworksCard(vm: vm, wallet: wallet) }
                 }
             }
+            NearAccountCard(vm: vm, wallet: wallet, open: open).padding(.top, 14)
+            IntentsActiveList().padding(.top, 14)
             manage.padding(.top, 14)
             PageTabs(tabs: [("tokens", "Tokens"), ("gas", "Gas"), ("activity", "Activity"), ("security", "Security")], selection: $tab)
                 .padding(.top, 20)
@@ -548,6 +553,7 @@ struct OneWalletView: View {
             .transition(.opacity)
         }
         .animation(.smooth(duration: 0.22), value: tab)
+        .onAppear { if let t = vm.openTab { tab = t; vm.openTab = nil } }
     }
 
     /// The wallet's own actions, in plain sight: back up its words, or remove it from this phone.
@@ -568,6 +574,7 @@ struct OneWalletView: View {
             VStack(alignment: .leading, spacing: 4) {
                 if let a = wallet.evmAddress { addressLine(a, chains: Chain.evmMainnets, name: "EVM") }
                 if let a = wallet.solanaAddress { addressLine(a, chains: [.solana], name: "Solana") }
+                if let a = wallet.record.nearAccount { addressLine(a, chains: [.near], name: "NEAR") }
             }
             .padding(.top, 4)
         }
@@ -590,8 +597,10 @@ struct OneWalletView: View {
         VStack(alignment: .leading, spacing: 14) {
             DetailLines(lines: [("Keys", "Made and kept on this device"), ("Recovery phrase", "\(wallet.record.wordCount) words, \(wallet.backedUp ? "backed up" : "not backed up")"),
                                 ("Created", wallet.record.created.formatted(date: .abbreviated, time: .omitted)),
-                                ("EVM path", KeyVault.evmPath), ("Solana path", KeyVault.solanaPath)],
-                        monoKeys: ["EVM path", "Solana path"])
+                                ("EVM path", KeyVault.evmPath), ("Solana path", KeyVault.solanaPath), ("NEAR path", KeyVault.nearPath)],
+                        monoKeys: ["EVM path", "Solana path", "NEAR path"])
+            SpendPolicyCard(vm: vm)
+            IntentsKeyCard()
             ButtonPair {
                 Button("Show recovery phrase") { open(.phrase(wallet.id)) }.buttonStyle(WideButton())
             } second: {
