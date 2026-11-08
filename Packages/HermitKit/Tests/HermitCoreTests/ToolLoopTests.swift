@@ -227,6 +227,15 @@ final class ToolLoopTests: XCTestCase {
         XCTAssertTrue(after.contains("The user wants to be called Leo."))
     }
 
+    func testClaimWithoutPreparingIsCorrected() async {
+        let model = ScriptedModel([call("get_price", #"{"symbol": "HYPE"}"#), "Long HYPE 3x for $50 at 77. Trade prepared for review."])
+        let t = await ask(newChat(), "long HYPE 3x with $50", model, FakeToolbox())
+        XCTAssertTrue(t.actions.isEmpty)
+        XCTAssertTrue(t.text.hasSuffix(ToolChat.notPrepared))
+        XCTAssertFalse(ToolChat.claimsPrepared("Once you confirm, I can prepare it for you."))
+        XCTAssertTrue(ToolChat.claimsPrepared("Send prepared for review. Waiting for Face ID approval."))
+    }
+
     func testGuardMatching() {
         let a = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
         XCTAssertTrue(ToolGuard.userTyped(a, in: "send to \(a.lowercased())."))

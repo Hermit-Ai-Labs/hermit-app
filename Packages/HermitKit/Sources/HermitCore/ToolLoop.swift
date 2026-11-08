@@ -97,6 +97,8 @@ public actor ToolChat {
         var filter = OutputFilter()
         var steps = 0, actions: [Action] = [], shownAny = false, malformedTurns = 0
         var finalAnswer = false
+        var prepared = false   // a money tool opened a review this message
+        var said = ""          // everything shown, for the honesty check
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -109,7 +111,7 @@ public actor ToolChat {
                 if !shownAny { cont.yield(.steps(steps)) }
                 if !roundShown && shownAny { cont.yield(.text("\n\n")) }
                 cont.yield(.text(text))
-                visible += text; roundShown = true; shownAny = true
+                visible += text; said += text; roundShown = true; shownAny = true
             }
             func handle(_ pieces: [ToolCallStream.Piece]) {
                 for p in pieces {
@@ -178,6 +180,7 @@ public actor ToolChat {
                     out = ToolOutcome(content: #"{"error": "Tools are off."}"#)
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
+                if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
                 history.append(.tool(HermitPrompt.neutralize(out.content)))
             }
             if round == config.maxRounds - 1 { break rounds }
@@ -194,7 +197,26 @@ public actor ToolChat {
             }
             if case .assistant? = history.last {} else { history.append(.assistant(text, calls: [])) }
         }
+        // A model can say "prepared for review" without calling the tool. Nothing is waiting then, so say so.
+        if !prepared, Self.claimsPrepared(said) {
+            cont.yield(.text("\n\n" + Self.notPrepared))
+        }
         cont.yield(.steps(steps))
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
+    }
+
+    static let notPrepared = "Nothing is waiting for your approval yet. Ask me to prepare it and the review will open."
+
+    static func opened(_ content: String) -> Bool {
+        content.contains("review_opened") || content.contains("prepared_for_review")
+    }
+
+    /// The reply says a trade, swap or send is prepared or waiting for approval.
+    public static func claimsPrepared(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let patterns = [#"\b(is|been|now|trade|order|swap|send|transfer|it|position)\s+(prepared|ready for (your )?(review|approval))"#,
+                        #"\bprepared for (your )?(review|approval)"#, #"\bwaiting for (your )?(face id|approval)"#,
+                        #"\b(review|approval) (sheet|screen) (is )?open"#]
+        return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
     }
 }
