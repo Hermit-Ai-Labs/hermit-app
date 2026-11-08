@@ -141,7 +141,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                         out = await toolbox?.run(name, arguments: args) ?? ToolOutcome(content: #"{"error":"no tools"}"#)
                     }
                     if let a = out.action { actions.append(a) }
-                    await state.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": out.content])
+                    await state.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": ToolResult.clean(out.content)])
                 }
                 cont.yield(.status("Thinking in the enclave…"))
             }

@@ -79,7 +79,8 @@ public struct HermitToolbox: AgentToolbox {
         guard let c = try await contexts().first(where: { $0.coin.uppercased() == sym }), c.mark > 0 else {
             throw ToolError("No Hyperliquid market for \(sym)")
         }
-        return ["symbol": c.coin, "price": c.mark, "change_24h_pct": c.prev > 0 ? ((c.mark / c.prev - 1) * 100) as Any : NSNull() as Any, "source": "Hyperliquid mark price"]
+        let change: Any = c.prev > 0 ? (((c.mark / c.prev - 1) * 100) * 100).rounded() / 100 : NSNull()
+        return ["symbol": c.coin, "price": c.mark, "change_24h_pct": change, "source": "Hyperliquid mark price"]
     }
 
     static func searchMarkets(_ query: String) async throws -> [[String: Any]] {
@@ -136,10 +137,14 @@ public struct HermitToolbox: AgentToolbox {
         let margin = size / lev
         // Isolated liquidation: the move that eats the margin, less maintenance.
         let liq = long ? entry * (1 - 1 / lev + mm) : entry * (1 + 1 / lev - mm)
-        var out: [String: Any] = ["margin_usd": margin, "liquidation_price": liq, "qty": size / entry]
+        // Keys and rounding as in training (sim.position_math).
+        func r(_ v: Double, _ dp: Double) -> Double { (v * pow(10, dp)).rounded() / pow(10, dp) }
+        var out: [String: Any] = ["side": side, "entry": entry, "size_usd": size, "leverage": lev, "margin": r(margin, 2),
+                                  "quantity": r(size / entry, 6), "liquidation_price": r(liq, liq < 1 ? 6 : 2),
+                                  "distance_to_liq_pct": r(abs(liq - entry) / entry * 100, 2)]
         if let p = n("price") {
             let pnl = (long ? p - entry : entry - p) * size / entry
-            out["pnl_usd"] = pnl; out["roe_pct"] = pnl / margin * 100
+            out["price"] = p; out["pnl"] = r(pnl, 2); out["roe_pct"] = r(pnl / margin * 100, 2)
         }
         return out
     }

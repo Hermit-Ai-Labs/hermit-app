@@ -181,7 +181,7 @@ public actor ToolChat {
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
-                history.append(.tool(HermitPrompt.neutralize(out.content)))
+                history.append(.tool(ToolResult.clean(out.content)))
             }
             if round == config.maxRounds - 1 { break rounds }
         }
