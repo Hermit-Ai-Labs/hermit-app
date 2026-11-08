@@ -279,7 +279,8 @@ public final class AppModel {
             switch event {
             case .status(let s):
                 m.status = s
-                m.tools.append(s.hasSuffix("…") ? String(s.dropLast()) : s)
+                // The step list under "n steps" names what was done; waiting lines aren't steps.
+                if !s.hasPrefix("Thinking") && !s.hasPrefix("Waking up") { m.tools.append(s.hasSuffix("…") ? String(s.dropLast()) : s) }
             case .steps(let n): m.steps = n; m.status = nil
             case .text(let chunk):
                 if case .text(let t)? = m.blocks.last { m.blocks[m.blocks.count - 1] = .text(t + chunk) } else { m.text += chunk }

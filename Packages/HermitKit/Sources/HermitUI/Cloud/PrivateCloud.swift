@@ -24,6 +24,8 @@ final class ModeAgent: Agent, @unchecked Sendable {
 
     @MainActor init(local: HybridAgent) {
         self.local = local
+        // One toolbox for both modes: the on-device model gets the same tools, guard and approval sheets as Private Cloud.
+        local.local.toolbox = HermitToolbox.onDevice
         cloud = NearCloudAgent(toolbox: HermitToolbox())
     }
 

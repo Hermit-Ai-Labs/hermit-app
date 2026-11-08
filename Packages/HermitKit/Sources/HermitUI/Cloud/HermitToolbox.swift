@@ -3,15 +3,22 @@ import HermitCore
 import HermitWallet
 import HermitCloud
 
-/// Hermit's agent tools (hermit_tools.json) run here on the phone for the Private Cloud model. Read tools answer with
-/// real data (Hyperliquid's public API, this phone's wallets, DeFiLlama yields) or an error, never a guess.
-/// Money tools only prepare: they return an action whose tap opens the normal approval sheet (Face ID).
-struct HermitToolbox: CloudToolbox {
-    func run(_ name: String, arguments: String) async -> ToolOutcome {
+/// Hermit's agent tools (hermit_tools.json) run here on the phone, for the on-device model and for Private Cloud.
+/// Read tools answer with real data (Hyperliquid's public API, this phone's wallets, NEAR Intents, DeFiLlama yields)
+/// or an error, never a guess. Money tools only prepare: they return an action whose tap opens the normal approval
+/// sheet (Face ID), and the spending policy runs first.
+public struct HermitToolbox: AgentToolbox {
+    /// Who asked, for the approval sheet's "Asked for by" line.
+    public var label: String
+    public init(label: String = "Hermit Private Cloud") { self.label = label }
+
+    public static let onDevice = HermitToolbox(label: "Hermit on this device")
+
+    public func run(_ name: String, arguments: String) async -> ToolOutcome {
         let args = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any]) ?? [:]
         do {
             switch name {
-            case "calculator": return json(["result": try Calc.evaluate(args["expression"] as? String ?? "")])
+            case "calculator": return json(["result": Calc.text(try Calc.evaluate(args["expression"] as? String ?? ""))])
             case "position_math": return json(try Self.positionMath(args))
             case "get_price": return json(try await Self.price(args["symbol"] as? String ?? ""))
             case "search_markets": return json(["markets": try await Self.searchMarkets(args["query"] as? String ?? "")])
@@ -21,11 +28,11 @@ struct HermitToolbox: CloudToolbox {
                 return ToolOutcome(content: await WalletsViewModel.shared.tools.call(name, arguments: args))
             case "hyperliquid_account": return json(try await Self.hlAccount())
             case "get_yields": return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String)])
-            case "prepare_trade": return try await Self.prepareTrade(args)
+            case "prepare_trade": return try await Self.prepareTrade(args, label: label)
             case "prepare_send": return try await Self.prepareSend(args)
             case "open_add_funds":
                 let hl = (args["goal"] as? String) == "hyperliquid"
-                return ToolOutcome(content: #"{"opened":false,"note":"Shown to the user as a button"}"#,
+                return ToolOutcome(content: #"{"status":"button_shown","screen":"add_funds","goal":"\#(hl ? "hyperliquid" : "wallet")","note":"The user taps it to open Add funds."}"#,
                                    action: Action(hl ? "Add funds to Hyperliquid" : "Add funds", primary: true, symbol: "plus.circle", open: hl ? "fund-hyperliquid" : "fund-wallet"))
             default: return json(["error": "Unknown tool \(name)"])
             }
@@ -34,7 +41,9 @@ struct HermitToolbox: CloudToolbox {
         }
     }
 
-    private func json(_ v: Any) -> ToolOutcome {
+    private func json(_ v: Any) -> ToolOutcome { Self.json(v) }
+
+    static func json(_ v: Any) -> ToolOutcome {
         // isValidJSONObject first: an invalid object (say a nil boxed as Any) raises an exception instead of throwing.
         guard JSONSerialization.isValidJSONObject(v) else { return ToolOutcome(content: #"{"error":"tool returned no data"}"#) }
         let d = (try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys])) ?? Data("{}".utf8)
@@ -70,7 +79,7 @@ struct HermitToolbox: CloudToolbox {
         guard let c = try await contexts().first(where: { $0.coin.uppercased() == sym }), c.mark > 0 else {
             throw ToolError("No Hyperliquid market for \(sym)")
         }
-        return ["symbol": c.coin, "price_usd": c.mark, "change_24h_pct": c.prev > 0 ? ((c.mark / c.prev - 1) * 100) as Any : NSNull() as Any, "source": "Hyperliquid mark price"]
+        return ["symbol": c.coin, "price": c.mark, "change_24h_pct": c.prev > 0 ? ((c.mark / c.prev - 1) * 100) as Any : NSNull() as Any, "source": "Hyperliquid mark price"]
     }
 
     static func searchMarkets(_ query: String) async throws -> [[String: Any]] {
@@ -137,7 +146,12 @@ struct HermitToolbox: CloudToolbox {
 
     // MARK: Money moves (prepare only)
 
-    @MainActor static func prepareTrade(_ a: [String: Any]) async throws -> ToolOutcome {
+    /// What a prepare_ tool tells the model: the review is open and nothing has happened (the training format's shape).
+    static func prepared(_ kind: String) -> String {
+        #"{"status":"review_opened","kind":"\#(kind)","executed":false,"note":"Waiting for the user to approve with Face ID."}"#
+    }
+
+    @MainActor static func prepareTrade(_ a: [String: Any], label: String = "Hermit Private Cloud") async throws -> ToolOutcome {
         func n(_ k: String) -> Double? { (a[k] as? NSNumber)?.doubleValue }
         guard let coin = (a["coin"] as? String)?.uppercased(), let side = a["side"] as? String, let size = n("size_usd"), let levIn = n("leverage") else {
             throw ToolError("Needs coin, side, size_usd and leverage")
@@ -170,14 +184,13 @@ struct HermitToolbox: CloudToolbox {
                                  ["Liquidation, est.", "$" + String(format: "%.2f", liq)]]
         if let tp = n("take_profit") { lines.append(["Take profit", "$\(tp)"]) }
         if let sl = n("stop_loss") { lines.append(["Stop loss", "$\(sl)"]) }
-        lines.append(["Asked for by", "Hermit Private Cloud, from your message"])
+        lines.append(["Asked for by", "\(label), from your message"])
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(coin)", lines: lines,
                                 checks: ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
                                 success: "\(isBuy ? "Long" : "Short") \(coin) sent") {
             try await trader.place(order, leverage: lev).summary
         }
-        return ToolOutcome(content: #"{"prepared":true,"status":"waiting for the user's approval with Face ID","executed":false}"#,
-                           action: Action("Review \(isBuy ? "long" : "short") \(coin)", approval: approval))
+        return ToolOutcome(content: prepared("trade"), action: Action("Review \(isBuy ? "long" : "short") \(coin)", approval: approval))
     }
 
     @MainActor static func prepareSend(_ a: [String: Any]) async throws -> ToolOutcome {
@@ -186,10 +199,25 @@ struct HermitToolbox: CloudToolbox {
         guard let chain = findChain(chainName) else { throw ToolError("Unknown chain \(chainName)") }
         let vm = WalletsViewModel.shared
         guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
-        let p = try await vm.prepareSend(from: w.record.id.uuidString, chain: chain, to: to, amount: amount, token: symbol.uppercased())
-        let approval = try vm.approval(for: p)
-        return ToolOutcome(content: #"{"prepared":true,"status":"waiting for the user's approval with Face ID","executed":false}"#,
-                           action: Action("Review send", approval: approval))
+        // The spending policy for an assistant-prepared send: daily limit, the per-move cap, priced tokens only.
+        let sym = symbol.uppercased()
+        let usd: Double? = try await sendValueUSD(symbol: sym, amount: Double(amount))
+        let verdict = vm.service.policy.evaluateAgentSend(usd: usd, payee: (to, chain.kind))
+        if verdict.decision == .block {
+            return Self.json(["status": "blocked", "reasons": verdict.blocks, "note": "Nothing was prepared. Tell the user why."])
+        }
+        let p = try await vm.prepareSend(from: w.record.id.uuidString, chain: chain, to: to, amount: amount, token: sym)
+        var approval = try vm.approval(for: p)
+        approval.warnings += verdict.warnings
+        return ToolOutcome(content: prepared("send"), action: Action("Review send", approval: approval))
+    }
+
+    /// Dollar value of a send for the policy: stablecoins at $1, everything else at the Hyperliquid mark price.
+    static func sendValueUSD(symbol: String, amount: Double?) async throws -> Double? {
+        guard let amount, amount > 0 else { return nil }
+        if ["USDC", "USDT", "USDT0", "DAI", "USDE", "USDC.E"].contains(symbol) { return amount }
+        let mark = (try? await contexts())?.first { $0.coin.uppercased() == symbol }?.mark
+        return mark.map { $0 * amount }
     }
 
 }
@@ -197,6 +225,19 @@ struct HermitToolbox: CloudToolbox {
 /// A small exact-enough calculator for the model's `calculator` tool: + - * / ** ( ), sqrt ln log10 exp abs min max round.
 enum Calc {
     struct Failure: Error, CustomStringConvertible { let description: String }
+
+    /// How the calculator reports a result, as in training (hermit_fmt.calc_str): whole numbers without a
+    /// decimal point, otherwise up to 10 significant digits.
+    static func text(_ v: Double) -> String {
+        if v == v.rounded(), abs(v) < 1e15 { return String(Int64(v)) }
+        var s = String(format: "%.10g", v)
+        if s.contains("e") {
+            s = String(format: "%.12f", v)
+            while s.hasSuffix("0") { s.removeLast() }
+            if s.hasSuffix(".") { s.removeLast() }
+        }
+        return s
+    }
 
     static func evaluate(_ s: String) throws -> Double {
         var p = Parser(Array(s.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: ",", with: " , ")))

@@ -75,6 +75,22 @@ public final class SpendPolicy: @unchecked Sendable {
         return v
     }
 
+    /// A transfer the assistant prepared to an address the user typed in this chat (ToolGuard checks that first).
+    /// The daily limit and the new-address warning apply as for the user, plus the assistant's per-move cap and
+    /// no unpriced tokens. Swap output is a different rule (own addresses only) and stays in `evaluate`.
+    public func evaluateAgentSend(usd: Double?, payee: (address: String, kind: ChainKind), now: Date = Date()) -> PolicyVerdict {
+        var v = evaluate(usd: usd, payee: payee, origin: .user, now: now)
+        if let usd {
+            if Decimal(usd) > agentCapUSD {
+                v.blocks.append("The assistant can prepare up to \(Self.money(agentCapUSD)) per move. Open Send yourself for more.")
+            } else { v.passed.append("Under the assistant's \(Self.money(agentCapUSD)) per-move cap") }
+        } else {
+            v.blocks.append("The assistant can't send tokens without a price. Open Send yourself.")
+        }
+        v.decision = !v.blocks.isEmpty ? .block : !v.warnings.isEmpty ? .warn : .allow
+        return v
+    }
+
     static func money(_ d: Decimal) -> String {
         let n = NSDecimalNumber(decimal: d).doubleValue
         return "$" + n.formatted(.number.precision(.fractionLength(n == n.rounded() ? 0 : 2)).locale(Locale(identifier: "en_US")))
