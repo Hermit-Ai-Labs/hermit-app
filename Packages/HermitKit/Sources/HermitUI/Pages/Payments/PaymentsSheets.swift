@@ -43,7 +43,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footHeight = $0 }
         }
         #if os(macOS)
-        .background(Theme.bg)
+        .background(SheetPaper())
         .frame(width: width)
         #else
         // Fill the whole sheet in paper, not just the content, so no band of the system sheet colour shows below.

@@ -237,8 +237,8 @@ struct AddWalletSheet: View {
     private var pick: some View {
         SheetChrome(title: "Add a wallet") {
             OfflineKeysBadge()
-            option("plus", "Create a new wallet", "12 new words, made on this phone") { step = .create; name = "Wallet \(vm.wallets.count + 1)" }
-            option("key.horizontal", "Import a recovery phrase", "12 or 24 words, typed on this phone only") { step = .importPhrase; name = "Imported" }
+            option("plus", "Create a new wallet", "12 new words, made on \(Device.here)") { step = .create; name = "Wallet \(vm.wallets.count + 1)" }
+            option("key.horizontal", "Import a recovery phrase", "12 or 24 words, typed on \(Device.here) only") { step = .importPhrase; name = "Imported" }
             HStack(spacing: 6) {
                 Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 ChainStack(chains: Chain.mainnets, size: 16)
@@ -256,7 +256,7 @@ struct AddWalletSheet: View {
         SheetChrome(title: "Create a wallet", onBack: back) {
             OfflineKeysBadge()
             FormField(label: "Name") { BoxedTextField(placeholder: "e.g. Savings", text: $name) }
-            DetailLines(lines: [("Keys", "Made and kept on this phone"), ("Locked by", "Face ID or your passcode"),
+            DetailLines(lines: [("Keys", "Made and kept on \(Device.here)"), ("Locked by", "\(Device.unlock)"),
                                 ("Recovery phrase", "12 new words"), ("Addresses", "EVM chains, Solana and NEAR")])
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red) }
             NoteBox(symbol: "checkmark.shield", text: "Next you'll see your 12 words once. Write them on paper: they're the only way to restore this wallet.")
@@ -323,7 +323,7 @@ struct AddWalletSheet: View {
             FormField(label: "Name") { BoxedTextField(placeholder: "Imported", text: $name) }
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red) }
             OfflineKeysBadge()
-            NoteBox(symbol: "lock.shield", text: "Your words never leave this phone. You get the same addresses as in MetaMask and Phantom.")
+            NoteBox(symbol: "lock.shield", text: "Your words never leave \(Device.here). You get the same addresses as in MetaMask and Phantom.")
         } foot: {
             Button("Import") {
                 let nm = name.trimmingCharacters(in: .whitespaces)
@@ -346,7 +346,7 @@ struct AddWalletSheet: View {
                     .frame(width: 48, height: 48).background(Theme.green, in: Circle())
                     .transition(.scale.combined(with: .opacity))
                 Text(created?.name ?? "Wallet").font(.system(size: 16, weight: .semibold))
-                Text("Keys made and locked on this phone").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("Keys made and locked on \(Device.here)").font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 6)
             if let w = created {

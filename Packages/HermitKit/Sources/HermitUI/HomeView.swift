@@ -64,7 +64,7 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
             if wallets.loaded && wallets.wallets.isEmpty {
-                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on this phone",
+                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on \(Device.here)",
                                symbol: "plus") { model.open(.wallets, tab: "create") }
                     .frame(maxWidth: 460)
                     .padding(.top, 22)

@@ -109,7 +109,8 @@ public final class AppModel {
 
     private let agent: Agent
     private var replyTask: Task<Void, Never>?
-    private let persist: Bool
+    /// Off for snapshots and the Debug Mac tour: nothing is written back.
+    var persist: Bool
 
     /// The on-device models (download, pick, delete).
     public let models: ModelStore
@@ -138,6 +139,7 @@ public final class AppModel {
         let d = UserDefaults.standard
         if let u = d.string(forKey: "hermitUser") { user = u }
         if let r = d.string(forKey: "hermitRoute").flatMap(Route.init(rawValue:)) { open(r, tab: d.string(forKey: "hermitTab")) }
+        if route == .home, tabRequest == "help" { tabRequest = nil; showHelp() }
         if d.bool(forKey: "hermitDrawer") { drawerOpen = true }
         if d.bool(forKey: "hermitDownload") { models.download(models.selectedID) }
         if let m = d.string(forKey: "hermitMode").flatMap({ ChatMode(rawValue: $0) }) { d.set(m.rawValue, forKey: ChatMode.key) }

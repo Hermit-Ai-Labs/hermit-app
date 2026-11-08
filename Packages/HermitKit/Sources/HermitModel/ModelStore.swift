@@ -88,6 +88,13 @@ public final class ModelStore {
                                                                 queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resumeInterrupted() }
         }
+        #else
+        // Mac: a download the user started and quit before it finished continues on the next launch (the .part files
+        // resume with HTTP ranges), like the iPhone app.
+        if let pending = UserDefaults.standard.string(forKey: Self.downloadingKey), known.contains(pending),
+           states[pending] != .ready, NSClassFromString("XCTestCase") == nil {
+            Task { @MainActor [weak self] in self?.download(pending) }
+        }
         #endif
     }
 

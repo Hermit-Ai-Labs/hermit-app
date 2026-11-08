@@ -92,13 +92,13 @@ struct WalletMenu: View {
         VStack(alignment: .leading, spacing: 0) {
             row(id: "all", symbol: "wallet.bifold", title: "All wallets", sub: "\(vm.wallets.count) wallet\(vm.wallets.count == 1 ? "" : "s")", mono: false, usd: vm.totalUSD)
             Hairline().padding(.vertical, 6)
-            header("On this phone", "Keys never leave it")
+            header("On \(Device.here)", "Keys never leave it")
             ForEach(vm.wallets) { w in
                 row(id: w.id, symbol: w.symbol, title: w.name, sub: w.shortAddress, mono: true, usd: vm.totalUSD == nil ? nil : vm.total(w.id),
                     chains: Chain.mainnets)
                     .contextMenu {
                         Button { withAnimation(.smooth(duration: 0.25)) { selected = w.id }; close() } label: { Label("Open", systemImage: "wallet.bifold") }
-                        Button(role: .destructive) { onRemove(w) } label: { Label("Remove from this phone", systemImage: "trash") }
+                        Button(role: .destructive) { onRemove(w) } label: { Label("Remove from \(Device.here)", systemImage: "trash") }
                     }
             }
             addRow("Create or import a wallet") { close(); onAdd(.local) }

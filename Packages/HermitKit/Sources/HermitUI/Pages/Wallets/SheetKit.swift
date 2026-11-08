@@ -73,7 +73,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
             }
         }
         #if os(macOS)
-        .background(Theme.bg)
+        .background(SheetPaper())
         .frame(width: width)
         #else
         // iOS 26 sheets float above the home indicator: lay out to the sheet's own bottom edge and pad it ourselves,
@@ -620,20 +620,27 @@ extension View {
     }
 }
 
+/// The paper behind every sheet (design A3). iPhone: liquid glass, the app blurred through a frosted pane tinted to
+/// Hermit's paper, bright top edge. Mac: a sheet is its own window, so there is nothing of the page to blur through; it
+/// gets the same paper at the glass's mix and the same bright top edge. White fields and cards read on both.
+struct SheetPaper: View {
+    var body: some View {
+        ZStack {
+            #if os(iOS)
+            Rectangle().fill(.ultraThinMaterial)
+            Color(red: 244 / 255, green: 242 / 255, blue: 236 / 255).opacity(0.66)
+            #else
+            Color(red: 248 / 255, green: 246 / 255, blue: 242 / 255)
+            #endif
+            LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12))
+        }
+    }
+}
+
 extension View {
     /// Liquid glass, paper tint (design A3): the app blurred through a frosted pane tinted to Hermit's paper, bright top edge. iPhone only;
     /// the Mac keeps paper.
     @ViewBuilder func glassSheetBackground() -> some View {
-        #if os(iOS)
-        presentationBackground {
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                Color(red: 244 / 255, green: 242 / 255, blue: 236 / 255).opacity(0.66)   // design A3: glass tinted to Hermit's paper
-                LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12))
-            }
-        }
-        #else
-        presentationBackground(Theme.bg)
-        #endif
+        presentationBackground { SheetPaper() }
     }
 }

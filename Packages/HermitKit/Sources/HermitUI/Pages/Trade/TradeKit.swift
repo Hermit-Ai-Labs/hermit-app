@@ -337,7 +337,7 @@ extension View {
     /// Sheet sizing: a fixed comfortable width on the Mac, detents on iPhone.
     func tradeSheet(width: CGFloat = 540, height: CGFloat? = nil) -> some View {
         #if os(macOS)
-        return self.frame(width: width).frame(minHeight: height ?? 0, idealHeight: height).background(Theme.bg)
+        return self.frame(width: width).frame(minHeight: height ?? 0, idealHeight: height).background(SheetPaper())
         #else
         return self.glassSheetBackground().presentationDetents(height == nil ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible).presentationCornerRadius(20)

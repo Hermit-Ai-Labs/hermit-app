@@ -101,9 +101,9 @@ struct EarnDepositSheet: View {
             let a = Approval(kind: "Deposit on \(chain.name)", title: "Deposit \(amount) \(token.symbol) into Aave",
                              lines: [["Pool", "Aave v3, \(chain.name)"], ["Amount", "\(amount) \(token.symbol)"],
                                      ["Rate now", "\(EarnPoolRow.pct(self.pool.apy)) APY, variable"],
-                                     ["Steps", calls.count == 2 ? "Allow, then deposit (two Face ID prompts)" : "Deposit"],
+                                     ["Steps", calls.count == 2 ? "Allow, then deposit (two \(Device.bio) prompts)" : "Deposit"],
                                      ["Contract", short(pool.checksummed)]],
-                             checks: ["Each step is simulated before it's signed", "Signed on this phone with your wallet's key"],
+                             checks: ["Each step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
                              success: "Deposited \(amount) \(token.symbol)") {
                 try await svc.executeCalls(walletID: wid, chain: chain, calls).last ?? ""
             }

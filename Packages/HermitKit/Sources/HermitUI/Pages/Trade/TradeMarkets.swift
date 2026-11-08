@@ -460,7 +460,7 @@ struct TradeTerminal: View {
         if let sl { lines.append(["Stop loss", "$" + sl.tradePx]) }
         lines.append(["Fees", "Hyperliquid's taker fee, about 0.045%"])
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(sym)", lines: lines,
-                                checks: ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
+                                checks: ["Signed on \(Device.here) with your wallet's key", "Leveraged trades can lose all their margin"],
                                 success: "\(isBuy ? "Long" : "Short") \(sym) sent") {
             let r = try await trader.place(order, leverage: leverage)
             return r.summary
@@ -496,7 +496,15 @@ struct TradeTerminal: View {
                 Text(value).fontWeight(.semibold).monospacedDigit().foregroundStyle(Theme.text).contentTransition(.numericText())
             }
             .font(.system(size: 12.5))
-            Slider(value: binding, in: range, step: step).tint(Theme.text).controlSize(.small)
+            // The Mac draws a tick per step: a few for leverage, but 999 for margin, which blurred into a black bar.
+            // Long ranges slide freely and snap to the step instead.
+            if (range.upperBound - range.lowerBound) / step > 24 {
+                Slider(value: Binding(get: { binding.wrappedValue },
+                                      set: { binding.wrappedValue = min(range.upperBound, max(range.lowerBound, ($0 / step).rounded() * step)) }),
+                       in: range).tint(Theme.text).controlSize(.small)
+            } else {
+                Slider(value: binding, in: range, step: step).tint(Theme.text).controlSize(.small)
+            }
         }
     }
 

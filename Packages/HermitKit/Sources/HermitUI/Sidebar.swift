@@ -24,7 +24,7 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 2) {
             HermitMark(height: 15).padding(.leading, 10).padding(.bottom, 14).padding(.top, compactTop)
             if wallets.loaded && wallets.wallets.isEmpty {
-                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on this phone", symbol: "plus") {
+                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on \(Device.here)", symbol: "plus", compact: Self.narrow) {
                     model.open(.wallets, tab: "create")
                 }
                 .padding(.bottom, 12)
@@ -49,6 +49,13 @@ struct Sidebar: View {
         .animation(.snappy(duration: 0.25), value: expanded)
         .animation(.snappy(duration: 0.25), value: model.conversations.map(\.id))
     }
+
+    /// The Mac sidebar is narrower than the iPhone drawer: cards use their compact size there.
+    #if os(macOS)
+    static let narrow = true
+    #else
+    static let narrow = false
+    #endif
 
     /// iPhone drawer: a little air under the status bar.
     private var compactTop: CGFloat {

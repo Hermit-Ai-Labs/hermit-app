@@ -6,11 +6,15 @@ import HermitCore
 struct ChatView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.compact) private var compact
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             if SnapshotMode.active { thread.frame(maxHeight: .infinity, alignment: .bottom).clipped() } else {
-                ScrollView { thread }
+                // The thread is at least as tall as the view, so a short chat sits at the bottom inside the document.
+                // Shorter than the view, AppKit drew the scroll edge's divider across the middle of the page.
+                ScrollView { thread.frame(minHeight: viewport, alignment: .bottom) }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
                     .defaultScrollAnchor(.bottom)
                     .defaultScrollAnchor(.bottom, for: .sizeChanges)
                     .scrollIndicators(.automatic)

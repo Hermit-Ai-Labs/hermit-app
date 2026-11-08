@@ -105,7 +105,7 @@ struct ApprovalSheet: View {
         .padding(24)
         #if os(macOS)
         .frame(width: 420)
-        .background(Theme.bg)
+        .background(SheetPaper())
         #else
         .frame(maxWidth: .infinity, alignment: .top)
         #endif

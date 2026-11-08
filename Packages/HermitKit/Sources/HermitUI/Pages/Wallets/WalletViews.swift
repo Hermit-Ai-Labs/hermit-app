@@ -168,7 +168,7 @@ struct NoWalletView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No wallet on this device yet").font(.system(size: 22, weight: .semibold))
-                Text("One recovery phrase gives you an address on every network Hermit supports. Your keys are made on this phone and locked by Face ID.")
+                Text("One recovery phrase gives you an address on every network Hermit supports. Your keys are made on \(Device.here) and locked by \(Device.bio).")
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
@@ -176,7 +176,7 @@ struct NoWalletView: View {
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
             VStack(spacing: 10) {
-                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on this phone", symbol: "plus") {
+                HoloPromptCard(image: "crab-faceid", title: "Create your wallet", subtitle: "Keys made on \(Device.here)", symbol: "plus") {
                     open(.addWallet(.local, start: .create))
                 }
                 Button("Import recovery phrase") { open(.addWallet(.local, start: .importPhrase)) }.buttonStyle(WideButton(kind: .plain))
@@ -251,7 +251,7 @@ struct AllWalletsView: View {
                         Button { pick(w.id) } label: { Label("Open", systemImage: "wallet.bifold") }
                         Button { open(.phrase(w.id)) } label: { Label(w.backedUp ? "Recovery phrase" : "Back up words", systemImage: "key") }
                         Divider()
-                        Button(role: .destructive) { remove(w) } label: { Label("Remove from this phone", systemImage: "trash") }
+                        Button(role: .destructive) { remove(w) } label: { Label("Remove from \(Device.here)", systemImage: "trash") }
                     } label: {
                         Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.muted)
                             .frame(width: 34, height: 34).background(Theme.hover, in: Circle())
@@ -607,7 +607,7 @@ struct OneWalletView: View {
             ButtonPair {
                 Button("Show recovery phrase") { open(.phrase(wallet.id)) }.buttonStyle(WideButton())
             } second: {
-                Button("Remove from this phone", role: .destructive, action: remove).buttonStyle(DangerWideButton())
+                Button("Remove from \(Device.here)", role: .destructive, action: remove).buttonStyle(DangerWideButton())
             }
             NoteBox(symbol: "lock.shield", text: "Every send and every look at your words asks for Face ID, Touch ID or your passcode.")
         }
@@ -641,7 +641,7 @@ struct RemoveWalletDialog: ViewModifier {
     let vm: WalletsViewModel
     @Binding var wallet: WalletAccount?
     func body(content: Content) -> some View {
-        content.confirmationDialog("Remove \(wallet?.name ?? "wallet") from this phone?",
+        content.confirmationDialog("Remove \(wallet?.name ?? "wallet") from \(Device.here)?",
                                    isPresented: Binding(get: { wallet != nil }, set: { if !$0 { wallet = nil } }),
                                    titleVisibility: .visible, presenting: wallet) { w in
             Button("Remove \(w.name)", role: .destructive) {
@@ -653,7 +653,7 @@ struct RemoveWalletDialog: ViewModifier {
             let usd = vm.total(w.id)
             let money = usd > 0.01 ? "It holds \(MoneyFmt.usd(usd, digits: 2)). " : ""
             Text(money + (w.backedUp
-                ? "Its keys are deleted from this phone. You can restore it any time with its recovery phrase."
+                ? "Its keys are deleted from \(Device.here). You can restore it any time with its recovery phrase."
                 : "Its words aren't backed up: once removed, this wallet and anything on it can't be recovered."))
         }
     }

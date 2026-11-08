@@ -25,7 +25,7 @@ struct OfflineKeysBadge: View {
         let offline = !net.online
         // One compact row: icon, a short title with the live status, one line under it.
         HStack(spacing: 11) {
-            Image(systemName: offline ? "airplane" : "iphone")
+            Image(systemName: offline ? "airplane" : Device.symbol)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(offline ? Theme.green : Theme.text)
                 .contentTransition(.symbolEffect(.replace))
@@ -33,13 +33,13 @@ struct OfflineKeysBadge: View {
                 .background(offline ? Theme.green.opacity(0.12) : Theme.bg, in: RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("Made on this phone").font(.system(size: 13.5, weight: .semibold))
+                    Text("Made on \(Device.here)").font(.system(size: 13.5, weight: .semibold))
                     Text(offline ? "Offline" : "Online").font(.system(size: 11, weight: .medium))
                         .foregroundStyle(offline ? Theme.green : Theme.muted)
                         .padding(.horizontal, 6).padding(.vertical, 1.5)
                         .background(offline ? Theme.green.opacity(0.12) : Color.black.opacity(0.05), in: Capsule())
                 }
-                Text(offline ? "Nothing can leave this phone." : "Works offline. Airplane Mode adds peace of mind.")
+                Text(offline ? "Nothing can leave \(Device.here)." : Device.offlineTip)
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
