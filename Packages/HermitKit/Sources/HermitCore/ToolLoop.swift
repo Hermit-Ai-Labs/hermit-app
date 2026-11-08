@@ -100,6 +100,7 @@ public actor ToolChat {
         var prepared = false   // a money tool opened a review this message
         var said = ""          // everything shown, for the honesty check
         var results: [String: String] = [:], repeatTurns = 0
+        var quoteArgs: String?  // the last successful get_quote, for the swap follow-through below
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -188,6 +189,7 @@ public actor ToolChat {
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
+                if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
                 let cleaned = ToolResult.clean(out.content)
                 results[key] = cleaned
                 history.append(.tool(cleaned))
@@ -208,12 +210,33 @@ public actor ToolChat {
             }
             if case .assistant? = history.last {} else { history.append(.assistant(text, calls: [])) }
         }
+        // The user asked to swap, the model quoted but didn't prepare: open the same swap's review (the user still
+        // approves it with Face ID). A question like "how much would I get" stays a quote.
+        if !prepared, let q = quoteArgs, let toolbox, Self.asksToSwap(prompt), !Task.isCancelled {
+            let args = (try? JSONSerialization.jsonObject(with: Data(q.utf8))) as? [String: Any] ?? [:]
+            if ToolGuard.refusal("prepare_swap", arguments: args, userText: userText()) == nil {
+                cont.yield(.status(ToolStatus.label("prepare_swap", arguments: args) + "…"))
+                steps += 1
+                let out = await toolbox.run("prepare_swap", arguments: q)
+                if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
+                if out.action != nil || Self.opened(out.content) || out.content.contains("prepared") { prepared = true }
+                history.append(.tool(ToolResult.clean(out.content)))
+            }
+        }
         // A model can say "prepared for review" without calling the tool. Nothing is waiting then, so say so.
         if !prepared, Self.claimsPrepared(said) {
             cont.yield(.text("\n\n" + Self.notPrepared))
         }
         cont.yield(.steps(steps))
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
+    }
+
+    /// "swap 20 USDC to NEAR", "bridge my USDC to Arbitrum": an instruction, not a question about a price.
+    public static func asksToSwap(_ text: String) -> Bool {
+        let t = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.range(of: #"^(please\s+|can you\s+|could you\s+)?(swap|bridge|convert|exchange|trade)\b"#, options: .regularExpression) != nil
+        else { return false }
+        return !t.contains("how much") && !t.contains("what would") && !t.contains("quote")
     }
 
     static let notPrepared = "Nothing is waiting for your approval yet. Ask me to prepare it and the review will open."

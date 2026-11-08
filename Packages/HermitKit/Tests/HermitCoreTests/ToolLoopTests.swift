@@ -277,4 +277,12 @@ final class ToolLoopTests: XCTestCase {
         XCTAssertEqual(ToolStatus.label("get_quote", arguments: ["from_symbol": "USDC", "to_symbol": "near", "amount": 20]),
                        "Getting a NEAR Intents quote for 20 USDC to NEAR")
     }
+
+    func testAsksToSwap() {
+        XCTAssertTrue(ToolChat.asksToSwap("swap 20 USDC on Base to NEAR"))
+        XCTAssertTrue(ToolChat.asksToSwap("Can you bridge my USDC to Arbitrum?"))
+        XCTAssertFalse(ToolChat.asksToSwap("how much NEAR would I get for 20 USDC on Base?"))
+        XCTAssertFalse(ToolChat.asksToSwap("quote 0.1 ETH to SOL"))
+        XCTAssertFalse(ToolChat.asksToSwap("what is a swap?"))
+    }
 }
