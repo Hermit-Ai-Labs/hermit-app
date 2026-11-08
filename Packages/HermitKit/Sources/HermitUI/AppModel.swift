@@ -121,6 +121,11 @@ public final class AppModel {
         self.models = models
         self.agent = agent ?? ModeAgent(local: HybridAgent(store: models))
         persist = !SnapshotMode.active
+        #if DEBUG
+        // `-hermitFresh YES`: start like a new install (no saved chats or name read, nothing written back), so store
+        // screenshots never show this Mac's own history.
+        if UserDefaults.standard.bool(forKey: "hermitFresh") { persist = false }
+        #endif
         if persist {
             user = UserDefaults.standard.string(forKey: Self.nameKey) ?? ""
             load()
