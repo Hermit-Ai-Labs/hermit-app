@@ -37,6 +37,7 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: © 2026 Hermit AI Labs
         NSCalendarsFullAccessUsageDescription: Hermit shows your calendar events next to your tasks. They stay on this device.
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: App/macOS/Hermit.entitlements
       properties:
@@ -47,6 +48,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: my.hermit.mac
+        # The Mac app's version line in App Store Connect ("Hermit - Private AI for Mac", Apple ID 6831778645).
+        MARKETING_VERSION: "1.0"
         PRODUCT_NAME: Hermit
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES

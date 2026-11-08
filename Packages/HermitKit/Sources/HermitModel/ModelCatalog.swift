@@ -33,7 +33,7 @@ public enum ModelCatalog {
         ModelSpec(id: fullID, name: "Hermit 1.1",
                   detail: "Hermit's full model. Sharp answers, private, offline.", approxBytes: 2_280_000_000, minMemoryGB: 7),
         ModelSpec(id: liteID, name: "Hermit 1.1 Lite",
-                  detail: "Smaller and quicker. Runs on every iPhone.", approxBytes: 980_000_000, minMemoryGB: 5),
+                  detail: ModelSpec.liteDetail, approxBytes: 980_000_000, minMemoryGB: 5),
     ]
 
     /// The spec for an id, or a plain one built from the repo name if it isn't in the list.
@@ -51,4 +51,12 @@ public enum ModelCatalog {
     static func wanted(_ path: String) -> Bool {
         !path.contains("/") && (path.hasSuffix(".safetensors") || path.hasSuffix(".json") || path.hasSuffix(".jinja"))
     }
+}
+
+extension ModelSpec {
+    #if os(macOS)
+    static let liteDetail = "Smaller and quicker. Leaves more memory for your other apps."
+    #else
+    static let liteDetail = "Smaller and quicker. Runs on every iPhone."
+    #endif
 }

@@ -214,8 +214,8 @@ struct FundSheet: View {
         ask(Approval(kind: "Move funds", title: "\(amount) \(h.symbol) to \(dest)",
                      lines: [["From", "\(amount) \(h.symbol) on \(h.chain.name)"], ["To", "about \(q.amountOut) \(sym) on \(dest)"],
                              ["Fee", MoneyFmt.usd(q.feeUSD, digits: 2)], ["Arrives", q.seconds <= 60 ? "Under a minute" : "About \(q.seconds / 60) min"],
-                             ["Steps", txs > 1 ? "\(txs) transactions, one Face ID each" : "One transaction"], ["Route", "Relay"]],
-                     checks: ["Every step is simulated before it's signed", "Signed on this phone with your wallet's key"],
+                             ["Steps", txs > 1 ? "\(txs) transactions, one \(Device.bio) each" : "One transaction"], ["Route", "Relay"]],
+                     checks: ["Every step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
                      success: "On its way to \(dest)") {
             try await svc.execute(q, walletID: wid)
         }) {

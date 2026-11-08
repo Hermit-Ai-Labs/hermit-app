@@ -18,10 +18,14 @@ struct LoginView: View {
     var body: some View {
         GeometryReader { g in
             let wide = g.size.width > 860
+            // The film's column includes its 28pt margin, so both columns add up to the window (it used to overflow
+            // and run into the right and bottom edges).
+            let filmColumn = wide ? min(g.size.width * 0.46, 620) : 0
             HStack(spacing: 0) {
-                page(width: wide ? g.size.width * 0.54 : g.size.width)
+                page(width: g.size.width - filmColumn)
                 if wide {
-                    film.frame(width: min(g.size.width * 0.46, 620)).padding(28)
+                    film.padding(.vertical, 28).padding(.trailing, 28).padding(.leading, 4)
+                        .frame(width: filmColumn, height: g.size.height)
                 }
             }
         }
@@ -74,7 +78,7 @@ struct LoginView: View {
     private var facts: some View {
         Grid(alignment: .leading, horizontalSpacing: 26, verticalSpacing: 8) {
             GridRow { Text("Runs offline"); Text("No account") }
-            GridRow { Text("Keys on this phone"); Text("Nothing leaves it") }
+            GridRow { Text("Keys on \(Device.here)"); Text("Nothing leaves it") }
         }
         .font(.system(size: 15)).foregroundStyle(Theme.muted)
     }

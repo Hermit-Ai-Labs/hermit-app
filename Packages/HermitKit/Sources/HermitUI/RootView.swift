@@ -68,7 +68,17 @@ public struct RootView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
         } detail: {
             RouteDetail()
+                #if os(macOS)
+                // No empty title band with a hard line across every page: the toolbar is see-through and the page
+                // fades softly under it as it scrolls.
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+                .scrollEdgeEffectStyle(.soft, for: .top)
+                #endif
         }
+        #if os(macOS)
+        // Narrower than this, the Trade ticket and the Wallets columns stop fitting beside each other.
+        .frame(minWidth: 820, minHeight: 560)
+        #endif
     }
 }
 
@@ -94,21 +104,18 @@ struct RouteDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
-    }
-}
-
-struct PlaceholderPage: View {
-    let route: Route
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: route.symbol).font(.system(size: 28, weight: .light)).foregroundStyle(Theme.faint)
-            Text(route.title).font(.serif(30))
-            Text("Coming to the native app next.").foregroundStyle(Theme.muted)
+        #if os(macOS)
+        // AppKit hands focus to the first text field it finds when the old one goes away, so Trade opened scrolled
+        // down with the cursor in Take profit. Pages without a chat box start with nothing focused.
+        .onChange(of: model.route) { _, r in
+            guard r != .home && r != .automations && r != .projects else { return }
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
         }
+        #endif
     }
 }
 
-// MARK: Menu bar commands (Mac): New Chat ⌘N, Focus chat box ⌘K.
+// MARK: Menu bar commands (Mac): New Chat ⌘N, Focus chat box ⌘K, Settings ⌘, and a Go menu (⌘1 to ⌘9).
 
 public struct HermitCommands: Commands {
     @FocusedValue(\.hermitModel) private var model
@@ -121,11 +128,27 @@ public struct HermitCommands: Commands {
             Button("Focus Chat Box") { model?.focusTick += 1; if model?.route != .home && model?.route != .automations && model?.route != .projects { model?.route = .home } }
                 .keyboardShortcut("k").disabled(model == nil)
             Button("Stop Reply") { model?.stop() }.keyboardShortcut(".").disabled(model?.busy != true)
+        }
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model?.open(.settings) }.keyboardShortcut(",").disabled(model == nil)
+        }
+        SidebarCommands()
+        CommandMenu("Go") {
+            ForEach(Array(Self.goRoutes.enumerated()), id: \.offset) { i, r in
+                Button(r == .home ? "Home" : r.title) {
+                    if r == .home { model?.newChat() } else { model?.open(r) }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+                .disabled(model == nil)
+            }
             Divider()
-            Button("Projects") { model?.open(.projects) }.keyboardShortcut("1", modifiers: [.command, .option])
-            Button("Automations") { model?.open(.automations) }.keyboardShortcut("2", modifiers: [.command, .option])
+            Button("Connectors") { model?.open(.connectors) }.disabled(model == nil)
+            Button("Files") { model?.open(.files) }.disabled(model == nil)
         }
     }
+
+    /// ⌘1 to ⌘9, in sidebar order, then Wallets.
+    static let goRoutes: [Route] = Route.sidebar + [.wallets]
 }
 
 extension FocusedValues {

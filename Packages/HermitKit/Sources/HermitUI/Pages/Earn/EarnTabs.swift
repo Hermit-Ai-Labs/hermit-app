@@ -89,7 +89,7 @@ struct EarnPositions: View {
         let svc = vm.service, wid = w.record.id, chain = r.chain
         ask(Approval(kind: "Withdraw on \(r.chain.name)", title: "Withdraw \(r.text) \(r.token.symbol)",
                      lines: [["From", "Aave v3, \(r.chain.name)"], ["Amount", "All, about \(r.text) \(r.token.symbol)"], ["To", w.name]],
-                     checks: ["Simulated before it's signed", "Signed on this phone with your wallet's key"],
+                     checks: ["Simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
                      success: "Withdrew \(r.token.symbol)") {
             try await svc.executeCalls(walletID: wid, chain: chain, [call]).last ?? ""
         }) { Task { await load(); await vm.refresh() } }

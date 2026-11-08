@@ -48,6 +48,7 @@ struct ModelSheet: View {
         .padding(24)
         #if os(macOS)
         .frame(width: 460)
+        .background(SheetPaper())
         #else
         .presentationDetents([.medium])
         #endif

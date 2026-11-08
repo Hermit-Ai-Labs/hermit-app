@@ -35,7 +35,7 @@ struct SheetScaffold<Content: View, Foot: View>: View {
         }
         .foregroundStyle(Theme.text)
         #if os(macOS)
-        .background(Theme.bg)
+        .background(SheetPaper())
         .frame(width: width)
         .frame(minHeight: 200, idealHeight: 460, maxHeight: 640)
         #else

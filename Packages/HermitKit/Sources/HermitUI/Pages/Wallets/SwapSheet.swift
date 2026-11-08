@@ -129,8 +129,8 @@ struct SwapSheet: View {
                      title: "\(amount) \(fromSym) to \(toSym)",
                      lines: [["You pay", "\(amount) \(fromSym) on \(fromChain.name)"], ["You get", "about \(q.amountOut) \(toSym) on \(toChain.name)"],
                              ["Fee", MoneyFmt.usd(q.feeUSD, digits: 2)], ["Time", q.seconds < 60 ? "Under a minute" : "About \(q.seconds / 60) min"],
-                             ["Steps", txs > 1 ? "\(txs) transactions, one Face ID each" : "One transaction"], ["Route", "Relay"]],
-                     checks: ["Every step is simulated before it's signed", "Signed on this phone with your wallet's key"],
+                             ["Steps", txs > 1 ? "\(txs) transactions, one \(Device.bio) each" : "One transaction"], ["Route", "Relay"]],
+                     checks: ["Every step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
                      success: bridging ? "On its way to \(toChain.name)" : "Swapped \(fromSym) to \(toSym)") {
             try await svc.execute(q, walletID: wid)
         }) { Task { try? await Task.sleep(for: .seconds(3)); await vm.refresh() } }

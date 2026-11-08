@@ -38,8 +38,8 @@ struct TradePositions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !hl.hasWallet {
-                TradeEmpty(icon: "wallet.bifold", title: "No wallet yet", note: "Create a wallet to trade on Hyperliquid. Keys stay on this phone.")
-                Button("Create a wallet") { model.open(.wallets, tab: "create") }.buttonStyle(TradeSmallButton(kind: .primary)).padding(.top, 12)
+                TradeEmpty(icon: "wallet.bifold", title: "No wallet yet", note: "Create a wallet to trade on Hyperliquid. Keys stay on \(Device.here).",
+                           action: ("Create a wallet", { model.open(.wallets, tab: "create") }))
             } else {
                 summary
                 TradeSection(title: "Open positions") {
@@ -131,7 +131,7 @@ struct TradePositions: View {
         let sym = p.coin.split(separator: ":").last.map(String.init) ?? p.coin
         ask(Approval(kind: "Hyperliquid order", title: "Close \(sym) \(p.size > 0 ? "long" : "short")",
                      lines: [["Size", "\(Hyperliquid.wire(abs(p.size))) \(sym)"], ["Unrealized PnL", pnl(p.pnl)], ["Order", "Market, reduce only"]],
-                     checks: ["Signed on this phone with your wallet's key"], success: "\(sym) closed") {
+                     checks: ["Signed on \(Device.here) with your wallet's key"], success: "\(sym) closed") {
             try await trader.place(order, leverage: nil).summary
         }) { Task { try? await Task.sleep(for: .seconds(1.5)); await hl.refresh() } }
     }
@@ -149,6 +149,8 @@ struct TradeEmpty: View {
     let icon: String
     let title: String
     let note: String
+    /// A button inside the card, centred under the note.
+    var action: (String, () -> Void)? = nil
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon).font(.system(size: 20)).foregroundStyle(Theme.faint)
@@ -156,6 +158,9 @@ struct TradeEmpty: View {
             Text(title).font(.system(size: 14.5, weight: .medium))
             Text(note).font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 360)
+            if let action {
+                Button(action.0, action: action.1).buttonStyle(TradeSmallButton(kind: .primary)).padding(.top, 6)
+            }
         }
         .frame(maxWidth: .infinity).padding(.vertical, 28)
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 4])))

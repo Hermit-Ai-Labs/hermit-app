@@ -20,19 +20,32 @@ final class HermitAppDelegate: NSObject, UIApplicationDelegate {
 
 @main
 struct HermitApp: App {
+    private var rootView: RootView {
+        #if DEBUG && os(macOS)
+        RootView(model: MacTour.model)
+        #else
+        RootView()
+        #endif
+    }
     #if os(iOS)
     @UIApplicationDelegateAdaptor(HermitAppDelegate.self) private var appDelegate
     #endif
-    init() { HermitFonts.register() }
+    init() {
+        HermitFonts.register()
+        #if DEBUG && os(macOS)
+        MacTour.startIfRequested()
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            rootView
                 .preferredColorScheme(.light)
         }
         .commands { HermitCommands() }
         #if os(macOS)
         .defaultSize(width: 1320, height: 822)
+        .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         #endif
     }

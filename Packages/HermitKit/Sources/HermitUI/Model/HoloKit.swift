@@ -177,24 +177,30 @@ struct HoloPromptCard: View {
     let title: String
     let subtitle: String
     let symbol: String
+    /// Narrow places (the Mac sidebar): a smaller tile and holo icon so the title and line fit untruncated.
+    var compact = false
     let action: () -> Void
 
     var body: some View {
+        let tile: CGFloat = compact ? 34 : 44
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: compact ? 9 : 12) {
                 Image.hermit(image).resizable().interpolation(.high).scaledToFit()
-                    .frame(width: 40).offset(y: 3)
-                    .frame(width: 44, height: 44)
-                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
+                    .frame(width: tile - 4).offset(y: 3)
+                    .frame(width: tile, height: tile)
+                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: compact ? 10 : 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 12, style: .continuous))
+                VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+                    Text(title).font(.system(size: compact ? 13 : 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Text(subtitle).font(.system(size: compact ? 11.5 : 12.5)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
                 }
-                Spacer(minLength: 8)
+                .layoutPriority(1)
+                Spacer(minLength: compact ? 4 : 8)
                 HoloIconButton(symbol: symbol, label: title, action: action).accessibilityHidden(true)
+                    .scaleEffect(compact ? 0.76 : 1).frame(width: compact ? 29 : 38, height: compact ? 29 : 38)
             }
-            .padding(12)
+            .padding(compact ? 9 : 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {
