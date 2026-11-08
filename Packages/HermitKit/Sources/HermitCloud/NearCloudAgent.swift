@@ -113,7 +113,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                 }
                 guard let key = NearAICloud.apiKey else {
                     cont.yield(.steps(0))
-                    cont.yield(.text("The enclave checks out (tap Verified to see every check), but there's no NEAR AI Cloud API key yet, so I didn't send your message. Add one in Settings, Private Cloud."))
+                    cont.yield(.text("The enclave checks out (tap Enclave verified below to see every check), but there's no NEAR AI Cloud API key yet, so I didn't send your message. Add one in Settings, Private Cloud."))
                     cont.yield(.proof(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: [])))
                     return
                 }
