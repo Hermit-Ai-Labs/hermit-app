@@ -1,7 +1,8 @@
-#if DEBUG
 import SwiftUI
 import HermitCore
 import HermitWallet
+
+#if DEBUG
 
 /// Debug builds only: launch arguments that open a sheet or scroll a page, for the simulator screenshots
 /// (scripts/phone-shots.sh). Never compiled into Release.
