@@ -9,7 +9,17 @@ import HermitWallet
 /// `refreshing`, `lastUpdated`.
 @MainActor @Observable
 final class WalletsViewModel {
-    static let shared = WalletsViewModel(service: WalletService(vault: WalletsViewModel.runningTests ? KeyVault(store: HermitWallet.MemoryStore()) : .makeDefault()))
+    static let shared = WalletsViewModel(service: WalletService(vault: WalletsViewModel.runningTests || testWallet ? KeyVault(store: HermitWallet.MemoryStore()) : .makeDefault()))
+
+    /// Simulator screenshots only (scripts): `-hermitTestWallet YES` uses a memory-only vault holding the public BIP-39
+    /// test phrase, so wallet screens have real, public addresses. Never in a release build; never touches the real vault.
+    nonisolated static var testWallet: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "hermitTestWallet")
+        #else
+        false
+        #endif
+    }
 
     /// Tests and snapshots never touch the real vault.
     nonisolated static var runningTests: Bool { NSClassFromString("XCTestCase") != nil }
@@ -37,7 +47,7 @@ final class WalletsViewModel {
         #if DEBUG
         // Simulator screenshots only (scripts/phone-shots.sh): `-hermitTestWallet YES` imports the public BIP-39 test phrase
         // ("abandon … about") so wallet screens have real, public addresses to show. Never in a release build.
-        if UserDefaults.standard.bool(forKey: "hermitTestWallet"), service.wallets.isEmpty, !Self.runningTests {
+        if Self.testWallet, service.wallets.isEmpty, !Self.runningTests {
             _ = try? service.importWallet(phrase: Array(repeating: "abandon", count: 11).joined(separator: " ") + " about", name: "Test wallet")
         }
         #endif

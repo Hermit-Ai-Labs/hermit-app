@@ -553,7 +553,10 @@ struct OneWalletView: View {
             .transition(.opacity)
         }
         .animation(.smooth(duration: 0.22), value: tab)
-        .onAppear { if let t = vm.openTab { tab = t; vm.openTab = nil } }
+        // The view can be rebuilt once while Wallets settles on this wallet, so the request is cleared a moment later.
+        .onAppear {
+            if let t = vm.openTab { tab = t; Task { try? await Task.sleep(for: .seconds(2)); vm.openTab = nil } }
+        }
     }
 
     /// The wallet's own actions, in plain sight: back up its words, or remove it from this phone.

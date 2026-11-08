@@ -94,7 +94,7 @@ struct AnyChainFundView: View {
             }
             if ownRefund == nil, let s = src {
                 FormField(label: "Your \(Self.chainNames[s.blockchain] ?? s.blockchain) address for refunds") {
-                    BoxedTextField(placeholder: "Where 1Click returns it if the swap can't fill", text: $refund, mono: true)
+                    BoxedTextField(placeholder: "Refund address", text: $refund, mono: true)
                 }
             } else if let r = ownRefund {
                 DetailLines(lines: [("Refunds go to", "This wallet, \(shortAddr(r))")])
