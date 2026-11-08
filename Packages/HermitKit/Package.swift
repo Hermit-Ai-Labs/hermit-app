@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "HermitUI", targets: ["HermitUI"]),
         .library(name: "HermitWallet", targets: ["HermitWallet"]),
         .library(name: "HermitActivity", targets: ["HermitActivity"]),
+        .library(name: "HermitCloud", targets: ["HermitCloud"]),
     ],
     dependencies: [
         // Wallet: bitcoin-core libsecp256k1 and Keccak-256.
@@ -43,9 +44,16 @@ let package = Package(
             .product(name: "libsecp256k1", package: "swift-secp256k1"),
             .product(name: "CryptoSwift", package: "CryptoSwift"),
         ], resources: [.copy("Resources/bip39-english.txt")]),
-        .target(name: "HermitUI", dependencies: ["HermitCore", "HermitModel", "HermitWallet"], resources: [.process("Resources")]),
+        // HermitCloud: Private Cloud mode on NEAR AI Cloud (TEE inference), and the on-device attestation checks behind it.
+        .target(name: "HermitCloud", dependencies: [
+            "HermitCore",
+            .product(name: "libsecp256k1", package: "swift-secp256k1"),
+            .product(name: "CryptoSwift", package: "CryptoSwift"),
+        ], resources: [.copy("Resources/hermit_tools.json")]),
+        .target(name: "HermitUI", dependencies: ["HermitCore", "HermitModel", "HermitWallet", "HermitCloud"], resources: [.process("Resources")]),
         .testTarget(name: "HermitUITests", dependencies: ["HermitUI"]),
-        .testTarget(name: "HermitWalletTests", dependencies: ["HermitWallet"]),
+        .testTarget(name: "HermitWalletTests", dependencies: ["HermitWallet"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "HermitCloudTests", dependencies: ["HermitCloud"], resources: [.copy("Fixtures")]),
     ],
     swiftLanguageModes: [.v5]
 )

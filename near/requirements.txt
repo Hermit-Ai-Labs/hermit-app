@@ -1,0 +1,4 @@
+requests>=2.31
+dcap-qvl>=0.7
+eth-account>=0.13
+nearai-inference-sdk>=0.2

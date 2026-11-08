@@ -1,0 +1,202 @@
+import XCTest
+import CryptoKit
+import HermitCore
+@testable import HermitCloud
+
+/// Real attestation reports recorded from cloud-api.near.ai on 2026-11-08 (no key needed), with the nonce this
+/// machine generated for each. Every check must pass on them, and each tampering must be caught.
+final class HermitCloudTests: XCTestCase {
+    func fixture(_ name: String, _ ext: String) throws -> Data {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
+        return try Data(contentsOf: url)
+    }
+    func report(_ name: String) throws -> (AttestationBundle, String, Data) {
+        let raw = try fixture(name, "json")
+        let nonce = String(decoding: try fixture(name, "nonce"), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (try AttestationBundle(json: raw), nonce, raw)
+    }
+    /// The recorded certificates are in date now; pin the clock so the tests don't expire with them.
+    let recorded = ISO8601DateFormatter().date(from: "2026-11-08T09:30:00Z")!
+
+    func testRealReportsPassEveryCheck() throws {
+        for (name, model) in [("qwen-report", "Qwen/Qwen3.8-27B"), ("glm-report", "z-ai/glm-5.3-flash")] {
+            let (bundle, nonce, _) = try report(name)
+            XCTAssertEqual(bundle.models.count, 1)
+            let pre = Preflight.evaluate(model: model, nonce: nonce, bundle: bundle, at: recorded)
+            let failed = pre.checks.filter { $0.status == .fail }
+            XCTAssertTrue(failed.isEmpty, "\(name): \(failed.map { "\($0.id) \($0.detail)" })")
+            XCTAssertTrue(pre.passed)
+            // Gateway and model each: quote, signature chain, nonce, signer, config, RTMR3, debug.
+            for id in ["gw.qsig", "gw.qe", "gw.root", "gw.nonce", "gw.signer", "gw.config", "gw.rtmr3", "gw.debug",
+                       "model0.qsig", "model0.qe", "model0.root", "model0.nonce", "model0.signer", "model0.config", "model0.rtmr3",
+                       "model0.debug", "model0.gpunonce", "model0.name"] {
+                XCTAssertEqual(pre.checks.first { $0.id == id }?.status, .pass, "\(name) \(id)")
+            }
+            XCTAssertEqual(pre.verifiedModelSigners, [bundle.models[0].signingAddress])
+        }
+    }
+
+    func testQuoteFieldsMatchDcapQvl() throws {
+        // Values printed by dcap-qvl (Phala's Intel DCAP verifier) for the same quote.
+        let (bundle, nonce, _) = try report("qwen-report")
+        let q = try TDXQuote(bundle.models[0].intelQuote)
+        XCTAssertTrue(q.isTDXv4)
+        XCTAssertFalse(q.debug)
+        XCTAssertEqual(q.reportData.suffix(32).hex, nonce)
+        XCTAssertEqual(q.reportData.prefix(20).hex, "835ab53d20294ef795906dff21ae4c045336aa26")
+        XCTAssertTrue(q.verifyChain(at: recorded).allPassed)
+    }
+
+    func testWrongNonceFails() throws {
+        let (bundle, _, _) = try report("qwen-report")
+        let pre = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: AttestationVerifier.newNonce(), bundle: bundle, at: recorded)
+        XCTAssertFalse(pre.passed)
+        for id in ["gw.nonce", "gw.echo", "model0.nonce", "model0.echo", "model0.gpunonce"] {
+            XCTAssertEqual(pre.checks.first { $0.id == id }?.status, .fail, id)
+        }
+    }
+
+    func testWrongModelFails() throws {
+        let (bundle, nonce, _) = try report("qwen-report")
+        let pre = Preflight.evaluate(model: "z-ai/glm-5.3-flash", nonce: nonce, bundle: bundle, at: recorded)
+        XCTAssertEqual(pre.checks.first { $0.id == "model0.name" }?.status, .fail)
+        XCTAssertFalse(pre.passed)
+    }
+
+    /// Edits the recorded JSON, then re-checks.
+    func tampered(_ edit: (inout [String: Any]) -> Void) throws -> Preflight {
+        let (_, nonce, raw) = try report("qwen-report")
+        var j = try XCTUnwrap(JSONSerialization.jsonObject(with: raw) as? [String: Any])
+        edit(&j)
+        let bundle = try AttestationBundle(json: try JSONSerialization.data(withJSONObject: j))
+        return Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: recorded)
+    }
+    func model0(_ j: inout [String: Any], _ edit: (inout [String: Any]) -> Void) {
+        var ms = j["model_attestations"] as! [[String: Any]]
+        edit(&ms[0]); j["model_attestations"] = ms
+    }
+
+    func testSwappedSignerFails() throws {
+        let p = try tampered { j in model0(&j) { $0["signing_address"] = "0x" + String(repeating: "ab", count: 20) } }
+        XCTAssertEqual(p.checks.first { $0.id == "model0.signer" }?.status, .fail)
+    }
+
+    func testEditedComposeFails() throws {
+        let p = try tampered { j in model0(&j) { m in
+            var info = m["info"] as! [String: Any]
+            var tcb = info["tcb_info"] as! [String: Any]
+            tcb["app_compose"] = (tcb["app_compose"] as! String) + " "
+            info["tcb_info"] = tcb; m["info"] = info
+        } }
+        XCTAssertEqual(p.checks.first { $0.id == "model0.config" }?.status, .fail)
+    }
+
+    func testEditedEventLogFails() throws {
+        let p = try tampered { j in model0(&j) { m in
+            var log = m["event_log"] as! [[String: Any]]
+            let i = log.lastIndex { ($0["imr"] as? Int) == 3 }!
+            log[i]["event_payload"] = "00"; log[i]["digest"] = ""
+            m["event_log"] = log
+        } }
+        XCTAssertEqual(p.checks.first { $0.id == "model0.rtmr3" }?.status, .fail)
+    }
+
+    func testFlippedQuoteByteFails() throws {
+        // One bit in the TD report body (inside RTMR2): the attestation key's signature no longer holds.
+        let p = try tampered { j in model0(&j) { m in
+            var q = Data(hex: m["intel_quote"] as! String)!
+            q[48 + 300] ^= 1
+            m["intel_quote"] = q.hex
+        } }
+        XCTAssertEqual(p.checks.first { $0.id == "model0.qsig" }?.status, .fail)
+    }
+
+    func testExpiredCertificatesFail() throws {
+        let (bundle, nonce, _) = try report("qwen-report")
+        let late = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: Date(timeIntervalSince1970: 2_100_000_000))
+        XCTAssertEqual(late.checks.first { $0.id == "model0.root" }?.status, .fail)
+    }
+
+    func testIntelRootIsIntels() {
+        // SHA-256 of Intel_SGX_Provisioning_Certification_RootCA.cer as published by Intel.
+        XCTAssertEqual(Data(SHA256.hash(data: IntelRoot.der)).hex, "44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3")
+    }
+
+    // MARK: Response signatures
+
+    // Signed with eth_account (key 0x11…11) over the text NEAR's model enclave signs.
+    let req = Data(#"{"model":"Qwen/Qwen3.8-27B","messages":[]}"#.utf8)
+    let resp = Data(#"{"id":"chatcmpl-test"}"#.utf8)
+    let signer = "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A"
+    let sig = "1363ddb134426f019b352373cf5ef07d65ba6e638461ff6296d2ed413b107aa60654948a61656f9583cabaa1caf6eedbea8769e7eed4673040b1ab94c75bdc811b"
+
+    func testExpectedTextIsModelAndHashes() {
+        XCTAssertEqual(ResponseSignature.expectedText(request: req, response: resp, model: "Qwen/Qwen3.8-27B"),
+                       "Qwen/Qwen3.8-27B:0bd03bb47ec6a87eee365e7245869fecf5b06aaa90265683eb0ee3aab289d7a0:d9db2704bb96abc899103382df597b326ad20948c3f14afc9ea0948e96adb537")
+    }
+
+    func testEIP191Recovery() {
+        XCTAssertEqual(ResponseSignature.recoverEIP191(message: Data(ResponseSignature.expectedText(request: req, response: resp, model: "Qwen/Qwen3.8-27B").utf8), signature: sig)?.lowercased(),
+                       signer.lowercased())
+    }
+
+    func testSignatureVerifies() {
+        let text = ResponseSignature.expectedText(request: req, response: resp, model: "Qwen/Qwen3.8-27B")
+        let s = ResponseSignature(text: text, signature: sig, signingAddress: signer, signingAlgo: "ecdsa", kind: "provider_tee")
+        XCTAssertEqual(s.verify(expectedText: text, expectedSigner: signer, expectedAlgo: "ecdsa"), .verified)
+        // Other bytes: the hashes differ.
+        let other = ResponseSignature.expectedText(request: req, response: Data(resp + Data(" ".utf8)), model: "Qwen/Qwen3.8-27B")
+        XCTAssertEqual(s.verify(expectedText: other, expectedSigner: signer, expectedAlgo: "ecdsa"), .textMismatch)
+        // A signer that isn't the attested key.
+        if case .signerMismatch = s.verify(expectedText: text, expectedSigner: "0x835ab53d20294ef795906dff21ae4c045336aa26", expectedAlgo: "ecdsa") {} else { XCTFail() }
+        // A forged signature.
+        var bad = Data(hex: sig)!; bad[10] ^= 1
+        let forged = ResponseSignature(text: text, signature: bad.hex, signingAddress: signer, signingAlgo: "ecdsa", kind: "provider_tee")
+        XCTAssertNotEqual(forged.verify(expectedText: text, expectedSigner: signer, expectedAlgo: "ecdsa"), .verified)
+    }
+
+    func testUnavailableSignatureIsNotASignature() {
+        XCTAssertNil(ResponseSignature(json: Data(#"{"error_code":"stream_disconnected","message":"unavailable"}"#.utf8)))
+    }
+
+    // MARK: Models, tools, proof
+
+    func testModelDiscoveryPicksNearTEEModels() throws {
+        let models = NearAICloud.teeModels(try fixture("models", "json"))
+        XCTAssertEqual(models.first?.id, NearAICloud.defaultModel)
+        XCTAssertTrue(models.contains { $0.id == "z-ai/glm-5.3-flash" })
+        XCTAssertFalse(models.contains { $0.id.hasPrefix("anthropic/") || $0.id.hasPrefix("openai/") }, "third-party models aren't NEAR TEE models")
+        XCTAssertFalse(models.contains { $0.id.contains("abliterated") })
+    }
+
+    func testToolSchemaIsHermits() {
+        XCTAssertEqual(Set(CloudTools.names), ["calculator", "get_price", "get_balances", "hyperliquid_account", "position_math", "search_markets",
+                                              "get_yields", "prepare_trade", "prepare_swap", "prepare_send", "open_add_funds"])
+    }
+
+    func testProofHeadline() throws {
+        let (bundle, nonce, _) = try report("qwen-report")
+        let pre = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: recorded)
+        var good = NearCloudAgent.SignedCheck(); good.available = true; good.kind = "provider_tee"; good.textMatches = true; good.signerMatches = true
+        XCTAssertEqual(NearCloudAgent.proof(pre, [good, good]).headline, "Verified in a TEE")
+        XCTAssertEqual(NearCloudAgent.proof(pre, [good, NearCloudAgent.SignedCheck()]).headline, "Not verified")
+        XCTAssertEqual(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: []).headline, "Enclave verified")
+        var gw = good; gw.kind = "gateway"
+        XCTAssertFalse(NearCloudAgent.proof(pre, [gw]).fullyVerified)
+        // What the phone can't check is always listed as not checked, never as passed.
+        let p = NearCloudAgent.proof(pre, [good])
+        XCTAssertTrue(p.checks.filter { $0.id.hasPrefix("nc.") }.allSatisfy { $0.status == .skipped && $0.source == .none })
+    }
+
+    func testCleanDropsThinking() {
+        XCTAssertEqual(NearCloudAgent.clean("<think>plan</think>\n\nHi · there"), "Hi, there")
+        XCTAssertEqual(NearCloudAgent.clean("reasoning</think>Answer"), "Answer")
+    }
+
+    /// Live: fetch a fresh report and check it. Skipped unless HERMIT_LIVE=1 (needs network).
+    func testLiveAttestation() async throws {
+        guard ProcessInfo.processInfo.environment["HERMIT_LIVE"] == "1" else { throw XCTSkip("set HERMIT_LIVE=1") }
+        let pre = try await Preflight.run(model: NearAICloud.defaultModel)
+        XCTAssertTrue(pre.passed, "\(pre.checks.filter { $0.status == .fail })")
+    }
+}
