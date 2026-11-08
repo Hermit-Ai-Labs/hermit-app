@@ -22,16 +22,17 @@ public struct ModelSpec: Identifiable, Hashable, Sendable {
 }
 
 public enum ModelCatalog {
-    /// Hermit 1.1 is Qwen3-4B-Instruct-2507 (Apache-2.0) on iPhones and Macs with 8 GB, and Hermit 1.1 Lite,
-    /// Qwen3-1.7B (Apache-2.0), on smaller ones. Both are MLX 4-bit copies on Hermit's own Hugging Face repos.
-    public static let fullID = "rahulol/Hermit-1.1-4B-MLX-4bit"
+    /// Hermit 1.2 is Qwen3-4B-Instruct-2507 (Apache-2.0) fine-tuned on Hermit's trading tools, for iPhones and Macs
+    /// with 8 GB. Hermit 1.1 Lite, Qwen3-1.7B (Apache-2.0), runs on smaller ones. Both are MLX 4-bit copies on
+    /// Hermit's own Hugging Face repos.
+    public static let fullID = "rahulol/Hermit-1.2-4B-MLX-4bit"
     public static let liteID = "rahulol/Hermit-1.1-Lite-MLX-4bit"
     /// iPhone 15 Pro and later report about 7.5 GB, so 7 is the line.
     public static var defaultID: String { deviceMemoryGB >= 7 ? fullID : liteID }
 
     public static let all: [ModelSpec] = [
-        ModelSpec(id: fullID, name: "Hermit 1.1",
-                  detail: "Hermit's full model. Sharp answers, private, offline.", approxBytes: 2_280_000_000, minMemoryGB: 7),
+        ModelSpec(id: fullID, name: "Hermit 1.2",
+                  detail: "Hermit's full model, trained on its trading tools. Private, offline.", approxBytes: 2_270_000_000, minMemoryGB: 7),
         ModelSpec(id: liteID, name: "Hermit 1.1 Lite",
                   detail: ModelSpec.liteDetail, approxBytes: 980_000_000, minMemoryGB: 5),
     ]
