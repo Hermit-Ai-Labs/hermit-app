@@ -218,7 +218,7 @@ final class TableAndVaultTests: XCTestCase {
             }
         }
         XCTAssertEqual(Set(Chain.all.map(\.id)).count, Chain.all.count)
-        XCTAssertEqual(Chain.defaultSend.chainId, 84532)
+        XCTAssertEqual(Chain.defaultSend.chainId, WalletService.mainnetSendsEnabled ? 8453 : 84532)
         XCTAssertEqual(Chain.baseSepolia.token("usdc")?.address, "0x036CbD53842c5426634e7929541eC2318f3dCF7e")
         XCTAssertEqual(Chain.base.token("USDC")?.address, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
     }

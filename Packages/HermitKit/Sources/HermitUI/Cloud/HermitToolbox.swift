@@ -15,12 +15,14 @@ struct HermitToolbox: CloudToolbox {
             case "position_math": return json(try Self.positionMath(args))
             case "get_price": return json(try await Self.price(args["symbol"] as? String ?? ""))
             case "search_markets": return json(["markets": try await Self.searchMarkets(args["query"] as? String ?? "")])
-            case "get_balances": return json(await Self.balances(chain: args["chain"] as? String))
+            case "get_balances", "get_quote", "prepare_swap":
+                // The wallet's own tools: balances include NEAR, quotes come from NEAR Intents (best of Intents and
+                // Relay for prepare_swap), and prepare_swap runs the spending policy and opens the prefilled Swap review.
+                return ToolOutcome(content: await WalletsViewModel.shared.tools.call(name, arguments: args))
             case "hyperliquid_account": return json(try await Self.hlAccount())
             case "get_yields": return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String)])
             case "prepare_trade": return try await Self.prepareTrade(args)
             case "prepare_send": return try await Self.prepareSend(args)
-            case "prepare_swap": return Self.prepareSwap(args)
             case "open_add_funds":
                 let hl = (args["goal"] as? String) == "hyperliquid"
                 return ToolOutcome(content: #"{"opened":false,"note":"Shown to the user as a button"}"#,
@@ -81,17 +83,6 @@ struct HermitToolbox: CloudToolbox {
     }
 
     // MARK: Wallets (this phone)
-
-    @MainActor static func balances(chain: String?) async -> [String: Any] {
-        let vm = WalletsViewModel.shared
-        guard vm.hasWallet else { return ["holdings": [[String: Any]](), "note": "No wallet on this phone yet"] }
-        if vm.holdings.isEmpty { await vm.refresh() }
-        let c = chain.flatMap(findChain)
-        let hs = vm.holdings(wallet: nil, chain: c).filter { !$0.chain.isTestnet }
-        return ["holdings": hs.map { h -> [String: Any] in
-            ["symbol": h.symbol, "chain": h.chain.name, "amount": h.exact, "usd": h.priced ? ((h.usd * 100).rounded() / 100) as Any : NSNull() as Any]
-        }]
-    }
 
     @MainActor static func hlAccount() async throws -> [String: Any] {
         let hl = HyperliquidStore.shared
@@ -201,11 +192,6 @@ struct HermitToolbox: CloudToolbox {
                            action: Action("Review send", approval: approval))
     }
 
-    static func prepareSwap(_ a: [String: Any]) -> ToolOutcome {
-        let from = (a["from_symbol"] as? String ?? "").uppercased(), to = (a["to_symbol"] as? String ?? "").uppercased()
-        return ToolOutcome(content: #"{"prepared":false,"note":"Swaps are reviewed on the Swap screen; the user opens it from the button"}"#,
-                           action: Action("Open Swap for \(from) to \(to)", primary: true, symbol: "arrow.triangle.2.circlepath", open: "swap"))
-    }
 }
 
 /// A small exact-enough calculator for the model's `calculator` tool: + - * / ** ( ), sqrt ln log10 exp abs min max round.
