@@ -81,7 +81,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
         .ignoresSafeArea(.container, edges: .bottom)
         // Exactly as tall as what's in it: title row, content, button row and the home indicator. No empty band at the bottom.
         // Content taller than the screen gets the full sheet and scrolls.
-        .presentationDetents([.height(min(fittedHeight, SheetMetrics.maxHeight))])
+        .presentationDetents([.height(min(fittedHeight - SheetMetrics.bottomInset, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         #endif
         .presentationCornerRadius(20)
@@ -119,8 +119,9 @@ struct WideButton: ButtonStyle {
         configuration.label.font(.system(size: 14, weight: .medium))
             .foregroundStyle(!enabled ? Theme.disabledText : kind == .plain ? Theme.text : .white)
             .frame(maxWidth: .infinity).frame(height: 42)
-            .background(enabled ? fill.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(enabled && kind == .plain ? Theme.border : .clear))
+            // Disabled: a grey that still reads as a button on the glass sheets (the paper-grey fill vanished into them).
+            .background(enabled ? fill.opacity(configuration.isPressed ? 0.85 : 1) : Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(enabled && kind == .plain ? Theme.border : !enabled ? Color.black.opacity(0.05) : .clear))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
             .contentShape(Rectangle())
@@ -589,7 +590,7 @@ struct FitSheet: ViewModifier {
         }
         .scrollBounceBehavior(.basedOnSize)
         .ignoresSafeArea(.container, edges: .bottom)
-        .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
+        .presentationDetents([.height(min(fitted - SheetMetrics.bottomInset, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
         .glassSheetBackground()
@@ -599,6 +600,12 @@ struct FitSheet: ViewModifier {
 enum SheetMetrics {
     /// The tallest a sheet gets: the screen less the status bar and a peek of the page behind.
     @MainActor static var maxHeight: CGFloat { UIScreen.main.bounds.height - 64 }
+    /// A `.height` detent is measured above the home indicator, but these sheets lay out down to the sheet's bottom edge
+    /// (they pad for the indicator themselves). Asking for the full height left an empty band of this size at the bottom.
+    @MainActor static var bottomInset: CGFloat {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.safeAreaInsets.bottom ?? 0
+    }
 }
 #endif
 

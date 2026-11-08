@@ -228,7 +228,9 @@ struct PayWideButton: ButtonStyle {
         }
         return configuration.label.font(.system(size: 14, weight: .medium)).foregroundStyle(enabled ? fg : Theme.disabledText)
             .frame(maxWidth: .infinity).frame(height: 42)
-            .background(enabled ? bg.opacity(configuration.isPressed ? 0.85 : 1) : Theme.disabledFill, in: RoundedRectangle(cornerRadius: 11))
+            // Disabled still reads as a button on the glass sheets.
+            .background(enabled ? bg.opacity(configuration.isPressed ? 0.85 : 1) : Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(enabled ? .clear : Color.black.opacity(0.05)))
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }

@@ -50,7 +50,7 @@ struct PaySheet<Header: View, Content: View, Foot: View>: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.container, edges: .bottom)
         // Exactly as tall as the form, header and button row; a form taller than the screen opens full height and scrolls.
-        .presentationDetents([.height(min(fitted, SheetMetrics.maxHeight))])
+        .presentationDetents([.height(min(fitted - SheetMetrics.bottomInset, SheetMetrics.maxHeight))])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(20)
         .glassSheetBackground()
