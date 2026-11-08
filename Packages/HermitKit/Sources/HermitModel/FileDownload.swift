@@ -60,7 +60,8 @@ final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable 
         var request = URLRequest(url: url, timeoutInterval: 60)
         if have > 0 { request.setValue("bytes=\(have)-", forHTTPHeaderField: "Range") }
         let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = false
+        config.waitsForConnectivity = true                      // ride out brief Wi-Fi/cellular drops instead of failing
+        config.timeoutIntervalForResource = 7 * 24 * 60 * 60    // a multi-GB file on a slow phone link may take a while
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
         defer { session.finishTasksAndInvalidate() }
@@ -78,6 +79,19 @@ final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable 
             lock.lock(); let t = task; lock.unlock()
             t?.cancel()
         }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        // Hugging Face's resolve/ URL 302-redirects to a CDN on another host. URLSession can drop the
+        // Range header across that hop, so the CDN replies 200 (whole file) and we restart from 0%.
+        // Re-apply the Range we need on the redirected request so the CDN replies 206 and we resume.
+        var req = request
+        lock.lock(); let have = written; lock.unlock()
+        if have > 0 { req.setValue("bytes=\(have)-", forHTTPHeaderField: "Range") }
+        else { req.setValue(nil, forHTTPHeaderField: "Range") }
+        completionHandler(req)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
