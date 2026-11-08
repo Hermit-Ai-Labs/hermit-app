@@ -16,7 +16,8 @@ if [[ -z ${NOBUILD:-} ]]; then
 fi
 APP="$DD/Build/Products/Debug/Hermit.app"
 [[ -d "$APP" ]] || { echo "Mac build failed"; exit 1; }
-pgrep -x Hermit >/dev/null && { echo "Hermit is running; not touching it"; exit 1; }
+# Only a real Mac Hermit counts (Contents/MacOS); the iOS simulator's Hermit process (under CoreSimulator) doesn't.
+pgrep -f "Hermit.app/Contents/MacOS/Hermit" >/dev/null && { echo "Hermit is running; not touching it"; exit 1; }
 rm -rf "$CONT"; mkdir -p "$OUT"; rm -f "$OUT"/*.png
 # -g: don't bring to the front. -j: launch hidden. -W: wait until the tour quits.
 # Watchdog: quits the tour if it hangs. Its output goes nowhere so ssh doesn't wait on it.

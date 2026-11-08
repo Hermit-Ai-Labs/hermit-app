@@ -61,7 +61,16 @@ struct ChatView: View {
 struct MessageView: View {
     @Environment(AppModel.self) private var model
     let message: Message
-    @State private var showTools = false
+    @State private var showTools = MessageView.stepsOpen
+
+    /// Debug builds: `-hermitSteps YES` opens every reply's tool steps (for the store screenshots). Release: closed.
+    static var stepsOpen: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "hermitSteps")
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         switch message.role {

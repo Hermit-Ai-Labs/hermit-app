@@ -2,7 +2,7 @@
 # Screenshots of every iPhone screen from the real app in the simulator (Debug build, launch arguments pick the page).
 #   zsh scripts/phone-shots.sh [name ...]      default: all. Output: $OUT/<name>.png (default ~/hermit/shots)
 #   SIM="Hermit NEAR" DD=~/hermit/dd-near OUT=~/hermit/shots-near NOBUILD=1 zsh scripts/phone-shots.sh wallets-w
-# Launch arguments (DEBUG only, AppModel / DebugLaunch.swift):
+# Launch arguments (DEBUG only, AppModel / DebugLaunch.swift; -hermitSteps YES opens a reply's tool steps):
 #   -hermitRoute <page> -hermitTab <tab or wallets flow> -hermitDrawer YES -hermitSheet <sheet> -hermitScroll bottom|<y>
 #   -hermitTestWallet YES (memory-only vault with the public "abandon … about" phrase) -hermitMode cloud -hermitAsk <text>
 # Per shot, @dark shoots in dark appearance and @xl at a larger Dynamic Type size; @w adds the test wallet.
@@ -23,10 +23,14 @@ SHOTS=(
   "home-dark|@dark -hermitRoute home"
   "drawer|-hermitRoute home -hermitDrawer YES"
   "sheet-models|-hermitRoute home -hermitSheet models"
-  "chat-cloud|@w -hermitRoute home -hermitMode cloud -hermitAsk What_is_my_NEAR_balance_and_what_would_I_get_for_1_USDC_on_Base_in_NEAR?"
-  "chat-send|@w -hermitRoute home -hermitMode cloud -hermitAsk Send_1_USDT_on_NEAR_to_alice.near"
-  "chat-swap|@w -hermitRoute home -hermitMode cloud -hermitAsk Swap_5_USDT_on_NEAR_to_NEAR"
-  "chat-bridge|@w -hermitRoute home -hermitMode cloud -hermitAsk Bridge_1_SOL_on_Solana_to_USDC_on_Base"
+  "chat-cloud|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk What_is_my_NEAR_balance_and_what_would_I_get_for_1_USDC_on_Base_in_NEAR?"
+  "chat-send|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Send_1_USDT_on_NEAR_to_alice.near"
+  "chat-swap|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Swap_5_USDT_on_NEAR_to_NEAR"
+  "chat-bridge|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Bridge_1_SOL_on_Solana_to_USDC_on_Base"
+  "chat-steps|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk What_are_my_balances,_and_what_would_I_get_for_5_USDT_on_NEAR_in_NEAR?"
+  "projects|-hermitRoute projects"
+  "automations|-hermitRoute automations"
+  "calendar|-hermitRoute calendar"
   "trade-markets|-hermitRoute trade -hermitTab markets"
   "trade-order|-hermitRoute trade -hermitTab markets -hermitScroll bottom"
   "trade-positions|-hermitRoute trade -hermitTab positions"
