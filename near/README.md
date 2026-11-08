@@ -14,15 +14,18 @@ On-device stays the default. Private Cloud is opt-in per chat box (mode menu nex
 Hermit calls NEAR AI Cloud's OpenAI-compatible gateway (`https://cloud-api.near.ai/v1`) with the user's own key, which
 is stored in the iOS Keychain on the device only. Models are discovered from `/v1/models`, keeping the open models NEAR
 runs itself in TEEs (`owned_by: nearai`) that support tool calls; the default is `Qwen/Qwen3.8-27B` (same family as the
-on-device Hermit 1.1). Before each prompt (evidence is reused for at most 5 minutes inside one chat), the phone
-generates 32 random bytes, fetches `/v1/attestation/report?model=…&provider=near&signing_algo=ecdsa&nonce=…` with
-`x-no-aliasing: true` and **no API key**, and verifies the gateway report and every model candidate on the device: the
+on-device Hermit 1.1). Before every prompt, the phone generates 32 random bytes and opens one watched HTTPS connection
+to the gateway; on it, it fetches `/v1/attestation/report?model=…&provider=near&signing_algo=ecdsa&include_tls_fingerprint=true&nonce=…`
+with `x-no-aliasing: true` and **no API key**, records the SHA-256 of the server certificate's SPKI from the TLS handshake,
+and verifies the gateway report and every model candidate on the device: the
 Intel TDX v4 quote's ECDSA signature by its attestation key, that key's certification by Intel's Quoting Enclave, the
 QE report's signature by the PCK certificate, the PCK chain up to a byte-identical copy of Intel's SGX Root CA (with
 validity dates), debug mode off, the nonce inside the quote's report data (freshness) and echoed back, the signing
 address bound in the quote's report data, `SHA-256(app_compose)` equal to MRCONFIGID, the event log replayed to RTMR3,
-the model name, and the nonce inside the GPU evidence. The GPU evidence itself is sent to NVIDIA's attestation service
-(NRAS) and its overall verdict is shown as a remote check. If any check fails, nothing is sent. Completions are sent
+the model name, the nonce inside the GPU evidence, and that the SPKI hash of this very connection equals the gateway's
+quote-bound `tls_cert_fingerprint`. The GPU evidence itself is sent to NVIDIA's attestation service
+(NRAS) and its overall verdict is shown as a remote check. If any check fails, nothing is sent. The prompt is then sent on that same connection
+(URLSessionTaskMetrics confirm the same TCP connection, reused, with no new handshake). Completions are sent
 non-streamed with `x-no-aliasing: true` so that the **model enclave** (`signature_kind: provider_tee`) signs
 `model:sha256(request bytes):sha256(response bytes)`; the phone fetches `/v1/signature/{id}`, recomputes both hashes
 from the bytes it actually sent and received, recovers the EIP-191 signer with libsecp256k1, and requires it to equal
@@ -42,10 +45,10 @@ approval sheet. Hermit has no server: the conversation is kept in memory on the 
 | Evidence is for the requested model, nonce inside GPU evidence | Phone |
 | NVIDIA GPU attestation verdict | NVIDIA NRAS (remote; the NRAS token's signature is not checked on the phone) |
 | Response signature over exact bytes, signer = attested model key | Phone (libsecp256k1, keccak) |
+| TLS: the connection's server key = the gateway quote's fingerprint; prompt sent on that connection | Phone (URLSession delegate + task metrics) |
 | Intel TCB level, advisories, revocation (needs Intel collateral) | **Not on the phone.** `verify-attestation.py` does it with `dcap-qvl` |
 | Image provenance of container digests | **Not checked** (compose hash is bound to the quote; who built each image is not) |
-| TLS connection bound to the gateway quote | **Not checked**: iOS URLSession doesn't expose the peer SPKI per request |
-| Gateway-to-model chain for the same request | Not provable today (NEAR docs: a matching model signer doesn't prove the same instance) |
+| Gateway-to-model hop for the same request | **Not provable today** (NEAR docs: TLS binding covers the gateway only, and a matching model signer doesn't prove the same instance) |
 
 ## Try it without an iPhone (Linux or macOS, no API key needed)
 
@@ -56,8 +59,9 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py   # plus one completion and its signature check
 ```
 
-Do: run the first command. See: about 22 `[PASS]` lines for the gateway and the model enclave, including
-`Intel DCAP quote verification (dcap-qvl) (TCB UpToDate)` and `NVIDIA NRAS GPU verdict`, then `0 failed`.
+Do: run the first command. See: about 23 `[PASS]` lines for the gateway and the model enclave, including
+`Intel DCAP quote verification (dcap-qvl) (TCB UpToDate)`, `This TLS connection ends at the key the gateway quote binds`
+and `NVIDIA NRAS GPU verdict`, then `0 failed`.
 
 Offline, against the recorded reports the Swift unit tests use:
 

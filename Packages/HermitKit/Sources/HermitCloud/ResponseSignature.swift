@@ -49,7 +49,7 @@ public struct ResponseSignature: Sendable, Equatable {
             }
             return .verified
         case "ed25519":
-            guard let key = Data(hex: expectedSigner), let sig = Data(hex: signature),
+            guard let key = Data(hexString: expectedSigner), let sig = Data(hexString: signature),
                   let pub = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { return .badSignature }
             guard signingAddress.lowercased() == expectedSigner.lowercased() else { return .signerMismatch(recovered: signingAddress) }
             return pub.isValidSignature(sig, for: Data(text.utf8)) ? .verified : .badSignature
@@ -61,7 +61,7 @@ public struct ResponseSignature: Sendable, Equatable {
     /// Ethereum personal_sign recovery: keccak256("\u{19}Ethereum Signed Message:\n" + len + message), then the
     /// address is the last 20 bytes of keccak256 of the recovered public key.
     public static func recoverEIP191(message: Data, signature hex: String) -> String? {
-        guard let sig = Data(hex: hex), sig.count == 65 else { return nil }
+        guard let sig = Data(hexString: hex), sig.count == 65 else { return nil }
         let prefix = Data("\u{19}Ethereum Signed Message:\n\(message.count)".utf8)
         let digest = SHA3(variant: .keccak256).calculate(for: [UInt8](prefix + message))
         var v = Int32(sig[64])

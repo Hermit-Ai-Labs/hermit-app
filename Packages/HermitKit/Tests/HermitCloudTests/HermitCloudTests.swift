@@ -104,7 +104,7 @@ final class HermitCloudTests: XCTestCase {
     func testFlippedQuoteByteFails() throws {
         // One bit in the TD report body (inside RTMR2): the attestation key's signature no longer holds.
         let p = try tampered { j in model0(&j) { m in
-            var q = Data(hex: m["intel_quote"] as! String)!
+            var q = Data(hexString: m["intel_quote"] as! String)!
             q[48 + 300] ^= 1
             m["intel_quote"] = q.hex
         } }
@@ -115,6 +115,20 @@ final class HermitCloudTests: XCTestCase {
         let (bundle, nonce, _) = try report("qwen-report")
         let late = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: Date(timeIntervalSince1970: 2_100_000_000))
         XCTAssertEqual(late.checks.first { $0.id == "model0.root" }?.status, .fail)
+    }
+
+    func testTLSBinding() throws {
+        // Recorded with include_tls_fingerprint=true; the gateway's fingerprint was the peer key on that connection.
+        let (bundle, nonce, _) = try report("qwen-tls-report")
+        let fp = try XCTUnwrap(bundle.gateway.tlsFingerprint)
+        let good = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: recorded, peerSPKI: [fp])
+        XCTAssertTrue(good.passed, "\(good.checks.filter { $0.status == .fail })")
+        XCTAssertEqual(good.checks.first { $0.id == "gw.tls" }?.status, .pass)
+        XCTAssertEqual(good.checks.first { $0.id == "gw.signer" }?.status, .pass, "report data = SHA-256(signer || fingerprint) || nonce")
+        let other = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: recorded, peerSPKI: [String(repeating: "0", count: 64)])
+        XCTAssertEqual(other.checks.first { $0.id == "gw.tls" }?.status, .fail)
+        let twice = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: recorded, peerSPKI: [fp, fp])
+        XCTAssertEqual(twice.checks.first { $0.id == "gw.tls" }?.status, .fail, "two handshakes: not one connection")
     }
 
     func testIntelRootIsIntels() {
@@ -150,7 +164,7 @@ final class HermitCloudTests: XCTestCase {
         // A signer that isn't the attested key.
         if case .signerMismatch = s.verify(expectedText: text, expectedSigner: "0x835ab53d20294ef795906dff21ae4c045336aa26", expectedAlgo: "ecdsa") {} else { XCTFail() }
         // A forged signature.
-        var bad = Data(hex: sig)!; bad[10] ^= 1
+        var bad = Data(hexString: sig)!; bad[10] ^= 1
         let forged = ResponseSignature(text: text, signature: bad.hex, signingAddress: signer, signingAlgo: "ecdsa", kind: "provider_tee")
         XCTAssertNotEqual(forged.verify(expectedText: text, expectedSigner: signer, expectedAlgo: "ecdsa"), .verified)
     }
@@ -198,5 +212,8 @@ final class HermitCloudTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["HERMIT_LIVE"] == "1" else { throw XCTSkip("set HERMIT_LIVE=1") }
         let pre = try await Preflight.run(model: NearAICloud.defaultModel)
         XCTAssertTrue(pre.passed, "\(pre.checks.filter { $0.status == .fail })")
+        XCTAssertEqual(pre.checks.first { $0.id == "gw.tls" }?.status, .pass, "peer key read on the same connection")
+        XCTAssertEqual(pre.checks.first { $0.id == "model0.nras" }?.status, .pass)
+        pre.connection?.invalidate()
     }
 }

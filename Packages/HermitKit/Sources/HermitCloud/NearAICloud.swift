@@ -80,13 +80,24 @@ public struct NearAICloud: Sendable {
 
     /// Gateway and NEAR model evidence for `model`, made for `nonce`. No key is sent, so nothing identifying leaves
     /// the phone before the enclave is checked.
-    public func attestation(model: String, nonce: String) async throws -> (raw: Data, bundle: AttestationBundle) {
+    /// With `tls`, the report is read on that watched connection and binds its TLS key (include_tls_fingerprint=true).
+    public func attestation(model: String, nonce: String, tls: GatewayConnection? = nil) async throws
+        -> (raw: Data, bundle: AttestationBundle, use: GatewayConnection.Use?) {
         var c = URLComponents(url: Self.base.appending(path: "attestation/report"), resolvingAgainstBaseURL: false)!
         c.queryItems = [.init(name: "model", value: model), .init(name: "provider", value: "near"),
                         .init(name: "signing_algo", value: "ecdsa"), .init(name: "nonce", value: nonce),
-                        .init(name: "include_tls_fingerprint", value: "false")]
-        let data = try await get(c.url!, headers: ["x-no-aliasing": "true"], timeout: 60)
-        return (data, try AttestationBundle(json: data))
+                        .init(name: "include_tls_fingerprint", value: tls == nil ? "false" : "true")]
+        var req = URLRequest(url: c.url!, timeoutInterval: 60)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("true", forHTTPHeaderField: "x-no-aliasing")
+        if let tls {
+            let (data, resp, use) = try await tls.data(for: req)
+            try Self.ok(resp, data)
+            return (data, try AttestationBundle(json: data), use)
+        }
+        let (data, resp) = try await session.data(for: req)
+        try Self.ok(resp, data)
+        return (data, try AttestationBundle(json: data), nil)
     }
 
     /// NVIDIA's attestation service: sends only the GPU evidence (no prompt, no key) and reads the overall verdict
@@ -97,7 +108,8 @@ public struct NearAICloud: Sendable {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.httpBody = Data(payload.utf8)
-        guard let (data, resp) = try? await session.data(for: req) else { return (nil, "NVIDIA NRAS unreachable") }
+        guard let result = try? await session.data(for: req) else { return (nil, "NVIDIA NRAS unreachable") }
+        let (data, resp) = result
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200, let arr = try? JSONSerialization.jsonObject(with: data) as? [Any], let first = arr.first as? [Any],
               first.count == 2, let token = first[1] as? String else { return (false, "NVIDIA NRAS answered \(code)") }
@@ -118,7 +130,7 @@ public struct NearAICloud: Sendable {
 
     /// One non-streamed completion. Returns the exact response bytes; `body` is kept by the caller byte for byte,
     /// because the enclave signs SHA-256 of both.
-    public func complete(body: Data, key: String) async throws -> Data {
+    public func complete(body: Data, key: String, on tls: GatewayConnection? = nil) async throws -> (Data, GatewayConnection.Use?) {
         var req = URLRequest(url: Self.base.appending(path: "chat/completions"), timeoutInterval: 180)
         req.httpMethod = "POST"
         req.httpBody = body
@@ -127,9 +139,14 @@ public struct NearAICloud: Sendable {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         req.setValue("true", forHTTPHeaderField: "x-no-aliasing")
+        if let tls {
+            let (data, resp, use) = try await tls.data(for: req)
+            try Self.ok(resp, data)
+            return (data, use)
+        }
         let (data, resp) = try await session.data(for: req)
         try Self.ok(resp, data)
-        return data
+        return (data, nil)
     }
 
     /// The signature for a completion, retried briefly while the gateway records it. nil when none is available.
@@ -173,6 +190,10 @@ public struct Preflight: Sendable {
     public let fetchedAt: Date
     public let bundle: AttestationBundle
     public let checks: [CloudProof.Check]
+    /// The watched connection the report was read on; prompts go on it too.
+    public var connection: GatewayConnection? = nil
+    public var attestationUse: GatewayConnection.Use? = nil
+    public var handshakesAtFetch = 0
 
     /// Every check passed, so prompts may go to this deployment.
     public var passed: Bool { !checks.contains { $0.status == .fail } && bundle.models.count > 0 }
@@ -185,25 +206,39 @@ public struct Preflight: Sendable {
     public var gatewaySigner: String { bundle.gateway.signingAddress }
 
     /// Fetches and checks evidence for `model`. `remote` also asks NVIDIA NRAS for the GPU verdict.
-    public static func run(model: String, cloud: NearAICloud = NearAICloud(), remote: Bool = true) async throws -> Preflight {
+    public static func run(model: String, cloud: NearAICloud = NearAICloud(), remote: Bool = true, bindTLS: Bool = true) async throws -> Preflight {
         let nonce = AttestationVerifier.newNonce()
-        let (_, bundle) = try await cloud.attestation(model: model, nonce: nonce)
+        let tls = bindTLS ? GatewayConnection() : nil
+        let (_, bundle, use) = try await cloud.attestation(model: model, nonce: nonce, tls: tls)
         var nvidia: [Int: (Bool?, String)] = [:]
         if remote {
             await withTaskGroup(of: (Int, (Bool?, String)).self) { g in
                 for (i, m) in bundle.models.enumerated() {
-                    if let p = m.nvidiaPayload { g.addTask { (i, await cloud.nvidiaVerdict(p)) } }
+                    if let p = m.nvidiaPayload {
+                        g.addTask { let v = await cloud.nvidiaVerdict(p); return (i, (v.ok, v.detail)) }
+                    }
                 }
                 for await (i, v) in g { nvidia[i] = v }
             }
         }
-        return evaluate(model: model, nonce: nonce, bundle: bundle, nvidia: nvidia, at: Date())
+        var p = evaluate(model: model, nonce: nonce, bundle: bundle, nvidia: nvidia, at: Date(), peerSPKI: tls.map { $0.handshakes })
+        p.connection = tls; p.attestationUse = use; p.handshakesAtFetch = tls?.handshakes.count ?? 0
+        return p
     }
 
     /// The checks for evidence already fetched (tests use recorded reports).
+    /// `peerSPKI`: SPKI hashes seen at the TLS handshakes of the connection the report came on (nil: not watched).
     public static func evaluate(model: String, nonce: String, bundle: AttestationBundle, nvidia: [Int: (Bool?, String)] = [:],
-                                at date: Date = Date()) -> Preflight {
+                                at date: Date = Date(), peerSPKI: [String]? = nil) -> Preflight {
         var checks = AttestationVerifier.checks(bundle.gateway, nonce: nonce, group: CloudProof.gatewayGroup, at: date)
+        if let peers = peerSPKI {
+            let fp = bundle.gateway.tlsFingerprint?.lowercased()
+            let ok = fp != nil && peers.count == 1 && peers[0] == fp
+            checks.append(.init(id: "gw.tls", group: CloudProof.gatewayGroup, title: "This connection ends at the key the quote binds",
+                                detail: fp == nil ? "No TLS fingerprint in the report" : peers.isEmpty ? "No TLS handshake seen"
+                                    : ok ? "Server certificate key SHA-256 \(fp!.prefix(16)), read on the same connection" : "Server key \(peers.last!.prefix(16)) is not the attested \(fp!.prefix(16))",
+                                status: ok ? .pass : .fail))
+        }
         if bundle.models.isEmpty {
             checks.append(.init(id: "model.present", group: CloudProof.modelGroup, title: "Model enclave evidence returned", detail: "None for \(model)", status: .fail))
         }
@@ -216,8 +251,10 @@ public struct Preflight: Sendable {
                               detail: m.modelName ?? "unnamed", status: m.modelName == model ? .pass : .fail), at: 0)
             if m.nvidiaPayload != nil {
                 let v = nvidia[i]
+                let status: CloudProof.Status
+                switch v?.0 { case .some(true): status = .pass; case .some(false): status = .fail; default: status = .skipped }
                 list.append(.init(id: prefix + "nras", group: CloudProof.modelGroup, title: "GPUs attested by NVIDIA",
-                                  detail: v?.1 ?? "Not asked", status: v?.0.map { $0 ? .pass : .fail } ?? .skipped, source: v == nil ? .none : .remote))
+                                  detail: v?.1 ?? "Not asked", status: status, source: v == nil ? .none : .remote))
             }
             checks += list
         }
@@ -230,8 +267,8 @@ public struct Preflight: Sendable {
               detail: "Needs Intel's collateral (TCB info, QE identity, CRLs). near/verify-attestation.py checks it with dcap-qvl", status: .skipped, source: .none),
         .init(id: "nc.provenance", group: "Not checked on this phone", title: "Image provenance of the containers",
               detail: "The compose hash is bound to the quote; who built each image is not checked", status: .skipped, source: .none),
-        .init(id: "nc.tls", group: "Not checked on this phone", title: "TLS connection bound to the gateway quote",
-              detail: "iOS URLSession doesn't expose the peer certificate per request; standard HTTPS only", status: .skipped, source: .none),
+        .init(id: "nc.hop", group: "Not checked on this phone", title: "Gateway to model hop for this request",
+              detail: "TLS binding covers the phone-to-gateway connection. NEAR doesn't yet prove which model instance served a request", status: .skipped, source: .none),
     ]
 
     /// The proof for a reply. `signed` is how many completions carried a verified model-enclave signature.

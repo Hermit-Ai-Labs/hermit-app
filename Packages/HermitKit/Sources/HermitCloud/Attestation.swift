@@ -41,7 +41,7 @@ public struct NearReport: Sendable {
         }
         guard let addr = str("signing_address") else { throw Failure.missing("signing_address") }
         guard let algo = str("signing_algo") else { throw Failure.missing("signing_algo") }
-        guard let q = str("intel_quote").flatMap(Data.init(hex:)) else { throw Failure.missing("intel_quote") }
+        guard let q = str("intel_quote").flatMap(Data.init(hexString:)) else { throw Failure.missing("intel_quote") }
         modelName = str("model_name"); signingAddress = addr; signingAlgo = algo
         requestNonce = str("request_nonce"); reportDataHex = str("report_data"); tlsFingerprint = str("tls_cert_fingerprint")
         intelQuote = q
@@ -70,9 +70,9 @@ public struct NearReport: Sendable {
         for e in events where e.imr == 3 {
             var t = e.eventType.littleEndian
             var m = Data(bytes: &t, count: 4)
-            m += Data(":".utf8) + Data(e.event.utf8) + Data(":".utf8) + (Data(hex: e.payload) ?? Data())
+            m += Data(":".utf8) + Data(e.event.utf8) + Data(":".utf8) + (Data(hexString: e.payload) ?? Data())
             let digest = Data(SHA384.hash(data: m))
-            if !e.digest.isEmpty, Data(hex: e.digest) != digest { return nil }
+            if !e.digest.isEmpty, Data(hexString: e.digest) != digest { return nil }
             rtmr = Data(SHA384.hash(data: rtmr + digest))
         }
         return rtmr
@@ -118,17 +118,17 @@ public enum AttestationVerifier {
         out.append(c("debug", "Debug mode off", !q.debug, "TD_ATTRIBUTES \(q.tdAttributes.hex)"))
 
         // Freshness and identity: report data = signer (zero-padded to 32, or SHA-256(signer || TLS SPKI hash)) || nonce.
-        let ours = Data(hex: nonce) ?? Data()
+        let ours = Data(hexString: nonce) ?? Data()
         out.append(c("echo", "Nonce echoed back", r.requestNonce?.lowercased() == nonce.lowercased()))
         out.append(c("nonce", "Quote contains this phone's nonce", ours.count == 32 && q.reportData.suffix(32) == ours, "Proves the quote was made for this request"))
-        let ident = Data(hex: r.signingAddress) ?? Data()
+        let ident = Data(hexString: r.signingAddress) ?? Data()
         let identOK = (r.signingAlgo == "ecdsa" && ident.count == 20) || (r.signingAlgo == "ed25519" && ident.count == 32)
         let bound: Data
-        if let fp = r.tlsFingerprint.flatMap(Data.init(hex:)) { bound = Data(SHA256.hash(data: ident + fp)) }
+        if let fp = r.tlsFingerprint.flatMap(Data.init(hexString:)) { bound = Data(SHA256.hash(data: ident + fp)) }
         else { bound = ident + Data(count: max(0, 32 - ident.count)) }
         out.append(c("signer", "Quote binds the signing key", identOK && q.reportData.prefix(32) == bound, short(r.signingAddress)))
         if let rd = r.reportDataHex {
-            out.append(c("rdata", "Reported data matches the quote", Data(hex: rd) == q.reportData))
+            out.append(c("rdata", "Reported data matches the quote", Data(hexString: rd) == q.reportData))
         }
 
         // Measured configuration and runtime log.

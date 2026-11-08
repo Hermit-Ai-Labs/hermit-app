@@ -104,7 +104,7 @@ public struct TDXQuote: Sendable {
 }
 
 extension Data {
-    init?(hex: String) {
+    init?(hexString hex: String) {
         var s = Substring(hex)
         if s.hasPrefix("0x") || s.hasPrefix("0X") { s = s.dropFirst(2) }
         guard s.count % 2 == 0 else { return nil }

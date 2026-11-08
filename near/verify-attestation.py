@@ -15,7 +15,7 @@ Checks follow https://docs.near.ai/cloud/verification (gateway attestation, mode
 quote/nonce/signer reference, response signatures). Exit code 1 if any required check fails.
 Nothing is stored: the report is only written to disk when you pass --save.
 """
-import argparse, asyncio, base64, hashlib, json, os, secrets, struct, sys, time
+import argparse, asyncio, base64, hashlib, http.client, json, os, secrets, ssl, struct, sys, time, urllib.parse
 
 import requests
 
@@ -127,18 +127,43 @@ async def verify_report(scope, report, nonce, offline):
                 check(scope, "NVIDIA NRAS GPU verdict", False, str(e))
 
 
-def verify_completion(model, model_signers, gateway_signer, key):
+class Gateway:
+    """One TLS connection to cloud-api.near.ai, kept open so the report and the completion share it."""
+    def __init__(self):
+        self.c = http.client.HTTPSConnection("cloud-api.near.ai", context=ssl.create_default_context(), timeout=120)
+        self.c.connect()
+        self.sock = self.c.sock
+
+    def peer_spki_sha256(self):
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        cert = x509.load_der_x509_certificate(self.c.sock.getpeercert(binary_form=True))
+        return hashlib.sha256(cert.public_key().public_bytes(serialization.Encoding.DER,
+                                                            serialization.PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+
+    def same_connection(self):
+        return self.c.sock is self.sock
+
+    def request(self, method, path, body=None, headers=None):
+        self.c.request(method, path, body=body, headers=headers or {})
+        r = self.c.getresponse()
+        data = r.read()
+        if r.status >= 300:
+            raise RuntimeError(f"{method} {path}: HTTP {r.status} {data[:200]!r}")
+        return data
+
+
+def verify_completion(gw, model, model_signers, gateway_signer, key):
     """One non-streamed completion; the model enclave signs <model>:<sha256(request)>:<sha256(response)>."""
     from eth_account import Account
     from eth_account.messages import encode_defunct
     print("\nCompletion")
     body = json.dumps({"model": model, "messages": [{"role": "user", "content": "Reply with the word ok."}],
                        "stream": False, "max_tokens": 16}, separators=(",", ":")).encode()
-    r = requests.post(f"{API}/chat/completions", data=body, timeout=120, headers={
+    raw = gw.request("POST", "/v1/chat/completions", body=body, headers={
         "Authorization": f"Bearer {key}", "Content-Type": "application/json", "x-no-aliasing": "true",
-        "Accept-Encoding": "identity"})
-    r.raise_for_status()
-    raw = r.content
+        "Accept-Encoding": "identity", "Accept": "application/json"})
+    check("completion", "Prompt sent on the attested TLS connection", gw.same_connection())
     chat_id = json.loads(raw)["id"]
     req_h, resp_h = hashlib.sha256(body).hexdigest(), hashlib.sha256(raw).hexdigest()
     sig = None
@@ -169,6 +194,7 @@ async def main():
     ap.add_argument("--sdk", action="store_true", help="also run NEAR's official SDK verify(model)")
     a = ap.parse_args()
 
+    gw = None
     if a.report:
         if not a.nonce:
             sys.exit("--report needs --nonce")
@@ -177,23 +203,27 @@ async def main():
     else:
         nonce = secrets.token_hex(32)  # fresh 32 random bytes, generated here
         print(f"Model {a.model}\nNonce {nonce} (fresh, from this machine)")
-        r = requests.get(f"{API}/attestation/report", timeout=90, headers={"Accept": "application/json", "x-no-aliasing": "true"},
-                         params={"model": a.model, "provider": "near", "signing_algo": "ecdsa", "nonce": nonce,
-                                 "include_tls_fingerprint": "false"})
-        r.raise_for_status()
-        report = r.json()
+        gw = Gateway()  # no API key is sent on this connection before the report is verified
+        q = urllib.parse.urlencode({"model": a.model, "provider": "near", "signing_algo": "ecdsa", "nonce": nonce,
+                                    "include_tls_fingerprint": "true"})
+        raw = gw.request("GET", f"/v1/attestation/report?{q}", headers={"Accept": "application/json", "x-no-aliasing": "true"})
+        report = json.loads(raw)
         if a.save:
-            open(a.save, "w").write(r.text)
+            open(a.save, "wb").write(raw)
 
     await verify_report("Gateway", report["gateway_attestation"], nonce, a.offline)
+    if gw:
+        fp = (report["gateway_attestation"].get("tls_cert_fingerprint") or "").lower()
+        peer = gw.peer_spki_sha256()
+        check("Gateway", "This TLS connection ends at the key the gateway quote binds", fp == peer, f"peer SPKI sha256 {peer[:16]}…")
     models = report.get("model_attestations") or []
     check("Model", "Model evidence returned", bool(models), f"{len(models)} candidate(s)")
     for i, m in enumerate(models):
         await verify_report(f"Model {m.get('model_name', a.model)} #{i + 1}", m, nonce, a.offline)
 
     key = os.environ.get("NEARAI_API_KEY")
-    if key and not a.report:
-        verify_completion(a.model, [m["signing_address"] for m in models], report["gateway_attestation"]["signing_address"], key)
+    if key and gw:
+        verify_completion(gw, a.model, [m["signing_address"] for m in models], report["gateway_attestation"]["signing_address"], key)
     else:
         print("\nCompletion\n  [SKIP] Response signature  (set NEARAI_API_KEY to send one completion and verify its signature)")
 
@@ -210,7 +240,7 @@ async def main():
 
     failed = [r for r in results if r[2] is False]
     print(f"\n{sum(1 for r in results if r[2])} passed, {len(failed)} failed, {sum(1 for r in results if r[2] is None)} skipped")
-    print("Not checked here: image provenance of the container digests, and TLS connection binding (see near/README.md).")
+    print("Not checked here: image provenance of the container digests, and the gateway-to-model hop (see near/README.md).")
     sys.exit(1 if failed else 0)
 
 

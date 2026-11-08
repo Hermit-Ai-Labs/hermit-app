@@ -68,7 +68,8 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
     let toolbox: CloudToolbox?
     private let state = CloudState()
     /// How long checked evidence is reused within one chat before a fresh nonce is sent.
-    public static let evidenceMaxAge: TimeInterval = 300
+    /// Fresh evidence for every reply: the report and the prompt then share one live TLS connection. 0 means never reuse.
+    public static let evidenceMaxAge: TimeInterval = 0
     static let maxRounds = 5
 
     public init(cloud: NearAICloud = NearAICloud(), toolbox: CloudToolbox? = nil) {
@@ -84,6 +85,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
     /// Fresh or recent evidence for `model`, checked.
     public func preflight(model: String, force: Bool = false) async throws -> Preflight {
         if !force, let p = await state.preflight, p.model == model, Date().timeIntervalSince(p.fetchedAt) < Self.evidenceMaxAge, p.passed { return p }
+        await state.preflight?.connection?.invalidate()
         let p = try await Preflight.run(model: model, cloud: cloud)
         await state.setPreflight(p)
         return p
@@ -126,12 +128,14 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         cont.yield(.status("Thinking in the enclave…"))
         var steps = 0, actions: [Action] = []
         var signatures: [Task<SignedCheck, Never>] = []
+        var uses: [GatewayConnection.Use?] = []
         var finalText = ""
         do {
             for round in 0..<Self.maxRounds {
                 try Task.checkCancellation()
                 let body = try await state.body(model: model, tools: toolbox == nil || round == Self.maxRounds - 1 ? nil : CloudTools.schemaData)
-                let raw = try await cloud.complete(body: body, key: key)
+                let (raw, use) = try await cloud.complete(body: body, key: key, on: pre.connection)
+                uses.append(use)
                 guard let j = try? JSONSerialization.jsonObject(with: raw) as? [String: Any], let id = j["id"] as? String,
                       let msg = ((j["choices"] as? [[String: Any]])?.first)?["message"] as? [String: Any] else {
                     throw NearAICloud.Failure.bad("NEAR AI Cloud sent a reply I couldn't read.")
@@ -145,7 +149,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                     break
                 }
                 var assistant: [String: Any] = ["role": "assistant", "tool_calls": calls]
-                assistant["content"] = msg["content"] as? String ?? NSNull()
+                assistant["content"] = (msg["content"] as? String).map { $0 as Any } ?? NSNull()
                 await state.append(assistant)
                 for call in calls {
                     let fn = call["function"] as? [String: Any]
@@ -181,7 +185,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         var results: [SignedCheck] = []
         for t in signatures { results.append(await t.value) }
         cont.yield(.steps(steps))
-        cont.yield(.proof(Self.proof(pre, results)))
+        cont.yield(.proof(Self.proof(pre, results, tls: Self.tlsCheck(pre, uses))))
     }
 
     // MARK: Signatures
@@ -218,7 +222,22 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         return r
     }
 
-    static func proof(_ pre: Preflight, _ sigs: [SignedCheck]) -> CloudProof {
+    /// Every completion went over the connection the attestation was read on, with no new TLS handshake since.
+    static func tlsCheck(_ pre: Preflight, _ uses: [GatewayConnection.Use?]) -> CloudProof.Check? {
+        guard let conn = pre.connection, pre.checks.contains(where: { $0.id == "gw.tls" && $0.status == .pass }) else { return nil }
+        let first = pre.attestationUse?.connection
+        let same = first != nil && !uses.isEmpty && uses.allSatisfy { $0?.connection == first && $0?.reused == true }
+        let handshakes = conn.handshakes
+        let noNew = handshakes.count == pre.handshakesAtFetch
+        let detail: String
+        let status: CloudProof.Status
+        if same && noNew { status = .pass; detail = "One connection for the attestation and the prompt, no new handshake" }
+        else if handshakes.allSatisfy({ $0 == handshakes.first }) { status = .skipped; detail = "The connection was re-opened. The new one showed the same attested key, which NEAR counts as inconclusive" }
+        else { status = .fail; detail = "A different server key was seen on this session" }
+        return .init(id: "reply.tls", group: CloudProof.replyGroup, title: "Prompt sent on that same verified connection", detail: detail, status: status)
+    }
+
+    static func proof(_ pre: Preflight, _ sigs: [SignedCheck], tls: CloudProof.Check? = nil) -> CloudProof {
         let n = sigs.count, model = sigs.filter(\.modelSigned).count
         let kinds = Set(sigs.compactMap(\.kind))
         let g = CloudProof.replyGroup
@@ -236,6 +255,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                   detail: sigs.first { !$0.signerMatches }?.detail ?? sigs.first?.detail ?? "",
                   status: available ? st(sigs.allSatisfy(\.signerMatches) && kinds == ["provider_tee"]) : .skipped),
         ]
+        if let tls { checks.insert(tls, at: 1) }
         if kinds.contains("gateway") {
             checks.append(.init(id: "reply.gw", group: g, title: "Some completions were signed by the gateway, not the model",
                                 detail: "A gateway signature doesn't prove which model wrote the bytes", status: .fail))
@@ -281,6 +301,7 @@ actor CloudState {
         var b: [String: Any] = ["model": model, "messages": [["role": "system", "content": instructions]] + history,
                                 "stream": false, "max_tokens": 1200, "temperature": 0.6]
         if let tools, let t = try? JSONSerialization.jsonObject(with: tools) { b["tools"] = t; b["tool_choice"] = "auto" }
+        guard JSONSerialization.isValidJSONObject(b) else { throw NearAICloud.Failure.bad("Couldn't build the request.") }
         return try JSONSerialization.data(withJSONObject: b, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 }
