@@ -342,8 +342,7 @@ Hermit has no server. Chat history stays in memory on the device until New chat.
   app on the device. The key is a credit-spend risk for Hermit, not a risk to users.
 - **What leaves the phone in on-device mode.** No prompts. The phone does make network calls for balances (public RPCs),
   prices, and quotes (1Click, Relay), so those providers see your addresses and the pairs you quote.
-- **Not done.** Function-call access keys: the assistant has no key at all, so there was nothing to scope. Hyperliquid
-  `prepare_trade` is not yet priced by the spending policy, though it still needs the sheet and Face ID. The policy's
+- **Not done.** Function-call access keys: the assistant has no key at all, so there was nothing to scope. The policy's
   state is on the device, so it guards against the assistant, not against whoever holds the unlocked phone.
 
 ---

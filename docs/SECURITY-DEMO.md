@@ -108,7 +108,7 @@ The 8 skipped tests are the live network tests. They run with `HERMIT_LIVE=1` an
   assistant never holds any key. It can only *prepare* a move. The one full-access key is derived on the phone
   (m/44'/397'/0'), unlocked by Face ID for each signature, and wiped after use. A function-call key could not send NEAR
   or `ft_transfer` anyway, because `ft_transfer` needs 1 yoctoNEAR attached, so it would not help the moves Hermit makes.
-- **`prepare_trade` (Hyperliquid perps) is not priced by the spending policy.** It needs the approval sheet and Face ID
-  like everything else, but the $100 per-move cap and the daily limit do not apply to it yet.
+- **`prepare_trade` (Hyperliquid perps) is priced by its margin in USD** (`SpendPolicy.evaluateAgentTrade`, test
+  `testSpendPolicyAgentTrade`): over the $100 per-move cap or the daily limit it is blocked before any sheet opens.
 - **The policy state lives on the device** (`UserDefaults`). Someone who controls the unlocked phone can raise the limits.
   The policy protects against the assistant, not against the phone's owner.
