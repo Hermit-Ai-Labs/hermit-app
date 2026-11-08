@@ -34,11 +34,13 @@ struct OfflineKeysBadge: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("Made on this phone").font(.system(size: 13.5, weight: .semibold))
-                    Circle().fill(offline ? Theme.green : Theme.faint).frame(width: 5, height: 5)
-                    Text(offline ? "Offline" : "Online").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                    Text(offline ? "Offline" : "Online").font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(offline ? Theme.green : Theme.muted)
+                        .padding(.horizontal, 6).padding(.vertical, 1.5)
+                        .background(offline ? Theme.green.opacity(0.12) : Color.black.opacity(0.05), in: Capsule())
                 }
                 Text(offline ? "Nothing can leave this phone." : "Works offline. Airplane Mode adds peace of mind.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.85)
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }

@@ -159,7 +159,7 @@ struct WalletSendSheet: View {
 
             HStack(spacing: 10) {
                 FormField(label: "Amount") { AmountTextField(text: $amount) }
-                FormField(label: "Asset", trailing: "\(held?.exact ?? "0") available") {
+                FormField(label: "Asset", trailing: "\(held.map { MoneyFmt.amount($0.amount) } ?? "0") available") {
                     MenuField(selection: $token, options: vm.tokens(chain: chain), title: { $0 }, logo: { $0 })
                 }
             }
@@ -325,7 +325,7 @@ struct TransferSheet: View {
                 FormField(label: "Network") { MenuField(selection: $chain, options: sendPickerChains, title: sendChainTitle, logo: { $0.logo }) }
                 HStack(spacing: 10) {
                     FormField(label: "Amount") { AmountTextField(text: $amount) }
-                    FormField(label: "Asset", trailing: "\(held?.exact ?? "0") available") {
+                    FormField(label: "Asset", trailing: "\(held.map { MoneyFmt.amount($0.amount) } ?? "0") available") {
                         MenuField(selection: $token, options: vm.tokens(chain: chain), title: { $0 }, logo: { $0 })
                     }
                 }

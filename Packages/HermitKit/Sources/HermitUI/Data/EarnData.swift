@@ -42,6 +42,8 @@ enum EarnData {
                 ?? project.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
         }
         var logo: String? { EarnData.projects[project]?.logo }
+        /// "Aave V3 USDC"; "Binance wBETH" rather than "Binance wBETH WBETH" when the name already says the token.
+        var title: String { name.lowercased().contains(symbol.lowercased()) ? name : "\(name) \(symbol)" }
         var chainName: String { EarnData.chainName(chain) }
     }
 

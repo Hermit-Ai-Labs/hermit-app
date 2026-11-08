@@ -14,7 +14,7 @@ struct EarnPoolRow: View {
                 HStack(spacing: 12) {
                     MarketLogo(key: pool.logo, name: pool.name, remote: MarketLogo.protocolIcon(pool.project))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(pool.name) \(pool.symbol)").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(pool.title).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                         Text("\(pool.chainName), \(pool.tvlUsd.tradeCompactUSD) TVL" + (pool.poolMeta.map { ", \($0)" } ?? ""))
                             .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
@@ -80,7 +80,7 @@ struct EarnPoolDetail: View {
                 if EarnRoute.aave(pool) != nil {
                     Button("Deposit") { EarnFlow.shared.deposit = pool }.buttonStyle(TradeSmallButton(kind: .primary))
                 }
-                Button { model.send("Is \(pool.name) \(pool.symbol) on \(pool.chainName) at \(EarnPoolRow.pct(pool.apy)) APY a good place for my money? What are the risks?") } label: {
+                Button { model.send("Is \(pool.title) on \(pool.chainName) at \(EarnPoolRow.pct(pool.apy)) APY a good place for my money? What are the risks?") } label: {
                     Label("Ask", systemImage: "sparkles")
                 }
                 .buttonStyle(TradeSmallButton(kind: .brand))

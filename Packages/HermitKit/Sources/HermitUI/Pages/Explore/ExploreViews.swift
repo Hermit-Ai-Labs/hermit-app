@@ -49,11 +49,12 @@ struct ExploreCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                LogoMark(dapp.name, size: 36)
+                LogoMark(dapp.name, size: 36).frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(dapp.name).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                    Text(dapp.name).font(.system(size: 14, weight: .medium)).lineLimit(1).minimumScaleFactor(0.72)
                     Text(dapp.cat).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             Text(dapp.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 .lineLimit(2, reservesSpace: true).lineSpacing(2)

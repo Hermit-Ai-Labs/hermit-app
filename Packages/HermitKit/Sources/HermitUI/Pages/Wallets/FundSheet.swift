@@ -174,7 +174,7 @@ struct FundSheet: View {
         return SheetChrome(title: "Move to \(goal.place.name)", subtitle: h.map { "From \($0.symbol) on \($0.chain.name)" },
                            onBack: { withAnimation(.smooth) { stage = .source } }) {
             if let h {
-                FormField(label: "Amount (\(h.symbol))", trailing: "\(h.exact) available") { AmountTextField(text: $amount) }
+                FormField(label: "Amount (\(h.symbol))", trailing: "\(MoneyFmt.amount(h.amount)) available") { AmountTextField(text: $amount) }
                 WrapRow {
                     ForEach([("25%", 0.25), ("50%", 0.5)], id: \.0) { q in
                         SelectChip(title: q.0, on: amount == fractionText(h, q.1)) { amount = fractionText(h, q.1) }

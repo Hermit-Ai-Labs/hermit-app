@@ -105,7 +105,7 @@ struct TokenSheet: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 1) {
                         Text(MoneyFmt.value(h)).font(.system(size: 13.5)).monospacedDigit()
-                        Text("\(h.exact) \(h.symbol)").font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()
+                        Text("\(MoneyFmt.amount(h.amount)) \(h.symbol)").font(.system(size: 12)).foregroundStyle(Theme.muted).monospacedDigit()
                     }
                 }
                 .padding(.vertical, 8)
@@ -257,7 +257,7 @@ struct AddWalletSheet: View {
             OfflineKeysBadge()
             FormField(label: "Name") { BoxedTextField(placeholder: "e.g. Savings", text: $name) }
             DetailLines(lines: [("Keys", "Made and kept on this phone"), ("Locked by", "Face ID or your passcode"),
-                                ("Recovery phrase", "12 new words"), ("Addresses", "One for EVM chains, one for Solana")])
+                                ("Recovery phrase", "12 new words"), ("Addresses", "EVM chains, Solana and NEAR")])
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red) }
             NoteBox(symbol: "checkmark.shield", text: "Next you'll see your 12 words once. Write them on paper: they're the only way to restore this wallet.")
         } foot: {

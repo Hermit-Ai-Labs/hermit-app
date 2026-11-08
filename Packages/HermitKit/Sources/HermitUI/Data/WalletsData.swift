@@ -157,6 +157,8 @@ enum MoneyFmt {
         if v >= 1_000_000 { return (v / 1_000_000).formatted(.number.precision(.fractionLength(0...1)).locale(en)) + "M" }
         if v >= 1000 { return v.formatted(.number.precision(.fractionLength(0)).locale(en)) }
         if v >= 1 { return v.formatted(.number.precision(.fractionLength(0...2)).locale(en)) }
+        // Dust ("0.00000000000000618") is unreadable and too long for a row.
+        if v < 0.000001 { return "<0.000001" }
         return v.formatted(.number.precision(.significantDigits(1...3)).locale(en))
     }
     /// "$1,240" when there is a price, "Testnet" or "No price" when there isn't.
