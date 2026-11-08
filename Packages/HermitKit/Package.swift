@@ -43,7 +43,7 @@ let package = Package(
             "HermitCore",
             .product(name: "libsecp256k1", package: "swift-secp256k1"),
             .product(name: "CryptoSwift", package: "CryptoSwift"),
-        ], resources: [.copy("Resources/bip39-english.txt")]),
+        ], resources: [.copy("Resources/bip39-english.txt"), .process("Resources/Bundled")]),
         // HermitCloud: Private Cloud mode on NEAR AI Cloud (TEE inference), and the on-device attestation checks behind it.
         .target(name: "HermitCloud", dependencies: [
             "HermitCore",

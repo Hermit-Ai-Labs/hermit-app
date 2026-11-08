@@ -156,13 +156,13 @@ struct SpendPolicyCard: View {
 struct IntentsKeyCard: View {
     @Environment(AppModel.self) private var model
     @State private var key = ""
-    @State private var saved = OneClick.configuredJWT != nil
+    @State private var saved = UserDefaults.standard.string(forKey: OneClick.jwtDefaultsKey) != nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("NEAR Intents")
-            DetailLines(lines: [("Swaps and bridges", "1Click Swap API"), ("Partner key", saved ? "Set" : "Not set, 0.2% API fee"),
-                                ("Confidential swaps", saved ? "Available" : "Need a partner key")])
+            DetailLines(lines: [("Swaps and bridges", "1Click Swap API"), ("Partner key", saved ? "Set" : OneClick.bundledJWT != nil ? "Hermit's, built in" : "Not set, 0.2% API fee"),
+                                ("Confidential swaps", saved || OneClick.bundledJWT != nil ? "Available" : "Need a partner key")])
             HStack(spacing: 8) {
                 SecureField(saved ? "Replace partner key" : "Paste a 1Click partner key", text: $key)
                     .textFieldStyle(.plain).font(.system(size: 13.5)).modifier(FieldBox())

@@ -13,3 +13,4 @@ Packages/HermitKit/Package.resolved
 Packages/HermitKit/Sources/HermitCloud/Resources/shared.bin
 *.whl
 .venv/
+Packages/HermitKit/Sources/HermitWallet/Resources/Bundled/intents.bin

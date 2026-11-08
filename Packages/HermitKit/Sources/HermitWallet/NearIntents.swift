@@ -28,11 +28,22 @@ public struct OneClick: Sendable {
         self.base = base; self.jwt = jwt?.isEmpty == true ? nil : jwt; self.transport = transport
     }
 
-    /// The partner JWT, if set: the ONECLICK_JWT environment variable (CI, tests) or the app's settings. Never in the repo.
+    /// The partner JWT: the ONECLICK_JWT environment variable (CI, tests), a key pasted in the app's settings, or
+    /// Hermit's own partner key bundled at build time. Never in the repo.
     public static var configuredJWT: String? {
         if let e = ProcessInfo.processInfo.environment["ONECLICK_JWT"], !e.isEmpty { return e }
-        return UserDefaults.standard.string(forKey: jwtDefaultsKey).flatMap { $0.isEmpty ? nil : $0 }
+        return UserDefaults.standard.string(forKey: jwtDefaultsKey).flatMap { $0.isEmpty ? nil : $0 } ?? bundledJWT
     }
+
+    /// Hermit's 1Click partner key (confidential swaps, partner fees), written into the app at build time by
+    /// scripts/bundle-shared-key.sh as Resources/Bundled/intents.bin (gitignored), masked like the NEAR AI key.
+    public static let bundledJWT: String? = {
+        guard let url = Bundle.module.url(forResource: "intents", withExtension: "bin"),
+              let d = try? Data(contentsOf: url), let b = Data(base64Encoded: d) else { return nil }
+        let mask = Array("hermit-private-cloud".utf8)
+        let key = String(decoding: b.enumerated().map { $0.element ^ mask[$0.offset % mask.count] }, as: UTF8.self)
+        return key.hasPrefix("eyJ") ? key : nil
+    }()
     public var authenticated: Bool { jwt != nil }
 
     public static let urlSession: @Sendable (URLRequest) async throws -> (Data, Int) = { req in
