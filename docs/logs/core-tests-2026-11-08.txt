@@ -1,0 +1,157 @@
+# bash scripts/core-tests.sh  (MacBook Air M3, macOS 26.5, Xcode 26.6, Swift 6.3.3; 2026-11-08, Mac local time UTC+5:30)
+# Filtered to the XCTest lines; paths shortened to the repo. Nothing else edited.
+Test Suite 'All tests' started at 2026-11-08 17:49:57.898.
+Test Suite 'HermitCoreTestsPackageTests.xctest' started at 2026-11-08 17:49:57.904.
+Test Suite 'CryptoVectorTests' started at 2026-11-08 17:49:57.904.
+Test Case '-[HermitWalletTests.CryptoVectorTests testBIP32Vectors]' passed (0.006 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testBIP39Vectors]' passed (0.007 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testEIP1559NativeTransfer]' passed (0.001 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testEIP1559USDCTransfer]' passed (0.003 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testEIP155Vector]' passed (0.001 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testEIP55]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testKeccak]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testMnemonicToAddresses]' passed (0.004 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testRLP]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testSLIP10Ed25519Vector]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.CryptoVectorTests testUnits]' passed (0.000 seconds).
+Test Suite 'CryptoVectorTests' passed at 2026-11-08 17:49:57.930.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.026 (0.026) seconds
+Test Suite 'HermitCloudTests' started at 2026-11-08 17:49:57.930.
+Test Case '-[HermitCloudTests.HermitCloudTests testCleanDropsThinking]' passed (0.000 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testEditedComposeFails]' passed (0.015 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testEditedEventLogFails]' passed (0.013 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testEIP191Recovery]' passed (0.001 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testExpectedTextIsModelAndHashes]' passed (0.000 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testExpiredCertificatesFail]' passed (0.007 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testFlippedQuoteByteFails]' passed (0.018 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testIntelRootIsIntels]' passed (0.000 seconds).
+Packages/HermitKit/Tests/HermitCloudTests/HermitCloudTests.swift:214: -[HermitCloudTests.HermitCloudTests testLiveAttestation] : Test skipped - set HERMIT_LIVE=1
+Test Case '-[HermitCloudTests.HermitCloudTests testLiveAttestation]' skipped (0.030 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testModelDiscoveryPicksNearTEEModels]' passed (0.001 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testProofHeadline]' passed (0.009 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testQuoteFieldsMatchDcapQvl]' passed (0.006 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testRealReportsPassEveryCheck]' passed (0.015 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testSignatureVerifies]' passed (0.003 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testSwappedSignerFails]' passed (0.013 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testTLSBinding]' passed (0.014 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testToolSchemaIsHermits]' passed (0.001 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testUnavailableSignatureIsNotASignature]' passed (0.000 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testWrongModelFails]' passed (0.007 seconds).
+Test Case '-[HermitCloudTests.HermitCloudTests testWrongNonceFails]' passed (0.007 seconds).
+Test Suite 'HermitCloudTests' passed at 2026-11-08 17:49:58.091.
+	 Executed 20 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.160 (0.161) seconds
+Test Suite 'HermitPromptTests' started at 2026-11-08 17:49:58.091.
+Test Case '-[HermitCoreTests.HermitPromptTests testAppToolsAreTheTrainedOnesPlusQuote]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.HermitPromptTests testNeutralize]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.HermitPromptTests testRenderMatchesTraining4B]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.HermitPromptTests testRenderMatchesTrainingLite]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.HermitPromptTests testRenderWithoutTools]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.HermitPromptTests testToolBlockMatchesTraining]' passed (0.000 seconds).
+Test Suite 'HermitPromptTests' passed at 2026-11-08 17:49:58.094.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'HyperliquidTests' started at 2026-11-08 17:49:58.094.
+Test Case '-[HermitWalletTests.HyperliquidTests testLeverageOnBuilderDex]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.HyperliquidTests testOrderMsgpackHashAndSignature]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.HyperliquidTests testRounding]' passed (0.000 seconds).
+Test Suite 'HyperliquidTests' passed at 2026-11-08 17:49:58.098.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'LiveReadTests' started at 2026-11-08 17:49:58.098.
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testAllChainIds] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testAllChainIds]' skipped (0.000 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testBaseSepolia] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testBaseSepolia]' skipped (0.000 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testENS] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testENS]' skipped (0.000 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testPrepareSendOnUnfundedWalletIsBlocked] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testPrepareSendOnUnfundedWalletIsBlocked]' skipped (0.000 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testSolanaDevnet] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testSolanaDevnet]' skipped (0.000 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift:349: -[HermitWalletTests.LiveReadTests testTokenDecimalsOnChain] : Test skipped - set HERMIT_LIVE=1 for live reads
+Test Case '-[HermitWalletTests.LiveReadTests testTokenDecimalsOnChain]' skipped (0.000 seconds).
+Test Suite 'LiveReadTests' passed at 2026-11-08 17:49:58.099.
+	 Executed 6 tests, with 6 tests skipped and 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'NearIntentsTests' started at 2026-11-08 17:49:58.099.
+Test Case '-[HermitWalletTests.NearIntentsTests testAgentToolsParseChainsAndPrepareIsGuarded]' passed (0.005 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testErrorsInPlainWords]' passed (0.002 seconds).
+Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift:212: -[HermitWalletTests.NearIntentsTests testLiveDryQuote] : Test skipped - set ONECLICK_LIVE=1 for the live dry quote
+Test Case '-[HermitWalletTests.NearIntentsTests testLiveDryQuote]' skipped (0.000 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testQuoteRequestAndParse]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testSignatureMatchesSDKOnLiveQuotes]' passed (0.004 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testSignatureNonDryAndTampering]' passed (0.004 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testSpendPolicy]' passed (0.003 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testStableStringify]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testStatusesAndSubmit]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.NearIntentsTests testTokensAndAssetMapping]' passed (0.011 seconds).
+Test Suite 'NearIntentsTests' passed at 2026-11-08 17:49:58.132.
+	 Executed 10 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.033 (0.034) seconds
+Test Suite 'NearTests' started at 2026-11-08 17:49:58.132.
+Test Case '-[HermitWalletTests.NearTests testAccountIds]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.NearTests testAvailableBalanceLessStorage]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.NearTests testDerivation]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.NearTests testFtTransferWithStorageMatchesNearApiJs]' passed (0.001 seconds).
+Test Case '-[HermitWalletTests.NearTests testNewWalletGetsNearAccount]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.NearTests testRecordDecodesWithoutNearAccount]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.NearTests testTransferMatchesNearApiJs]' passed (0.001 seconds).
+Test Suite 'NearTests' passed at 2026-11-08 17:49:58.141.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.009 (0.009) seconds
+Test Suite 'SecureEnclaveFileStoreTests' started at 2026-11-08 17:49:58.141.
+Test Case '-[HermitWalletTests.SecureEnclaveFileStoreTests testCreateWithPhraseMatchesExport]' passed (0.004 seconds).
+Test Case '-[HermitWalletTests.SecureEnclaveFileStoreTests testMainnetGuardBlocksWhenOff]' passed (0.003 seconds).
+Test Case '-[HermitWalletTests.SecureEnclaveFileStoreTests testSealOpenRemoveRoundTrip]' passed (0.033 seconds).
+Test Case '-[HermitWalletTests.SecureEnclaveFileStoreTests testSendLogAndWhitelistBook]' passed (0.002 seconds).
+Test Suite 'SecureEnclaveFileStoreTests' passed at 2026-11-08 17:49:58.183.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.041 (0.041) seconds
+Test Suite 'SolanaTests' started at 2026-11-08 17:49:58.183.
+Test Case '-[HermitWalletTests.SolanaTests testAssociatedTokenAccount]' passed (0.017 seconds).
+Test Case '-[HermitWalletTests.SolanaTests testBase58]' passed (0.000 seconds).
+Test Case '-[HermitWalletTests.SolanaTests testOnCurve]' passed (0.048 seconds).
+Test Case '-[HermitWalletTests.SolanaTests testSOLTransferMessageMatchesSolders]' passed (0.002 seconds).
+Test Case '-[HermitWalletTests.SolanaTests testSPLTransferMessageMatchesSolders]' passed (0.025 seconds).
+Test Suite 'SolanaTests' passed at 2026-11-08 17:49:58.274.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.091 (0.092) seconds
+Test Suite 'TableAndVaultTests' started at 2026-11-08 17:49:58.274.
+Test Case '-[HermitWalletTests.TableAndVaultTests testSpendLimitAndAddressBook]' passed (0.001 seconds).
+Test Case '-[HermitWalletTests.TableAndVaultTests testTokenTable]' passed (0.005 seconds).
+Test Case '-[HermitWalletTests.TableAndVaultTests testVaultLifecycleInMemory]' passed (0.010 seconds).
+Test Suite 'TableAndVaultTests' passed at 2026-11-08 17:49:58.291.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.017 (0.017) seconds
+Test Suite 'ToolCallParserTests' started at 2026-11-08 17:49:58.291.
+Test Case '-[HermitCoreTests.ToolCallParserTests testBareJSONCall]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testMalformedIsNeverText]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testMultipleCalls]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testPythonRendering]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testRepairs]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testSplitAcrossChunks]' passed (0.002 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testStrayCloseTagDropped]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testTagPrefixInPlainTextIsReleased]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testTextAroundACall]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testUnclosedCallFollowedByAnother]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolCallParserTests testWellFormed]' passed (0.000 seconds).
+Test Suite 'ToolCallParserTests' passed at 2026-11-08 17:49:58.295.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'ToolLoopTests' started at 2026-11-08 17:49:58.295.
+Test Case '-[HermitCoreTests.ToolLoopTests testAddressInAttachedFileDoesNotCount]' passed (0.003 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testClaimWithoutPreparingIsCorrected]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testGuardMatching]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testMalformedCallFallsBackWithoutGarbage]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testMalformedThenRecovered]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testParallelCallsAndMaths]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testPriceThenAnswer]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testPromptInjectionInToolResultCannotPrepareSend]' passed (0.002 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testRepeatedCallsRunOnceAndStuckModelStops]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testRepeatGuardStillWorksAndIgnoresToolJSON]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testRoundLimit]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testSecondMessageKeepsHistoryAndLiteFamily]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testSendToTypedAddressIsPrepared]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testStatusLabels]' passed (0.000 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testSystemPromptChangeWaitsForNewChat]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testThinkBlockHiddenAndPlainChat]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testToolResultCleaning]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testTradeEndsInApprovalButton]' passed (0.001 seconds).
+Test Case '-[HermitCoreTests.ToolLoopTests testUnknownToolIsAnErrorNotACrash]' passed (0.001 seconds).
+Test Suite 'ToolLoopTests' passed at 2026-11-08 17:49:58.314.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.019 (0.020) seconds
+Test Suite 'HermitCoreTestsPackageTests.xctest' passed at 2026-11-08 17:49:58.314.
+	 Executed 105 tests, with 8 tests skipped and 0 failures (0 unexpected) in 0.407 (0.410) seconds
+Test Suite 'All tests' passed at 2026-11-08 17:49:58.314.
+	 Executed 105 tests, with 8 tests skipped and 0 failures (0 unexpected) in 0.407 (0.416) seconds

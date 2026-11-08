@@ -1,0 +1,17 @@
+# python near/near-account.py   (Linux, 2026-11-08 UTC)
+Derivation (on the phone this runs inside KeyVault after Face ID; here from a public test phrase)
+  phrase             the public BIP-39 test phrase abandon x11 about
+  [PASS] BIP-39 checksum (app word list)
+  path               m/44'/397'/0' (SLIP-10 ed25519)
+  public key         ed25519:6j4b6zUaty6fD1awqcGCCU9JYGCWYUgdJhQrzfZhqE25
+  implicit account   5510e2b44cae6eb807e3e0e45d579dda058c274abcba15e5cb84636f5d1ee412
+  [PASS] public key matches the Swift test vector (NearTests.testDerivation)
+  [PASS] implicit account matches the Swift test vector (NearTests.testDerivation)
+
+NEAR mainnet, https://free.rpc.fastnear.com (read-only)
+  account            5510e2b44cae6eb807e3e0e45d579dda058c274abcba15e5cb84636f5d1ee412
+  NEAR balance       312.195729412602827003523946 NEAR (storage reserve 0.00756, locked 0)
+  block height       223616003
+  USDC   (NEP-141)   0  [17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1]
+  USDT   (NEP-141)   9.8  [usdt.tether-token.near]
+  wNEAR  (NEP-141)   0  [wrap.near]

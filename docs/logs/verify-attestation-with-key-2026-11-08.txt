@@ -1,0 +1,43 @@
+# NEARAI_API_KEY=... python near/verify-attestation.py --sdk   (Linux, Python 3.12, fresh venv from near/requirements.txt, 2026-11-08 UTC)
+Model Qwen/Qwen3.8-27B
+Nonce 7dfa74ed5581d7d54af1f0f786012414f3ff2625cd3849c0274cedc12227aa38 (fresh, from this machine)
+
+Gateway: signer 0xb98a789cdc4817275f5155593ba73ef2a957e779 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] HTTP report_data equals quote report data
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 cdb7727578dbbac4…)
+  [PASS] Event log replays to RTMR3
+  [PASS] This TLS connection ends at the key the gateway quote binds  (peer SPKI sha256 73862c254372091c…)
+  [PASS] Model evidence returned  (1 candidate(s))
+
+Model Qwen/Qwen3.8-27B #1: signer 0x835ab53d20294ef795906dff21ae4c045336aa26 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 31d3b2389e06a445…)
+  [PASS] Event log replays to RTMR3
+  [PASS] GPU evidence carries our nonce  (1 GPUs, arch HOPPER)
+  [PASS] NVIDIA NRAS GPU verdict  (eat_nonce 7dfa74ed5581…)
+
+Completion
+  [PASS] Prompt sent on the attested TLS connection
+  [PASS] Signature available  (ae16d4620ae245d99bed817dafb7ef27)
+  [PASS] Signed text covers our exact request and response bytes  (kind provider_tee)
+  [PASS] Signer is the attested model enclave  (0x835AB53d20294Ef795906DFf21aE4C045336aa26)
+
+NEAR official SDK (nearai-inference-sdk) verify(model)
+  [PASS] SDK gateway verification  (TCB UpToDate)
+  [PASS] SDK model verification  (1 verified model report(s))
+
+29 passed, 0 failed, 0 skipped
+Not checked here: image provenance of the container digests, and the gateway-to-model hop (see near/README.md).

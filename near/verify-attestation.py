@@ -225,7 +225,8 @@ async def main():
     if key and gw:
         verify_completion(gw, a.model, [m["signing_address"] for m in models], report["gateway_attestation"]["signing_address"], key)
     else:
-        print("\nCompletion\n  [SKIP] Response signature  (set NEARAI_API_KEY to send one completion and verify its signature)")
+        print("\nCompletion")
+        check("completion", "Response signature", None, "set NEARAI_API_KEY to send one completion and verify its signature")
 
     if a.sdk and not a.offline:
         print("\nNEAR official SDK (nearai-inference-sdk) verify(model)")

@@ -1,0 +1,36 @@
+# python near/verify-attestation.py   (no API key; Linux, Python 3.12, fresh venv, 2026-11-08 UTC)
+Model Qwen/Qwen3.8-27B
+Nonce 51f0f808e73942fe83468b5e697776e76e03cd7b4fdc2d018632663fceaeb8b3 (fresh, from this machine)
+
+Gateway: signer 0xb98a789cdc4817275f5155593ba73ef2a957e779 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] HTTP report_data equals quote report data
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 cdb7727578dbbac4…)
+  [PASS] Event log replays to RTMR3
+  [PASS] This TLS connection ends at the key the gateway quote binds  (peer SPKI sha256 73862c254372091c…)
+  [PASS] Model evidence returned  (1 candidate(s))
+
+Model Qwen/Qwen3.8-27B #1: signer 0x835ab53d20294ef795906dff21ae4c045336aa26 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 e8416a02d6f7ce47…)
+  [PASS] Event log replays to RTMR3
+  [PASS] GPU evidence carries our nonce  (8 GPUs, arch HOPPER)
+  [PASS] NVIDIA NRAS GPU verdict  (eat_nonce 51f0f808e739…)
+
+Completion
+  [SKIP] Response signature  (set NEARAI_API_KEY to send one completion and verify its signature)
+
+23 passed, 0 failed, 1 skipped
+Not checked here: image provenance of the container digests, and the gateway-to-model hop (see near/README.md).

@@ -12,7 +12,7 @@ On-device stays the default. Private Cloud is opt-in per chat box (mode menu nex
 ## How NEAR AI Cloud is used and what is verified
 
 Hermit calls NEAR AI Cloud's OpenAI-compatible gateway (`https://cloud-api.near.ai/v1`) with the user's own key, which
-is stored in the iOS Keychain on the device only. Models are discovered from `/v1/models`, keeping the open models NEAR
+is stored in the iOS Keychain on the device only (TestFlight builds may also carry Hermit's shared key, 30 messages per device per day). Models are discovered from `/v1/models`, keeping the open models NEAR
 runs itself in TEEs (`owned_by: nearai`) that support tool calls; the default is `Qwen/Qwen3.8-27B` (same family as the
 on-device Hermit 1.1). Before every prompt, the phone generates 32 random bytes and opens one watched HTTPS connection
 to the gateway; on it, it fetches `/v1/attestation/report?model=…&provider=near&signing_algo=ecdsa&include_tls_fingerprint=true&nonce=…`
@@ -50,7 +50,16 @@ approval sheet. Hermit has no server: the conversation is kept in memory on the 
 | Image provenance of container digests | **Not checked** (compose hash is bound to the quote; who built each image is not) |
 | Gateway-to-model hop for the same request | **Not provable today** (NEAR docs: TLS binding covers the gateway only, and a matching model signer doesn't prove the same instance) |
 
-## Try it without an iPhone (Linux or macOS, no API key needed)
+## Try it without an iPhone (Linux or macOS)
+
+The root [README](../README.md#b-no-iphone-the-same-near-code-paths-on-linux-or-macos) has the full walkthrough and the
+expected output. The scripts in this folder:
+
+| Script | What it shows | Key needed |
+| --- | --- | --- |
+| `verify-attestation.py` | NEAR AI Cloud attestation, checked step by step as the phone does: `23 passed, 0 failed, 1 skipped` without a key, `27 passed` with `NEARAI_API_KEY` (one completion and its enclave signature), or 29 with `--sdk` | No (attestation); yes (completion) |
+| `intents-quote.py` | A live dry 1Click quote, any pair (default 10 USDC on Base to NEAR), with the quote signature checked; `--selftest` checks the signature code against the Swift fixtures | No |
+| `near-account.py` | The NEAR implicit account derived from the public test phrase at m/44'/397'/0', compared with the Swift test vector, and its NEAR and NEP-141 balances over public RPC | No |
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
@@ -59,11 +68,11 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py   # plus one completion and its signature check
 ```
 
-Do: run the first command. See: about 23 `[PASS]` lines for the gateway and the model enclave, including
+Do: run the first command. See: 23 `[PASS]` lines for the gateway and the model enclave, including
 `Intel DCAP quote verification (dcap-qvl) (TCB UpToDate)`, `This TLS connection ends at the key the gateway quote binds`
-and `NVIDIA NRAS GPU verdict`, then `0 failed`.
+and `NVIDIA NRAS GPU verdict`, then `23 passed, 0 failed, 1 skipped`. Recorded runs are in [`docs/logs/`](../docs/logs).
 
-Offline, against the recorded reports the Swift unit tests use:
+Offline, against the recorded reports the Swift unit tests use (`17 passed, 0 failed, 4 skipped`):
 
 ```sh
 F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures

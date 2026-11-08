@@ -1,4 +1,6 @@
-requests>=2.31
-dcap-qvl>=0.7
-eth-account>=0.13
-nearai-inference-sdk>=0.2
+# Pinned for the judge scripts in near/. Python 3.10+; tested on Linux (Python 3.12) 2026-11-08.
+requests==2.34.2
+cryptography==50.0.2
+eth-account==0.14.0
+dcap-qvl==0.7.1
+nearai-inference-sdk==0.2.1

@@ -1,0 +1,28 @@
+# python near/intents-quote.py   (Linux, 2026-11-08 UTC)
+1Click dry quote: 10 USDC on base -> wNEAR on near
+  origin asset       nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near
+  destination asset  nep141:wrap.near
+  recipient          5510e2b44cae6eb807e3e0e45d579dda058c274abcba15e5cb84636f5d1ee412
+
+  amount in          10.0 USDC  ($10.00)
+  amount out         2.690444351237006824200359 wNEAR  ($9.98)
+  minimum out        2.663539907724636755958355 wNEAR  (1% slippage)
+  1Click fee         20 bps (0.2%), the no-JWT fee (Q-006)
+  total cost         $0.01 (in minus out, all fees and spread)
+  time estimate      35 s
+  deposit address    none (dry quote: nothing can be sent)
+  correlation id     c39d0dc0-bfef-407d-b038-2603b6859b18
+  quote hash         HBvnGK15WDgU3EbCKsH4suAp6HUXpGtMEHN85ieuXjaD
+  [PASS] 1Click signature by ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc
+
+# python near/intents-quote.py --selftest
+  [PASS] quote-dry-base-usdc-to-near: hash matches Swift, signature valid (expected valid, key reYaWhvw…)
+  [PASS] quote-dry-near-to-hyperliquid: hash matches Swift, signature valid (expected valid, key reYaWhvw…)
+  [PASS] quote-dry-flex-arb-to-base: hash n/a, signature valid (expected valid, key reYaWhvw…)
+  [PASS] quote-dry-btc-refund-intents: hash matches Swift, signature invalid (expected invalid, key reYaWhvw…)
+  [PASS] quote-live-synthetic-signed: hash matches Swift, signature valid (expected valid, key GmaDrppB…)
+  [PASS] quote-live-synthetic-signed: hash n/a, signature invalid (expected invalid, key reYaWhvw…)
+  [PASS] quote-live-synthetic-nodeadline: hash matches Swift, signature valid (expected valid, key GmaDrppB…)
+  [PASS] swapped deposit address is rejected
+
+8 passed, 0 failed
