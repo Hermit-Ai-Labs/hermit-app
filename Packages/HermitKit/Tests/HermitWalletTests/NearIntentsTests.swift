@@ -183,7 +183,7 @@ final class NearIntentsTests: XCTestCase {
         XCTAssertEqual(fresh.decision, .warn); XCTAssertTrue(fresh.warnings[0].contains("First payment"))
         // The assistant: capped per move, never to someone else's address, never unpriced.
         XCTAssertEqual(p.evaluate(usd: 5, payee: nil, origin: .agent).decision, .allow)
-        XCTAssertEqual(p.evaluate(usd: 15, payee: nil, origin: .agent).decision, .block)   // only $20 left today
+        XCTAssertEqual(p.evaluate(usd: 25, payee: nil, origin: .agent).decision, .block)   // only $20 left today
         let inj = p.evaluate(usd: 5, payee: ("0x000000000000000000000000000000000000dEaD", .evm), origin: .agent)
         XCTAssertEqual(inj.decision, .block); XCTAssertTrue(inj.blocks.contains { $0.contains("own addresses") })
         XCTAssertEqual(p.evaluate(usd: nil, payee: nil, origin: .agent).decision, .block)

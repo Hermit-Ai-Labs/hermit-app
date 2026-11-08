@@ -213,6 +213,7 @@ final class TableAndVaultTests: XCTestCase {
             switch chain?.kind {
             case .evm: XCTAssertEqual(EVMAddress(t.address)?.checksummed, t.address, "\(t.id) must be EIP-55 checksummed")
             case .solana: XCTAssertNotNil(SolanaPublicKey(t.address), t.id)
+            case .near: XCTAssertTrue(NearAccount.isValid(t.address), t.id)
             case nil: break
             }
         }
