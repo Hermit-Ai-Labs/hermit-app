@@ -185,7 +185,9 @@ final class HermitCloudTests: XCTestCase {
 
     func testToolSchemaIsHermits() {
         XCTAssertEqual(Set(CloudTools.names), ["calculator", "get_price", "get_balances", "hyperliquid_account", "position_math", "search_markets",
-                                              "get_yields", "prepare_trade", "prepare_swap", "prepare_send", "open_add_funds"])
+                                              "get_yields", "prepare_trade", "prepare_swap", "prepare_send", "open_add_funds", "get_quote"])
+        // The on-device prompt lists the same tools.
+        XCTAssertEqual(Set(CloudTools.names), Set(HermitPrompt.names(HermitPrompt.toolLines)))
     }
 
     func testProofHeadline() throws {

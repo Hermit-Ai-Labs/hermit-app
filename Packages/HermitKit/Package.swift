@@ -51,6 +51,7 @@ let package = Package(
             .product(name: "CryptoSwift", package: "CryptoSwift"),
         ], resources: [.copy("Resources/hermit_tools.json")]),
         .target(name: "HermitUI", dependencies: ["HermitCore", "HermitModel", "HermitWallet", "HermitCloud"], resources: [.process("Resources")]),
+        .testTarget(name: "HermitCoreTests", dependencies: ["HermitCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "HermitUITests", dependencies: ["HermitUI"]),
         .testTarget(name: "HermitWalletTests", dependencies: ["HermitWallet"], resources: [.copy("Fixtures")]),
         .testTarget(name: "HermitCloudTests", dependencies: ["HermitCloud"], resources: [.copy("Fixtures")]),

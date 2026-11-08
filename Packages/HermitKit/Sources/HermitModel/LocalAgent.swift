@@ -21,65 +21,62 @@ public struct GenerationStats: Sendable, CustomStringConvertible {
     }
 }
 
-/// Hermit running on the on-device model. Loads the model once and keeps it warm, keeps the conversation
-/// (with its KV cache) until New chat, and streams text as it is generated. Cancelling the reply stops generation.
+/// Hermit running on the on-device model, with the same tools as Private Cloud. Loads the model once and keeps it
+/// warm, keeps the conversation (and its KV cache) until New chat, and streams text as it is generated.
+/// The model can call Hermit's tools (prices, balances, maths, NEAR Intents quotes, and preparing trades, swaps and
+/// sends); the loop lives in `ToolChat`, the tools in the app's toolbox. Cancelling the reply stops generation.
 public final class LocalAgent: Agent, @unchecked Sendable {
-    public static let systemPrompt = """
-    You are Hermit, a private AI assistant that runs entirely on this device. Nothing the user types leaves the \
-    device: there is no cloud and no server. You help with questions, writing, explaining, planning and files the user attaches.
-    In chat you can't see the user's wallets or balances, move money, trade, browse the web or read email. If asked, \
-    say so plainly and point them to the Wallets page in the app for their own wallets. Never pretend you did something you can't do.
-    Keep answers short and plain: a few sentences, simple words, no filler. Do not use middle dots as separators. \
-    If you don't know something, say so.
-    """
+    /// The prompt the model gets: Hermit 1.2's trained agent prompt (hermit_fmt.SYSTEM_AGENT).
+    public static let systemPrompt = HermitPrompt.agentSystem
 
     /// The system prompt with the user's name and their hermit.md notes.
     public static func instructions(name: String, memory: [String]) -> String {
-        var s = systemPrompt
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty { s += "\nThe user wants to be called \(name)." }
-        // Keep the notes to a sane size so they don't crowd out the conversation.
-        var notes: [String] = [], used = 0
-        for line in memory where used + line.count < 2000 { notes.append("- " + line); used += line.count }
-        if !notes.isEmpty { s += "\nThe user's standing notes (hermit.md). Follow them:\n" + notes.joined(separator: "\n") }
-        return s
+        HermitPrompt.system(name: name, memory: memory)
     }
 
     private let store: ModelStore
     private let engine = LocalEngine()
+    private let chat = ToolChat(config: .init(family: .instruct))
     private let onStats: (@Sendable (GenerationStats) -> Void)?
+    /// Runs the model's tool calls. nil answers in plain text only (the tool block is still in the prompt so the
+    /// model's format stays the trained one; calls then get an error result).
+    public var toolbox: AgentToolbox?
 
     @MainActor
-    public init(store: ModelStore? = nil, onStats: (@Sendable (GenerationStats) -> Void)? = nil) {
+    public init(store: ModelStore? = nil, toolbox: AgentToolbox? = nil, onStats: (@Sendable (GenerationStats) -> Void)? = nil) {
         let store = store ?? .shared
         self.store = store
+        self.toolbox = toolbox
         self.onStats = onStats
         let engine = self.engine
         store.onDelete { id in Task { await engine.unload(ifID: id) } }
     }
 
-    /// Load the model ahead of the first question so the first answer starts quickly.
+    /// Load the model ahead of the first question, and read the system prompt into the cache, so the first answer
+    /// starts quickly.
     public func warmUp() {
-        Task { [store, engine] in
+        Task { [store, engine, chat] in
             guard let ready = await MainActor.run(body: { store.readyModel }) else { return }
-            _ = try? await engine.load(id: ready.spec.id, directory: ready.directory)
+            guard (try? await engine.load(id: ready.spec.id, directory: ready.directory)) != nil else { return }
+            await chat.setFamily(await engine.family)
+            await engine.prefill(await chat.systemPrefix())
         }
     }
 
     public func reset() {
-        Task { [engine] in await engine.reset() }
+        Task { [chat] in await chat.reset() }
     }
 
     /// Name and hermit.md for the system prompt. The model reads its instructions when a conversation starts,
     /// so this applies from the next new chat (or right away if this one hasn't started).
     public func setContext(name: String, memory: [String]) {
         let text = Self.instructions(name: name, memory: memory)
-        Task { [engine] in await engine.setInstructions(text) }
+        Task { [chat] in await chat.setSystem(text) }
     }
 
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
         AsyncStream { cont in
-            let task = Task { [store, engine, onStats] in
+            let task = Task { [store, engine, chat, toolbox, onStats] in
                 defer { cont.finish() }
                 guard let ready = await MainActor.run(body: { store.readyModel }) else {
                     cont.yield(.text("The on-device model isn't downloaded yet."))
@@ -91,32 +88,13 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                         cont.yield(.status("Waking up \(ready.spec.name)…"))
                         loadTime = try await engine.load(id: ready.spec.id, directory: ready.directory)
                     }
+                    await chat.setFamily(await engine.family)
                     cont.yield(.status("Thinking…"))
-                    let start = Date()
-                    var firstToken: TimeInterval?
-                    var filter = OutputFilter()
-                    generation: for try await item in try await engine.stream(prompt) {
-                        switch item {
-                        case .chunk(let raw):
-                            let text = filter.push(raw)
-                            if !text.isEmpty {
-                                if firstToken == nil { firstToken = Date().timeIntervalSince(start); cont.yield(.steps(0)) }
-                                cont.yield(.text(text))
-                            }
-                            // The model began a new turn or started repeating itself: end the reply here.
-                            if filter.finished { break generation }
-                        case .info(let info):
-                            onStats?(GenerationStats(loadTime: loadTime, timeToFirstToken: firstToken ?? 0,
-                                                     promptTokens: info.promptTokenCount, tokens: info.generationTokenCount,
-                                                     tokensPerSecond: info.tokensPerSecond))
-                        default: break
-                        }
-                    }
-                    let rest = filter.flush()
-                    if !rest.isEmpty { cont.yield(.text(rest)) }
+                    let generator = EngineGenerator(engine: engine, onStats: onStats, loadTime: loadTime)
+                    await chat.reply(to: prompt, generator: generator, toolbox: toolbox, cont: cont)
                 } catch is CancellationError {
                 } catch {
-                    if !Task.isCancelled { cont.yield(.text("\n\nThe model stopped: \(error.localizedDescription)")) }
+                    if !Task.isCancelled { cont.yield(.steps(0)); cont.yield(.text("The model stopped: \(error.localizedDescription)")) }
                 }
             }
             cont.onTermination = { _ in task.cancel() }
@@ -124,24 +102,76 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     }
 }
 
-/// Owns the loaded model and the chat session. One at a time, so it is an actor.
+extension ToolChat {
+    /// The system turn alone (with the tool block), the part of every prompt that never changes within a chat.
+    func systemPrefix() -> String {
+        HermitPrompt.render([messages[0]], tools: config.tools, family: config.family, addGenerationPrompt: false)
+    }
+}
+
+/// One assistant turn from the engine, timed for the stats line.
+struct EngineGenerator: TurnGenerator {
+    let engine: LocalEngine
+    let onStats: (@Sendable (GenerationStats) -> Void)?
+    let loadTime: TimeInterval?
+
+    func generate(_ prompt: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { cont in
+            let start = Date()
+            let firstToken = LockedBox<TimeInterval?>(nil)
+            let task = Task { [engine, onStats, loadTime] in
+                do {
+                    try await engine.generate(prompt, onText: { text in
+                        if firstToken.value == nil { firstToken.value = Date().timeIntervalSince(start) }
+                        cont.yield(text)
+                    }, onInfo: { info in
+                        onStats?(GenerationStats(loadTime: loadTime, timeToFirstToken: firstToken.value ?? 0,
+                                                 promptTokens: info.promptTokenCount, tokens: info.generationTokenCount,
+                                                 tokensPerSecond: info.tokensPerSecond))
+                    })
+                    cont.finish()
+                } catch {
+                    cont.finish(throwing: error)
+                }
+            }
+            cont.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+final class LockedBox<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var v: T
+    init(_ v: T) { self.v = v }
+    var value: T {
+        get { lock.lock(); defer { lock.unlock() }; return v }
+        set { lock.lock(); v = newValue; lock.unlock() }
+    }
+}
+
+/// The KV cache and the exact tokens it holds. The prompt text only grows within a chat (system, then each turn), so
+/// each turn feeds only the tokens past the longest cached prefix; anything that differs is trimmed off first.
+final class PromptCache: @unchecked Sendable {
+    var cache: [KVCache]?
+    var tokens: [Int] = []
+    func clear() { cache = nil; tokens = [] }
+}
+
+/// Owns the loaded model and the KV cache. One generation at a time, so it is an actor.
 actor LocalEngine {
     private var container: ModelContainer?
-    private var session: ChatSession?
     private var loadedID: String?
-    private var instructions = LocalAgent.systemPrompt
-    /// The session has answered something since the last reset. Its instructions are fixed until the next reset.
-    private var started = false
+    private var parameters = GenerateParameters()
+    private let prompt = PromptCache()
+    private(set) var family: HermitPrompt.Family = .instruct
+    /// The generation running now; the next one waits for it, so the cache is never touched by two at once.
+    private var current: Task<Void, Never>?
 
-    func setInstructions(_ text: String) {
-        instructions = text
-        if !started { session?.instructions = text }
-    }
-
-    func isLoaded(_ id: String) -> Bool { loadedID == id && session != nil }
+    func isLoaded(_ id: String) -> Bool { loadedID == id && container != nil }
 
     /// Hermit never shows reasoning. Templates that switch it off with `enable_thinking is false` don't take effect in
     /// swift-jinja, so a downloaded template with that switch is rewritten to always close the think block.
+    /// (Prompts are rendered by HermitPrompt, so this only matters to code that still applies the template.)
     static func closeThinkInTemplate(_ directory: URL) {
         let url = directory.appending(path: "chat_template.jinja")
         guard let t = try? String(contentsOf: url, encoding: .utf8), t.contains("enable_thinking"), t.contains("<|im_start|>") else { return }
@@ -161,39 +191,112 @@ actor LocalEngine {
         try? fixed.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Qwen3-1.7B (Lite) is a reasoning model: training put an empty think block after every assistant prefix.
+    /// Qwen3-4B-Instruct-2507 has none. Read from the repo name and the shipped template.
+    static func family(id: String, directory: URL) -> HermitPrompt.Family {
+        if id.lowercased().contains("lite") { return .thinking }
+        var t = (try? String(contentsOf: directory.appending(path: "chat_template.jinja"), encoding: .utf8)) ?? ""
+        if t.isEmpty, let d = try? Data(contentsOf: directory.appending(path: "tokenizer_config.json")),
+           let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { t = j["chat_template"] as? String ?? "" }
+        if t.contains("enable_thinking") || t.contains("assistant\\n<think>\\n\\n</think>") { return .thinking }
+        return .instruct
+    }
+
     /// Loads the model (once). Returns how long it took, or nil if it was already loaded.
     func load(id: String, directory: URL) async throws -> TimeInterval? {
         if isLoaded(id) { return nil }
-        unload()
+        await unload()
         // Freed GPU buffers are cached for reuse; keep that cache small on 8 GB devices.
         Memory.cacheLimit = (ModelCatalog.deviceMemoryGB <= 8 ? 64 : 512) << 20
         let start = Date()
+        family = Self.family(id: id, directory: directory)
         Self.closeThinkInTemplate(directory)
-        let container = try await LLMModelFactory.shared.loadContainer(from: directory, using: TransformersTokenizerLoader())
-        self.container = container
-        session = ChatSession(container, instructions: instructions,
-                              generateParameters: Self.parameters(directory),
-                              additionalContext: ["enable_thinking": false])
+        container = try await LLMModelFactory.shared.loadContainer(from: directory, using: TransformersTokenizerLoader())
+        parameters = Self.parameters(directory)
         loadedID = id
         return Date().timeIntervalSince(start)
     }
 
-    func unload(ifID id: String? = nil) {
+    func unload(ifID id: String? = nil) async {
         guard id == nil || id == loadedID else { return }
-        session = nil; container = nil; loadedID = nil; started = false
+        current?.cancel()
+        await current?.value
+        prompt.clear(); container = nil; loadedID = nil
         Memory.clearCache()
     }
 
-    func reset() async {
-        await session?.clear()
-        session?.instructions = instructions
-        started = false
+    /// Reads `text` into the cache without answering (the system prompt, right after loading).
+    func prefill(_ text: String) async {
+        var p = parameters
+        p.maxTokens = 1
+        try? await generate(text, parameters: p, onText: { _ in }, onInfo: { _ in })
     }
 
-    func stream(_ prompt: String) throws -> AsyncThrowingStream<Generation, Error> {
-        guard let session else { throw CancellationError() }
-        started = true
-        return session.streamDetails(to: prompt)
+    /// Streams the model's text for one turn that continues `text`, through `onText`. Returns when the turn ends
+    /// (end-of-turn token or the token limit) or the calling task is cancelled.
+    func generate(_ text: String, parameters custom: GenerateParameters? = nil,
+                  onText: @escaping @Sendable (String) -> Void, onInfo: @escaping @Sendable (GenerateCompletionInfo) -> Void) async throws {
+        let previous = current
+        guard let container else { throw CancellationError() }
+        let params = custom ?? parameters
+        let cache = prompt
+        let run = Task<Result<Void, Error>, Never> {
+            await previous?.value
+            do {
+                try await container.perform { context in
+                    try await Self.run(text, cache: cache, parameters: params, context: context, onText: onText, onInfo: onInfo)
+                }
+                return .success(())
+            } catch { return .failure(error) }
+        }
+        let done = Task<Void, Never> { _ = await run.value }
+        current = done
+        let result = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
+        if case .failure(let e) = result { throw e }
+    }
+
+    private static func run(_ text: String, cache: PromptCache, parameters: GenerateParameters, context: ModelContext,
+                            onText: @Sendable (String) -> Void, onInfo: @Sendable (GenerateCompletionInfo) -> Void) async throws {
+        let tokenizer = context.tokenizer
+        let tokens = tokenizer.encode(text: text, addSpecialTokens: false)
+        guard !tokens.isEmpty else { return }
+        // Reuse the longest cached prefix; always feed at least one token.
+        var keep = zip(cache.tokens, tokens).prefix { $0 == $1 }.count
+        if keep == tokens.count { keep -= 1 }
+        if let kv = cache.cache, keep < cache.tokens.count {
+            let drop = cache.tokens.count - keep
+            if canTrimPromptCache(kv), trimPromptCache(kv, numTokens: drop) == drop { cache.tokens.removeLast(drop) }
+            else { cache.clear(); keep = 0 }
+        }
+        if cache.cache == nil { cache.cache = try context.model.newCache(parameters: parameters); cache.tokens = []; keep = 0 }
+        let feed = Array(tokens[keep...])
+
+        var stops = Set<Int>()
+        for t in ["<|im_end|>", "<|endoftext|>", "<|im_start|>"] { if let id = tokenizer.convertTokenToId(t) { stops.insert(id) } }
+        if let e = tokenizer.eosTokenId { stops.insert(e) }
+
+        let (stream, task) = try generateTokensTask(input: LMInput(tokens: MLXArray(feed)), cache: cache.cache, parameters: parameters,
+                                                    context: context, includeStopToken: true)
+        var detok = NaiveStreamingDetokenizer(tokenizer: tokenizer)
+        var generated: [Int] = []
+        for await item in stream {
+            if Task.isCancelled { break }
+            switch item {
+            case .token(let t):
+                generated.append(t)
+                if stops.contains(t) { continue }
+                detok.append(token: t)
+                if let s = detok.next(), !s.isEmpty { onText(s) }
+            case .info(let info): onInfo(info)
+            }
+        }
+        task.cancel()
+        await task.value
+        // The cache now holds the prompt and as many generated tokens as the model has read.
+        let known = cache.tokens + feed + generated
+        let offset = cache.cache?.first?.offset ?? 0
+        if offset <= known.count { cache.tokens = Array(known.prefix(offset)) } else { cache.clear() }
+        if Task.isCancelled { throw CancellationError() }
     }
 
     /// Sampling for a small chat model on a phone. Some models ship temperature 1.0 and no repetition penalty, which
@@ -209,93 +312,5 @@ actor LocalEngine {
         p.repetitionContextSize = 256
         if json["do_sample"] as? Bool == false { p.temperature = 0 }
         return p
-    }
-}
-
-/// Cleans the raw stream: drops a <think>…</think> block if the model writes one, trims leading blank
-/// lines, and turns middle-dot separators into commas.
-struct OutputFilter {
-    private var buffer = ""
-    private var started = false
-    private var inThink = false
-    /// True once the reply should end: the model wrote a turn marker, or repeated a whole sentence.
-    private(set) var finished = false
-    static let stopMarkers = ["<|im_start|>", "<|im_end|>", "</s>"]
-
-    mutating func push(_ chunk: String) -> String {
-        guard !finished else { return "" }
-        buffer += chunk
-        if let cut = Self.stopMarkers.compactMap({ buffer.range(of: $0)?.lowerBound }).min() {
-            buffer = String(buffer[..<cut]); finished = true
-        }
-        var out = ""
-        while !buffer.isEmpty {
-            if inThink {
-                guard let end = buffer.range(of: "</think>") else { return out }
-                buffer = String(buffer[end.upperBound...]); inThink = false; continue
-            }
-            if let stray = buffer.range(of: "</think>") {   // reasoning that never opened a tag: drop it
-                buffer = String(buffer[stray.upperBound...]); pending = ""; releasedTail = 0; continue
-            }
-            if let open = buffer.range(of: "<think>") {
-                out += buffer[..<open.lowerBound]; buffer = String(buffer[open.upperBound...]); inThink = true; continue
-            }
-            // Hold back a possible partial "<think" at the end.
-            if let lt = buffer.lastIndex(of: "<"), "<think>".hasPrefix(buffer[lt...]) {
-                out += buffer[..<lt]; buffer = String(buffer[lt...]); break
-            }
-            out += buffer; buffer = ""
-        }
-        if !started {
-            out = String(out.drop { $0.isWhitespace })
-            if !out.isEmpty { started = true }
-        }
-        out = out.replacingOccurrences(of: " · ", with: ", ").replacingOccurrences(of: "·", with: ",")
-        return guardRepeats(out)
-    }
-
-    // MARK: Repetition guard
-    // Text is released a sentence (or line) at a time. A sentence or line that already appeared ends the reply before
-    // it is shown. A long unfinished sentence is released early unless it is the start of one we've already shown.
-
-    private var pending = ""
-    private var seen = Set<String>()
-    private var releasedTail = 0   // characters of `pending` already shown while its sentence was still open
-    private var repeated = false
-
-    private mutating func guardRepeats(_ text: String) -> String {
-        pending += text
-        var out = ""
-        while let end = pending.firstIndex(where: { ".!?\n".contains($0) }) {
-            let cut = pending.index(after: end)
-            let piece = String(pending[..<cut])
-            let key = Self.key(piece)
-            if key.count >= 18 {
-                if seen.contains(key) { finished = true; repeated = true; pending = ""; return out }
-                seen.insert(key)
-            }
-            out += piece.dropFirst(releasedTail)
-            releasedTail = 0
-            pending = String(pending[cut...])
-        }
-        // Open sentence: show it once it's clearly new, so long sentences still stream.
-        let tailKey = Self.key(pending)
-        if pending.count - releasedTail > 0, tailKey.count >= 40, !seen.contains(where: { $0.hasPrefix(tailKey) }) {
-            out += pending.dropFirst(releasedTail)
-            releasedTail = pending.count
-        }
-        return out
-    }
-
-    private static func key(_ s: String) -> String {
-        s.lowercased().split(whereSeparator: { $0.isWhitespace || $0 == "*" || $0 == "#" }).joined(separator: " ")
-    }
-
-    /// Whatever is still held back when the reply ends normally.
-    mutating func flush() -> String {
-        guard !repeated else { return "" }
-        let rest = String(pending.dropFirst(releasedTail))
-        pending = ""; releasedTail = 0
-        return rest
     }
 }

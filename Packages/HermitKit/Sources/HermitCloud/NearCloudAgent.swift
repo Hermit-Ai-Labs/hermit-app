@@ -1,17 +1,8 @@
 import Foundation
 import HermitCore
 
-/// What a tool did, for the model (`content`, JSON text) and for the user (an action, e.g. the review sheet).
-public struct ToolOutcome: Sendable {
-    public var content: String
-    public var action: Action?
-    public init(content: String, action: Action? = nil) { self.content = content; self.action = action }
-}
-
-/// Runs Hermit's agent tools on the phone. Money tools only prepare: they return an action that opens the approval sheet.
-public protocol CloudToolbox: Sendable {
-    func run(_ name: String, arguments: String) async -> ToolOutcome
-}
+/// Private Cloud runs the same toolbox as the on-device model (HermitCore.AgentToolbox).
+public typealias CloudToolbox = AgentToolbox
 
 /// The agent tools, the same schema the on-device Hermit model is trained on (hermit_tools.json, OpenAI `tools` format).
 public enum CloudTools {
@@ -23,22 +14,7 @@ public enum CloudTools {
         ((try? JSONSerialization.jsonObject(with: schemaData) as? [[String: Any]]) ?? []).compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
     }
     /// Shown while a tool runs.
-    public static func status(_ name: String) -> String {
-        switch name {
-        case "calculator": "Calculating"
-        case "get_price": "Checking the price"
-        case "get_balances": "Reading your balances on this phone"
-        case "hyperliquid_account": "Reading your Hyperliquid account"
-        case "position_math": "Working out the position"
-        case "search_markets": "Searching markets"
-        case "get_yields": "Looking up yields"
-        case "prepare_trade": "Preparing the order for your review"
-        case "prepare_swap": "Preparing the swap for your review"
-        case "prepare_send": "Preparing the transfer for your review"
-        case "open_add_funds": "Opening Add funds"
-        default: "Running \(name)"
-        }
-    }
+    public static func status(_ name: String, arguments: [String: Any] = [:]) -> String { ToolStatus.label(name, arguments: arguments) }
 }
 
 /// Hermit on NEAR AI Cloud. Before each prompt leaves the phone, the deployment's attestation is fetched with a fresh
@@ -154,9 +130,16 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                 for call in calls {
                     let fn = call["function"] as? [String: Any]
                     let name = fn?["name"] as? String ?? "", args = fn?["arguments"] as? String ?? "{}"
-                    cont.yield(.status(CloudTools.status(name) + "…"))
+                    let parsed = (try? JSONSerialization.jsonObject(with: Data(args.utf8))) as? [String: Any] ?? [:]
+                    cont.yield(.status(CloudTools.status(name, arguments: parsed) + "…"))
                     steps += 1
-                    let out = await toolbox?.run(name, arguments: args) ?? ToolOutcome(content: #"{"error":"no tools"}"#)
+                    // The same guard as on the device: a transfer only goes to an address the user typed in this chat.
+                    let out: ToolOutcome
+                    if let refusal = ToolGuard.refusal(name, arguments: parsed, userText: await state.userText()) {
+                        out = ToolOutcome(content: refusal)
+                    } else {
+                        out = await toolbox?.run(name, arguments: args) ?? ToolOutcome(content: #"{"error":"no tools"}"#)
+                    }
                     if let a = out.action { actions.append(a) }
                     await state.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": out.content])
                 }
@@ -294,6 +277,10 @@ actor CloudState {
     func setPreflight(_ p: Preflight) { preflight = p }
     func clearPreflight() { preflight = nil }
     func append(_ m: [String: Any]) { history.append(m) }
+    func userText() -> String {
+        history.compactMap { $0["role"] as? String == "user" ? $0["content"] as? String : nil }
+            .map(ToolChat.withoutFiles).joined(separator: "\n")
+    }
     func dropLastUser() { if let i = history.lastIndex(where: { $0["role"] as? String == "user" }) { history.removeSubrange(i...) } }
 
     /// The request body, built once: these exact bytes are sent and hashed.
