@@ -6,7 +6,7 @@
 set -euo pipefail
 OUT="$(cd "$(dirname "$0")/.." && pwd)/Packages/HermitKit/Sources/HermitCloud/Resources/shared.bin"
 if [[ "${1:-}" == "--remove" ]]; then rm -f "$OUT"; echo "shared key removed"; exit 0; fi
-source "$HOME/.secrets/nearai.env"
+set -a; source "$HOME/.secrets/nearai.env"; set +a
 umask 077
 python3 - "$OUT" <<'PY'
 import base64, os, sys

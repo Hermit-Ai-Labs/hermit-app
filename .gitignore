@@ -11,3 +11,5 @@ Packages/HermitKit/Package.resolved
 
 # Hermit shared NEAR AI key, written at build time by scripts/bundle-shared-key.sh; never commit
 Packages/HermitKit/Sources/HermitCloud/Resources/shared.bin
+*.whl
+.venv/
