@@ -25,7 +25,7 @@ BUILD=$(date -u +%Y%m%d%H%M)
 rm -rf "$OUT"; mkdir -p "$OUT"
 xcodebuild -project Hermit.xcodeproj -scheme Hermit -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath "$DD" -archivePath "$OUT/Hermit.xcarchive" CURRENT_PROJECT_VERSION="$BUILD" \
-  DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$APPID" PROVISIONING_PROFILE_SPECIFIER="$PROFILE" \
+  HERMIT_MAC_IDENTITY="$APPID" HERMIT_MAC_PROFILE="$PROFILE" \
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO OTHER_CODE_SIGN_FLAGS="--keychain $KC" archive 2>&1 | grep -E "error:|warning: .*entitlement|ARCHIVE" || true
 [[ -d "$OUT/Hermit.xcarchive" ]] || { echo "Archive failed"; exit 1; }
 APP="$OUT/Hermit.xcarchive/Products/Applications/Hermit.app"

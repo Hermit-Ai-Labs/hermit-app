@@ -53,6 +53,15 @@ targets:
         PRODUCT_NAME: Hermit
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        # Release is signed by scripts/release-mac-appstore.sh (Apple Distribution + the "Hermit Mac App Store" profile)
+        # through HERMIT_MAC_IDENTITY and HERMIT_MAC_PROFILE, set on the app target only so the Swift package
+        # resource bundles don't get a profile. scripts/release-mac.sh (Developer ID) overrides the identity itself.
+        Release:
+          DEVELOPMENT_TEAM: 4G5YW2XP2B
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: $(HERMIT_MAC_IDENTITY)
+          PROVISIONING_PROFILE_SPECIFIER: $(HERMIT_MAC_PROFILE)
   HermitiOS:
     type: application
     platform: iOS
