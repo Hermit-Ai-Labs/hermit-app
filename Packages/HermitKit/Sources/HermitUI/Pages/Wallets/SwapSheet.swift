@@ -41,11 +41,25 @@ struct SwapSheet: View {
         self.preview = preview
         origin = intent?.origin ?? .user
         _walletID = State(initialValue: vm.wallet(fromID)?.id ?? vm.firstWalletID ?? "")
-        let from = intent?.from ?? chain.flatMap { Self.chains.contains($0) ? $0 : nil } ?? .base
+        // Opened plainly (Swap or Bridge button): start from the biggest balance the wallet can actually swap, not an
+        // empty USDC on Base.
+        let wid = vm.wallet(fromID)?.id ?? vm.firstWalletID ?? ""
+        let biggest = (intent == nil && token == nil && chain == nil && !preview)
+            ? vm.holdings(wallet: wid, chain: nil)
+                .filter { h in !h.chain.isTestnet && h.amount > 0 && Self.chains.contains(h.chain)
+                    && (h.symbol == h.chain.nativeSymbol || h.chain.token(h.symbol) != nil) }
+                .max { ($0.usd, $0.amount) < ($1.usd, $1.amount) }
+            : nil
+        let from = intent?.from ?? chain.flatMap { Self.chains.contains($0) ? $0 : nil } ?? biggest?.chain ?? .base
+        let fromSymbol = intent?.fromSymbol ?? token ?? biggest?.symbol ?? "USDC"
+        let toChain: Chain = bridge ? (from == .arbitrum ? .base : .arbitrum) : from
         _fromChain = State(initialValue: from)
-        _to = State(initialValue: intent?.to ?? (preview ? .chain(.near) : bridge ? .chain(from == .arbitrum ? .base : .arbitrum) : .chain(from)))
-        _fromSym = State(initialValue: intent?.fromSymbol ?? token ?? "USDC")
-        _toSym = State(initialValue: intent?.toSymbol ?? (preview ? "NEAR" : token == from.nativeSymbol ? "USDC" : from.nativeSymbol))
+        _to = State(initialValue: intent?.to ?? (preview ? .chain(.near) : .chain(toChain)))
+        _fromSym = State(initialValue: fromSymbol)
+        let plainTo: String = bridge
+            ? (fromSymbol != from.nativeSymbol && toChain.token(fromSymbol) != nil ? fromSymbol : toChain.nativeSymbol)
+            : (fromSymbol == from.nativeSymbol ? "USDC" : from.nativeSymbol)
+        _toSym = State(initialValue: intent?.toSymbol ?? (preview ? "NEAR" : plainTo))
         _amount = State(initialValue: intent?.amount ?? (preview ? "10" : ""))
     }
 
@@ -89,7 +103,7 @@ struct SwapSheet: View {
     var body: some View {
         SheetChrome(title: preview ? "Try a quote" : bridging ? "Bridge" : "Swap",
                     subtitle: preview ? "Live NEAR Intents prices, no funds needed" : bridging ? "\(fromChain.name) to \(to.name)" : "On \(fromChain.name)") {
-            box("From", trailing: preview ? "Preview" : "\(held?.exact ?? "0") available") {
+            box("From", trailing: preview ? "Preview" : "\(held.map { MoneyFmt.amount($0.amount) } ?? "0") available") {
                 HStack(spacing: 8) {
                     AmountTextField(text: $amount)
                     MenuField(selection: $fromSym, options: fromSymbols(fromChain), title: { $0 }, logo: { $0 }).frame(maxWidth: 120)
@@ -133,7 +147,12 @@ struct SwapSheet: View {
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
         } foot: {
             if preview {
-                Button("Add funds to swap") { model.fundGoal = .wallet }.buttonStyle(WideButton())
+                if vm.hasFunds {
+                    // Money is already here: go from the preview to the real swap.
+                    Button("Swap from your wallet") { model.open(.wallets, tab: "swap") }.buttonStyle(WideButton())
+                } else {
+                    Button("Add funds to swap") { model.fundGoal = .wallet }.buttonStyle(WideButton())
+                }
             } else {
                 Button { review() } label: {
                     HStack(spacing: 6) {
@@ -267,19 +286,28 @@ struct SwapSheet: View {
         let request = Result { try svc.intentsRequest(walletID: wid, from: fc, fromToken: tok, to: tp, toSymbol: ts, amount: amt, recipient: rcpt,
                                                       dry: true, confidential: conf, tokens: list) }
         let user = w.record.address(on: fc), relayRecipient = tp.chain.map { w.record.address(on: $0) } ?? w.record.evmAddress
-        async let iq: Result<IntentsQuote, Error> = {
+        // Both quotes at once, each in its own task with plain values. (`async let x = { … }()` here freed the captured
+        // strings before Relay's request was encoded: a crash in the JSON writer on the second quote.)
+        let relayDest: Relay.Place? = conf ? nil : Self.relayPlace(tp).flatMap { d in
+            Relay.Place.chain(fc).relayID != nil && d.relayID != nil ? d : nil
+        }
+        let tt = tp.chain.flatMap { c in ts == c.nativeSymbol ? nil : c.token(ts) }
+        let relayKnowsToken = tp.chain == nil || ts == tp.chain!.nativeSymbol || tt != nil   // Relay only knows Hermit's tokens
+        let intentsTask = Task { () -> Result<IntentsQuote, Error> in
             do { return .success(try await OneClick().quote(try request.get())) } catch { return .failure(error) }
-        }()
-        async let rq: Result<Relay.Quote, Error>? = {
-            guard !conf, let dest = relayPlace(tp), Relay.Place.chain(fc).relayID != nil, dest.relayID != nil else { return nil }
-            let tt = tp.chain.flatMap { c in ts == c.nativeSymbol ? nil : c.token(ts) }
-            if tp.chain != nil, ts != tp.chain!.nativeSymbol, tt == nil { return nil }   // Relay only knows Hermit's tokens
+        }
+        let relayTask = Task { () -> Result<Relay.Quote, Error>? in
+            guard let dest = relayDest, relayKnowsToken else { return nil }
             do {
                 return .success(try await Relay.quote(from: .chain(fc), fromToken: tok, to: dest, toToken: tt, amount: amt,
                                                       user: user, recipient: relayRecipient))
             } catch { return .failure(error) }
-        }()
-        let (i, r) = await (iq, rq)
+        }
+        let (i, r) = await withTaskCancellationHandler {
+            (await intentsTask.value, await relayTask.value)
+        } onCancel: {
+            intentsTask.cancel(); relayTask.cancel()
+        }
         guard !Task.isCancelled else { return }
         withAnimation(.smooth(duration: 0.2)) {
             switch i { case .success(let q): intents = q; case .failure(let e): intentsError = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription }
@@ -287,7 +315,7 @@ struct SwapSheet: View {
         }
     }
 
-    private func relayPlace(_ p: IntentsPlace) -> Relay.Place? {
+    nonisolated private static func relayPlace(_ p: IntentsPlace) -> Relay.Place? {
         switch p { case .chain(let c): .chain(c); case .hyperliquid: .hyperliquid; case .bitcoin: nil }
     }
 

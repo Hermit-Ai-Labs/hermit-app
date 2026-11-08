@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 import CryptoKit
 
 /// Polymarket on Polygon, trading from the wallet's own address (signature type 0, "EOA"). Orders are EIP-712 messages
@@ -187,7 +188,7 @@ public struct PolymarketTrader: Sendable {
                                     "tokenId": o.tokenID, "makerAmount": String(o.makerAmount), "takerAmount": String(o.takerAmount),
                                     "expiration": "0", "nonce": "0", "feeRateBps": "0", "side": o.side == 0 ? "BUY" : "SELL",
                                     "signatureType": 0, "signature": sig]
-        let body = try JSONSerialization.data(withJSONObject: ["order": order, "owner": creds.apiKey, "orderType": "FOK"])
+        let body = try JSONSerialization.safeData(withJSONObject: ["order": order, "owner": creds.apiKey, "orderType": "FOK"])
         let r = try await request("POST", "/order", headers: l2(creds, "POST", "/order", body), body: body)
         if let e = r["errorMsg"] as? String, !e.isEmpty { throw WalletError.blocked(Self.plain(e)) }
         if r["success"] as? Bool == false { throw WalletError.blocked("Polymarket didn't fill the order. Try again.") }

@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 
 /// A swap the assistant prepared for the user to review. Nothing has moved; the Swap sheet opens prefilled and the
 /// user taps Review, sees the approval sheet and approves with Face ID (or doesn't).
@@ -144,6 +145,6 @@ public final class WalletTools {
     }
 
     static func json(_ o: [String: Any]) -> String {
-        (try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        (try? JSONSerialization.safeData(withJSONObject: o, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 }

@@ -292,6 +292,6 @@ actor CloudState {
                                 "stream": false, "max_tokens": 1200, "temperature": 0.6]
         if let tools, let t = try? JSONSerialization.jsonObject(with: tools) { b["tools"] = t; b["tool_choice"] = "auto" }
         guard JSONSerialization.isValidJSONObject(b) else { throw NearAICloud.Failure.bad("Couldn't build the request.") }
-        return try JSONSerialization.data(withJSONObject: b, options: [.sortedKeys, .withoutEscapingSlashes])
+        return try JSONSerialization.safeData(withJSONObject: b, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 }

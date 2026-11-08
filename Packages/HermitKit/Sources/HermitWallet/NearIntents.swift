@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 import CryptoKit
 
 /// NEAR Intents through the 1Click Swap API (docs.near-intents.org/integration/distribution-channels/1click-api).
@@ -48,7 +49,7 @@ public struct OneClick: Sendable {
         if let jwt { req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization") }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+            req.httpBody = try JSONSerialization.safeData(withJSONObject: body, options: [.sortedKeys])
         }
         let (data, status) = try await transport(req)
         let j = (try? JSONDecoder().decode(JSON.self, from: data)) ?? .null

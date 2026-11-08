@@ -51,13 +51,20 @@ public enum Relay {
     public static func quote(from: Place, fromToken: Token?, to: Place, toToken: Token?, amount: UInt128,
                              user: String, recipient: String) async throws -> Quote {
         guard let o = from.relayID, let d = to.relayID else { throw WalletError.blocked("Relay doesn't cover this network.") }
-        let body: [String: Any] = ["user": user, "recipient": recipient, "originChainId": o, "destinationChainId": d,
-                                   "originCurrency": from.currency(fromToken), "destinationCurrency": to.currency(toToken),
-                                   "tradeType": "EXACT_INPUT", "amount": String(amount)]   // no "referrer": Relay wants an API key for it
+        // Codable, not JSONSerialization: a bad value becomes a thrown error instead of an Objective-C exception that
+        // takes the app down ("Invalid type in JSON write").
+        struct Body: Encodable {
+            let user, recipient: String
+            let originChainId, destinationChainId: Int
+            let originCurrency, destinationCurrency, tradeType, amount: String
+        }
+        let body = Body(user: user, recipient: recipient, originChainId: o, destinationChainId: d,
+                        originCurrency: from.currency(fromToken), destinationCurrency: to.currency(toToken),
+                        tradeType: "EXACT_INPUT", amount: String(amount))   // no "referrer": Relay wants an API key for it
         var req = URLRequest(url: api.appending(path: "quote"), timeoutInterval: 25)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.httpBody = try JSONEncoder().encode(body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else {

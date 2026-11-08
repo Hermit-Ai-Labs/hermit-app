@@ -72,7 +72,7 @@ public actor MCPClient {
         }
         var text = parts.filter { !$0.isEmpty }.joined(separator: "\n")
         if text.isEmpty, let s = r["structuredContent"],
-           let d = try? JSONSerialization.data(withJSONObject: s, options: [.prettyPrinted]) { text = String(decoding: d, as: UTF8.self) }
+           let d = try? JSONSerialization.safeData(withJSONObject: s, options: [.prettyPrinted]) { text = String(decoding: d, as: UTF8.self) }
         return (text, r["isError"] as? Bool ?? false)
     }
 
@@ -99,7 +99,7 @@ public actor MCPClient {
         req.setValue("2025-06-18", forHTTPHeaderField: "MCP-Protocol-Version")
         if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let session { req.setValue(session, forHTTPHeaderField: "Mcp-Session-Id") }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.httpBody = try JSONSerialization.safeData(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw MCPError.server("No response") }
         if let s = http.value(forHTTPHeaderField: "Mcp-Session-Id") { session = s }

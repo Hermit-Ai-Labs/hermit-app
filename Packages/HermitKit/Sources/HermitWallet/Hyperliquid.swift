@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 
 // Hyperliquid, signed on this device. Orders, cancels and leverage changes are "L1 actions": the action is
 // msgpack-encoded, hashed with the nonce, and that hash is signed as an EIP-712 "Agent" message with the wallet's
@@ -234,7 +235,7 @@ public enum Hyperliquid {
         var req = URLRequest(url: api.appending(path: path), timeoutInterval: 20)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.httpBody = try JSONSerialization.safeData(withJSONObject: body)
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
             throw WalletError.badResponse(String(data: data, encoding: .utf8).map { String($0.prefix(200)) } ?? "Hyperliquid \(path)")
