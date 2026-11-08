@@ -152,6 +152,9 @@ struct CloudPrompt: View {
         .onTapGesture { if let p = status.proof { proof = p } }
         .task { if status.preflight == nil { await status.check() } }
         .sheet(item: $proof) { ProofSheet(proof: $0) }
+        #if DEBUG
+        .onChange(of: status.proof?.id) { _, _ in if let p = status.proof, DebugLaunch.take("proof") { proof = p } }
+        #endif
         .animation(.smooth, value: status.state)
     }
 

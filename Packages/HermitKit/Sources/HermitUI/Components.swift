@@ -16,6 +16,7 @@ struct Page<Tab: Hashable, Trailing: View, Content: View>: View {
         if SnapshotMode.active { inner.frame(maxHeight: .infinity, alignment: .top) } else {
             ScrollView { inner }
                 .scrollIndicators(.automatic)
+                .debugScroll()
                 .animation(.easeOut(duration: 0.18), value: tab)
         }
     }
@@ -57,8 +58,24 @@ struct PageTabs<Tab: Hashable>: View {
     @Namespace private var ns
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 22) {
+        // Six Settings tabs don't fit a phone at the usual spacing: tighten first, scroll only if that's not enough,
+        // and keep the selected tab on screen.
+        ViewThatFits(in: .horizontal) {
+            row(22)
+            row(16)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) { row(16) }
+                    .scrollIndicators(.never)
+                    .onAppear { proxy.scrollTo(selection, anchor: .center) }
+                    .onChange(of: selection) { _, v in withAnimation(.smooth) { proxy.scrollTo(v, anchor: .center) } }
+            }
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
+        .animation(.snappy(duration: 0.25), value: selection)
+    }
+
+    private func row(_ spacing: CGFloat) -> some View {
+            HStack(spacing: spacing) {
                 ForEach(tabs, id: \.0) { t in
                     Button { selection = t.0 } label: {
                         VStack(spacing: 8) {
@@ -72,12 +89,10 @@ struct PageTabs<Tab: Hashable>: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .id(t.0)
                 }
             }
-        }
-        .scrollIndicators(.never)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
-        .animation(.snappy(duration: 0.25), value: selection)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 

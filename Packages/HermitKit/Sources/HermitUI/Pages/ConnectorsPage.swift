@@ -43,6 +43,13 @@ struct ConnectorsPage: View {
             }
             .environment(model).tint(Theme.text)
         }
+        #if DEBUG
+        .task {
+            try? await Task.sleep(for: .seconds(1.2))
+            if DebugLaunch.take("mcp") { sheet = .addMCP }
+            if DebugLaunch.take("binance") { sheet = .binanceConnect }
+        }
+        #endif
         .onAppear {
             calendar.refreshAccess()
             if let r = model.tabRequest, ["apps", "apis", "skills"].contains(r) { tab = r; model.tabRequest = nil }

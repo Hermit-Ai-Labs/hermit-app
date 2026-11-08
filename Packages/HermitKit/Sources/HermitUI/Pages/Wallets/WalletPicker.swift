@@ -34,6 +34,9 @@ struct WalletPicker: View {
         .sheet(isPresented: $open) {
             WalletMenuSheet(vm: vm, selected: $selected, close: { open = false }, onRemove: remove, onAdd: onAdd)
         }
+        #if DEBUG
+        .task { try? await Task.sleep(for: .seconds(1.5)); if DebugLaunch.take("picker") { open = true } }
+        #endif
         #else
         .popover(isPresented: $open, arrowEdge: .bottom) {
             WalletMenu(vm: vm, selected: $selected, close: { open = false }, onRemove: remove, onAdd: onAdd)

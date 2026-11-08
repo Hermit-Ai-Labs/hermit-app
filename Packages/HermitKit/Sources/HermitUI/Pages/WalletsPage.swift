@@ -39,6 +39,12 @@ struct WalletsPage: View {
         .approvalHost(sheetOpen: sheet != nil) { sheet = nil }
         .modifier(RemoveWalletDialog(vm: vm, wallet: $removing))
         .onAppear(perform: readRequest)
+        #if DEBUG
+        .task {
+            try? await Task.sleep(for: .seconds(1.5))
+            if DebugLaunch.take("remove"), let w = vm.wallets.first { removing = w }
+        }
+        #endif
         .onChange(of: model.tabRequest) { _, _ in readRequest() }
         .onChange(of: vm.wallets.map(\.id)) { _, ids in
             if selected != "all" && !ids.contains(selected) { selected = "all" }
@@ -57,8 +63,13 @@ struct WalletsPage: View {
         if let t = AllWalletsTab(rawValue: r) { selected = "all"; allTab = t; return }
         switch r {
         case "send": open(.send(from: nil, chain: nil, token: nil))
-        case "swap": if vm.hasFunds { open(.swap(from: nil, bridge: false, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
-        case "bridge": if vm.hasFunds { open(.swap(from: nil, bridge: true, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
+        case "swap", "bridge":
+            // Balances may still be loading (Wallets just opened): decide once they're in, not on an empty list.
+            let bridge = r == "bridge"
+            Task { @MainActor in
+                if vm.hasWallet && !vm.hasFunds && !vm.loaded { await vm.refresh() }
+                if vm.hasFunds { open(.swap(from: nil, bridge: bridge, token: nil, chain: nil)) } else { model.fundGoal = .wallet }
+            }
         case "quote": open(.tryQuote(from: nil))
         case "fund-any": FundSheet.startAnyChain = true; model.fundGoal = .wallet
         case "security", "policy": vm.openTab = "security"; if let w = vm.wallets.first, vm.wallets.count == 1 { selected = w.id }

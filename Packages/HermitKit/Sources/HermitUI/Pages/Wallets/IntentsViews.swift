@@ -27,12 +27,12 @@ final class IntentsActivity {
         track(depositAddress)
     }
 
-    func reload() { swaps = WalletService.intentsLedger.all }
+    func reload() { swaps = swaps.filter { debugIDs.contains($0.depositAddress) } + WalletService.intentsLedger.all }
 
     /// Polls every 5 seconds (20 once settled-looking states repeat) until SUCCESS, REFUNDED or FAILED, or the deadline
     /// is an hour past.
     func track(_ depositAddress: String) {
-        guard !polling.contains(depositAddress) else { return }
+        guard !polling.contains(depositAddress), !debugIDs.contains(depositAddress) else { return }
         polling.insert(depositAddress)
         let svc = WalletsViewModel.shared.service
         Task { [weak self] in
@@ -60,6 +60,17 @@ final class IntentsActivity {
             }
         }
     }
+
+    /// Debug fixtures (screenshots): shown, never polled.
+    @ObservationIgnored private var debugIDs: Set<String> = []
+    #if DEBUG
+    func debugInsert(_ swap: TrackedSwap, state: IntentsSwapState) {
+        debugIDs.insert(swap.depositAddress)
+        swaps.removeAll { $0.depositAddress == swap.depositAddress }
+        swaps.insert(swap, at: 0)
+        states[swap.depositAddress] = state
+    }
+    #endif
 
     func state(_ id: String) -> IntentsSwapState? { states[id] }
     func error(_ id: String) -> String? { errors[id] }
@@ -92,10 +103,13 @@ struct IntentsProgress: View {
     private func detail(_ i: Int) -> String? {
         switch i {
         case 0: if let h = swap?.txHash { return shortAddr(h, keep: 8) }; return external ? "Waiting for it to arrive" : nil
-        case 1: return state?.originTxs.first.map { shortAddr($0.hash, keep: 8) }
+        case 1:
+            // The same deposit transaction as step 1 says nothing new; show it only when step 1 had none.
+            guard let h = state?.originTxs.first?.hash, h != swap?.txHash else { return state?.originTxs.isEmpty == false ? "Deposit confirmed" : nil }
+            return shortAddr(h, keep: 8)
         case 2: return state?.nearTxs.isEmpty == false ? "\(state!.nearTxs.count) NEAR transaction\(state!.nearTxs.count == 1 ? "" : "s")" : nil
         default:
-            if status == .success, let out = state?.amountOutFormatted { return "\(IntentsFmt.amount(out)) arrived" }
+            if status == .success, let out = state?.amountOutFormatted { return "\(IntentsFmt.amount(out, swap?.toSymbol)) arrived" }
             return nil
         }
     }
@@ -135,10 +149,10 @@ struct IntentsProgress: View {
         let refundTo = state?.refundTo.map { shortAddr($0) } ?? "your address"
         switch status {
         case .incompleteDeposit:
-            NoteBox(symbol: "exclamationmark.circle", text: "Only \(state?.depositedFormatted.map(IntentsFmt.amount) ?? "part") arrived, less than the quote needs. "
+            NoteBox(symbol: "exclamationmark.circle", text: "Only \(state?.depositedFormatted.map { IntentsFmt.amount($0, swap?.fromSymbol) } ?? "part") arrived, less than the quote needs. "
                     + "Send the rest to the same address before the quote expires, or it all goes back to \(refundTo).", tint: Theme.amber)
         case .refunded:
-            NoteBox(symbol: "arrow.uturn.backward.circle", text: "Refunded \(state?.refundedFormatted.map(IntentsFmt.amount) ?? "the deposit") to \(refundTo)"
+            NoteBox(symbol: "arrow.uturn.backward.circle", text: "Refunded \(state?.refundedFormatted.map { IntentsFmt.amount($0, swap?.fromSymbol) } ?? "the deposit") to \(refundTo)"
                     + (state?.refundReason.map { " (\(IntentsFmt.reason($0)))" } ?? "") + ". Nothing was swapped.", tint: Theme.amber)
         case .failed:
             NoteBox(symbol: "xmark.octagon", text: "The swap failed and nothing was delivered. 1Click returns deposits to \(refundTo); "
@@ -151,6 +165,8 @@ struct IntentsProgress: View {
 enum IntentsFmt {
     /// "2.704574174131954765039327" -> "2.7046"; keeps small amounts readable without cutting them off.
     static func amount(_ s: String) -> String { Double(s).map(MoneyFmt.amount) ?? s }
+    /// "4.1287" -> "4.13 NEAR" when the token is known.
+    static func amount(_ s: String, _ symbol: String?) -> String { [amount(s), symbol].compactMap { $0 }.joined(separator: " ") }
     static func reason(_ r: String) -> String {
         switch r {
         case "PARTIAL_DEPOSIT": "less than the quoted amount arrived"
@@ -184,10 +200,21 @@ struct IntentsStatusSheet: View {
 
     private func lines(_ s: IntentsSwapState?) -> [(String, String)] {
         var l: [(String, String)] = []
-        if let w = swap { l.append(("You sent", w.from)); l.append(("You get", s?.amountOutFormatted.map { "\(IntentsFmt.amount($0)) on \(w.toPlaceName)" } ?? w.to)) }
+        if let w = swap { l.append(("You sent", w.from)); l.append((s?.status == .success ? "You got" : "You get", s?.amountOutFormatted.map { "\(IntentsFmt.amount($0, w.toSymbol)) on \(w.toPlaceName)" } ?? w.to)) }
         l.append(("Route", "NEAR Intents (1Click)"))
         l.append(("Deposit address", shortAddr(depositAddress, keep: 8)))
         if let d = s?.updatedAt { l.append(("Updated", d.formatted(date: .omitted, time: .shortened))) }
         return l
+    }
+}
+
+extension TrackedSwap {
+    /// "10 USDC on Base" -> "USDC"; "about 2.7 NEAR on NEAR" -> "NEAR".
+    var fromSymbol: String? { Self.symbol(in: from) }
+    var toSymbol: String? { Self.symbol(in: to) }
+    private static func symbol(in s: String) -> String? {
+        let words = s.split(separator: " ").filter { $0 != "about" }
+        guard words.count >= 2, Double(words[0].replacingOccurrences(of: ",", with: "")) != nil else { return nil }
+        return String(words[1])
     }
 }

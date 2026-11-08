@@ -35,6 +35,9 @@ struct PaymentsPage: View {
         }
         .payWidth($width)
         .sheet(isPresented: $newPayment) { PayScheduleSheet(item: nil) }
+        #if DEBUG
+        .task { try? await Task.sleep(for: .seconds(1.2)); if DebugLaunch.take("new-payment") { newPayment = true } }
+        #endif
         .onAppear {
             if let r = model.tabRequest, let v = PayTab(rawValue: r) { tab = v; model.tabRequest = nil }
         }

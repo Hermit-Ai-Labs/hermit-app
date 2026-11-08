@@ -62,6 +62,9 @@ struct Composer: View {
         }
         .animation(.snappy, value: model.chatProject)
         .sheet(isPresented: $showModels) { ModelSheet().environment(model) }
+        #if DEBUG
+        .task { try? await Task.sleep(for: .seconds(1.2)); if DebugLaunch.take("models") { showModels = true } }
+        #endif
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
             // Text files come with their content, which goes to the model with the message.
             if case .success(let url) = result {

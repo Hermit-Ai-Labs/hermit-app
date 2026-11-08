@@ -177,6 +177,9 @@ struct PayPayees: View {
         }
         .sheet(item: $editing) { PayeeSheet(payee: $0) }
         .sheet(isPresented: $adding) { PayeeSheet(payee: nil) }
+        #if DEBUG
+        .task { try? await Task.sleep(for: .seconds(1.2)); if DebugLaunch.take("new-payee") { adding = true } }
+        #endif
         .sheet(item: $scheduling) { p in
             PayScheduleSheet(item: ScheduledPayment(payee: p.name, addr: p.addr, amount: 0, token: "USDC", note: "",
                                                     next: CalendarData.day(1), repeats: .once), isNew: true)

@@ -66,6 +66,9 @@ public struct RootView: View {
                 WalletsViewModel.shared.pendingSwap = intent
                 model.open(.wallets, tab: "agent-swap")
             }
+            #if DEBUG
+            Task { @MainActor in try? await Task.sleep(for: .seconds(1.2)); DebugLaunch.applyRoot(model) }
+            #endif
         }
         // A NEAR Intents swap's live status, opened right after its deposit is approved (or from Wallets).
         .sheet(item: Bindable(IntentsActivity.shared).focus) { f in
