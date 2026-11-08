@@ -16,8 +16,20 @@ public struct WalletRecord: Codable, Identifiable, Hashable, Sendable {
     public let solanaAddress: String
     /// Set once the user confirmed they wrote the phrase down.
     public var backedUp: Bool
+    /// m/44'/397'/0' (SLIP-10 ed25519, as near-seed-phrase / MyNearWallet derive it): the NEAR implicit account, 64 hex.
+    /// nil for wallets made before NEAR support until the user unlocks once to add it (the public key needs the seed).
+    public var nearAccount: String?
 
-    public func address(on chain: Chain) -> String { chain.kind == .evm ? evmAddress : solanaAddress }
+    public init(id: UUID, name: String, created: Date, protection: KeyVault.Protection, wordCount: Int, evmAddress: String,
+                solanaAddress: String, backedUp: Bool, nearAccount: String? = nil) {
+        self.id = id; self.name = name; self.created = created; self.protection = protection; self.wordCount = wordCount
+        self.evmAddress = evmAddress; self.solanaAddress = solanaAddress; self.backedUp = backedUp; self.nearAccount = nearAccount
+    }
+
+    /// "" for NEAR until the account is set up.
+    public func address(on chain: Chain) -> String {
+        switch chain.kind { case .evm: evmAddress; case .solana: solanaAddress; case .near: nearAccount ?? "" }
+    }
 }
 
 /// Where the seed lives. Nothing here ever syncs to iCloud.
@@ -55,6 +67,7 @@ public final class KeyVault: @unchecked Sendable {
 
     public static let evmPath = "m/44'/60'/0'/0/0"
     public static let solanaPath = "m/44'/501'/0'/0'"
+    public static let nearPath = "m/44'/397'/0'"
 
     let store: SealedStore
     private let lock = NSLock()
@@ -133,7 +146,12 @@ public final class KeyVault: @unchecked Sendable {
             var seed = Mnemonic.seed(phraseUTF8: phrase)
             phrase.wipe()
             defer { seed.wipe() }
-            var key = kind == .evm ? try HD.secp256k1Key(seed: seed, path: Self.evmPath) : try HD.ed25519Seed(seed: seed, path: Self.solanaPath)
+            var key: [UInt8]
+            switch kind {
+            case .evm: key = try HD.secp256k1Key(seed: seed, path: Self.evmPath)
+            case .solana: key = try HD.ed25519Seed(seed: seed, path: Self.solanaPath)
+            case .near: key = try HD.ed25519Seed(seed: seed, path: Self.nearPath)
+            }
             defer { key.wipe() }
             return try body(key)
         }
@@ -151,7 +169,8 @@ public final class KeyVault: @unchecked Sendable {
             throw WalletError.vault("This wallet is already here as \u{201C}\(existing.name)\u{201D}.")
         }
         let r = WalletRecord(id: UUID(), name: name, created: Date(), protection: store.protection,
-                             wordCount: entropy.count * 3 / 4, evmAddress: evm, solanaAddress: sol, backedUp: backedUp)
+                             wordCount: entropy.count * 3 / 4, evmAddress: evm, solanaAddress: sol, backedUp: backedUp,
+                             nearAccount: try Self.nearAccount(seed: seed))
         try store.seal(entropy, id: r.id)
         try lock.withLock { records.append(r); try saveIndex() }
         return r
@@ -172,6 +191,31 @@ public final class KeyVault: @unchecked Sendable {
         let pub = try Curve25519.Signing.PrivateKey(rawRepresentation: s).publicKey.rawRepresentation
         s.wipe()
         return (evm, Base58.encode([UInt8](pub)))
+    }
+
+    /// The NEAR implicit account for a phrase.
+    public static func nearAccount(phrase: String) throws -> String {
+        var seed = Mnemonic.seed(phrase: phrase)
+        defer { seed.wipe() }
+        return try nearAccount(seed: seed)
+    }
+
+    static func nearAccount(seed: [UInt8]) throws -> String {
+        var s = try HD.ed25519Seed(seed: seed, path: nearPath)
+        defer { s.wipe() }
+        return NearAccount.implicit(publicKey: [UInt8](try Curve25519.Signing.PrivateKey(rawRepresentation: s).publicKey.rawRepresentation))
+    }
+
+    /// Adds the NEAR account to a wallet made before NEAR support: one Face ID unlock to read the public key.
+    @discardableResult
+    public func addNearAccount(_ id: UUID) async throws -> String {
+        let account = try await withKey(id, kind: .near, reason: "Add a NEAR account to this wallet") { key in
+            NearAccount.implicit(publicKey: [UInt8](try Curve25519.Signing.PrivateKey(rawRepresentation: key).publicKey.rawRepresentation))
+        }
+        try lock.withLock {
+            if let i = records.firstIndex(where: { $0.id == id }) { records[i].nearAccount = account; try saveIndex() }
+        }
+        return account
     }
 
     private func saveIndex() throws { try store.saveIndex(try JSONEncoder().encode(records)) }

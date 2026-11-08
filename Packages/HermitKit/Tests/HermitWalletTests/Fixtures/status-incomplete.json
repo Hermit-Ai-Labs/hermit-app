@@ -1,0 +1,1 @@
+{"correlationId":"fixture-schema-shaped","status":"INCOMPLETE_DEPOSIT","updatedAt":"2026-11-08T10:01:00.000Z","quoteResponse":{"quoteRequest":{"refundTo":"0x9858EfFD232B4033E47d90003D41EC34EcaEda94"}},"swapDetails":{"originChainTxHashes":[{"hash":"0xabc3"}],"destinationChainTxHashes":[],"depositedAmountFormatted":"4.0"}}

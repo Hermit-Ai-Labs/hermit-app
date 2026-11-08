@@ -39,6 +39,7 @@ public struct PreparedSend: Sendable, Identifiable {
     enum Payload: Sendable {
         case evm(EIP1559Transaction)
         case solana(instructions: [SolanaInstruction])
+        case near(receiver: String, actions: [NearAction])
     }
 
     public var symbol: String { token?.symbol ?? chain.nativeSymbol }
@@ -59,6 +60,12 @@ public struct PreparedSend: Sendable, Identifiable {
                 ["Network fee", "up to \(feeText)"]]
     }
     func short(_ a: String) -> String { a.count > 14 ? "\(a.prefix(6))…\(a.suffix(4))" : a }
+
+    /// The same send with a different hazard scan (a 1Click deposit swaps the address-book check for the quote's checks).
+    func with(checks: [HazardCheck], recipientInput: String? = nil) -> PreparedSend {
+        PreparedSend(walletID: walletID, chain: chain, token: token, amount: amount, recipientInput: recipientInput ?? self.recipientInput,
+                     recipient: recipient, networkFee: networkFee, checks: checks, payload: payload)
+    }
 }
 
 public struct TxReceipt: Equatable, Sendable {
@@ -93,6 +100,7 @@ public final class WalletService {
 
     @ObservationIgnored private var evmClients: [String: EVMClient] = [:]
     @ObservationIgnored private var solClients: [String: SolanaClient] = [:]
+    public let nearClient = NearClient()
 
     public init(vault: KeyVault = .makeDefault(), addressBook: AddressBook = AddressBook(), spendLimit: SpendLimit = SpendLimit(),
                 sendLog: SendLog = SendLog()) {
@@ -131,7 +139,7 @@ public final class WalletService {
     }
     public func markBackedUp(_ id: UUID) throws { try vault.markBackedUp(id); reload(select: id) }
 
-    private func reload(select: UUID?) {
+    func reload(select: UUID?) {
         wallets = vault.wallets
         if let select { selectedWalletID = select } else if !wallets.contains(where: { $0.id == selectedWalletID }) { selectedWalletID = wallets.first?.id }
     }
@@ -158,8 +166,8 @@ public final class WalletService {
         await withTaskGroup(of: (String, [Balance]?).self) { g in
             for c in list {
                 let address = w.address(on: c)
-                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil
-                g.addTask { (c.id, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc)) }
+                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil, nc = nearClient
+                g.addTask { (c.id, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc, near: nc)) }
             }
             for await (id, b) in g {
                 if let b { balancesByChain[id] = b } else { failures.append(id) }
@@ -175,8 +183,8 @@ public final class WalletService {
         await withTaskGroup(of: (Chain, [Balance]?).self) { g in
             for c in chains {
                 let address = wallet.address(on: c)
-                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil
-                g.addTask { (c, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc)) }
+                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil, nc = nearClient
+                g.addTask { (c, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc, near: nc)) }
             }
             for await (c, b) in g {
                 if let b { out[c.id] = b } else { failed.append(c) }
@@ -185,7 +193,8 @@ public final class WalletService {
         return (out, failed)
     }
 
-    nonisolated static func fetchBalances(chain: Chain, address: String, evm: EVMClient?, solana: SolanaClient?) async throws -> [Balance] {
+    nonisolated static func fetchBalances(chain: Chain, address: String, evm: EVMClient?, solana: SolanaClient?,
+                                          near: NearClient? = nil) async throws -> [Balance] {
         switch chain.kind {
         case .evm:
             guard let c = evm else { return [] }
@@ -203,6 +212,16 @@ public final class WalletService {
                 out.append(Balance(chain: chain, token: t, amount: try await c.tokenBalance(owner: a, mint: SolanaPublicKey(t.address)!)))
             }
             return out
+        case .near:
+            // No NEAR account on this wallet yet: nothing to show (not zero; the wallet page offers to add one).
+            guard let c = near, !address.isEmpty else { return [] }
+            // An implicit account that has never received NEAR doesn't exist yet: its balance really is 0.
+            let state = try await c.account(address)
+            var out = [Balance(chain: chain, token: nil, amount: state?.available ?? 0)]
+            for t in chain.tokens {
+                out.append(Balance(chain: chain, token: t, amount: state == nil ? 0 : try await c.ftBalance(token: t.address, owner: address)))
+            }
+            return out
         }
     }
 
@@ -212,18 +231,26 @@ public final class WalletService {
     /// `token` nil or the chain's native symbol sends the native coin. Nothing is signed here.
     public func prepareSend(chain: Chain? = nil, to: String, amount: String, token: String? = nil) async throws -> PreparedSend {
         let chain = chain ?? defaultSendChain
-        guard let w = selected else { throw WalletError.vault("Create or import a wallet first.") }
-        guard chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Sends on \(chain.name) are off during the beta. Use \(Chain.defaultSend.name).") }
-        let tok: Token?
-        if let s = token, s.caseInsensitiveCompare(chain.nativeSymbol) != .orderedSame {
-            guard let t = chain.token(s) else { throw WalletError.unknownToken }
-            tok = t
-        } else { tok = nil }
+        let tok = try resolveToken(token, on: chain)
         let value = try Units.parse(amount, decimals: tok?.decimals ?? chain.nativeDecimals)
-        guard value > 0 else { throw WalletError.invalidAmount(amount) }
+        return try await prepareSend(walletID: nil, chain: chain, to: to, value: value, token: tok)
+    }
+
+    func resolveToken(_ token: String?, on chain: Chain) throws -> Token? {
+        guard let s = token, s.caseInsensitiveCompare(chain.nativeSymbol) != .orderedSame else { return nil }
+        guard let t = chain.token(s) else { throw WalletError.unknownToken }
+        return t
+    }
+
+    /// The same, for an exact amount in the token's smallest unit, from a given wallet (nil = the selected one).
+    public func prepareSend(walletID: UUID?, chain: Chain, to: String, value: UInt128, token tok: Token?) async throws -> PreparedSend {
+        guard let w = walletID.flatMap({ id in wallets.first { $0.id == id } }) ?? selected else { throw WalletError.vault("Create or import a wallet first.") }
+        guard chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Sends on \(chain.name) are off during the beta. Use \(Chain.defaultSend.name).") }
+        guard value > 0 else { throw WalletError.invalidAmount("0") }
         switch chain.kind {
         case .evm: return try await prepareEVM(w, chain, to: to, value: value, token: tok)
         case .solana: return try await prepareSolana(w, chain, to: to, value: value, token: tok)
+        case .near: return try await prepareNear(w, chain, to: to, value: value, token: tok)
         }
     }
 
@@ -404,6 +431,8 @@ public final class WalletService {
             let sig = try await client.send(tx)
             let (ok, slot, _) = try await client.waitForConfirmation(sig)
             receipt = TxReceipt(chain: p.chain, hash: sig, success: ok, block: slot)
+        case .near(let receiver, let actions):
+            receipt = try await sendNear(w, receiver: receiver, actions: actions, reason: reason)
         }
         if receipt.success {
             sendLog.record(SendLog.Entry(hash: receipt.hash, chainID: p.chain.id, walletID: w.id, amount: p.amountText, symbol: p.symbol,

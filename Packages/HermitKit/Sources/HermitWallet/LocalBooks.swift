@@ -17,7 +17,7 @@ public final class AddressBook: @unchecked Sendable {
 
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
-    static func normalize(_ address: String, _ kind: ChainKind) -> String { kind == .evm ? address.lowercased() : address }
+    static func normalize(_ address: String, _ kind: ChainKind) -> String { kind == .solana ? address : address.lowercased() }
 
     public var entries: [Entry] {
         lock.withLock { (defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? [] }

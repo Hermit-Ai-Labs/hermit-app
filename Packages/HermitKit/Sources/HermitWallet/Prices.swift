@@ -15,7 +15,7 @@ public actor PriceFeed {
     /// Symbol -> CoinGecko id. USDT0 is Tether's omnichain USDT, priced as USDT.
     public static let ids: [String: String] = [
         "ETH": "ethereum", "BNB": "binancecoin", "SOL": "solana", "MON": "monad",
-        "USDC": "usd-coin", "USDT": "tether", "USDT0": "tether",
+        "USDC": "usd-coin", "USDT": "tether", "USDT0": "tether", "NEAR": "near", "wNEAR": "near",
     ]
 
     let session: URLSession

@@ -1,8 +1,9 @@
 import Foundation
 
-public enum ChainKind: String, Sendable, Codable { case evm, solana }
+public enum ChainKind: String, Sendable, Codable { case evm, solana, near }
 
-/// A token we know the official address of. `address` is a 0x contract (EVM) or a base58 mint (Solana).
+/// A token we know the official address of. `address` is a 0x contract (EVM), a base58 mint (Solana) or a NEP-141
+/// contract account (NEAR).
 public struct Token: Hashable, Sendable, Identifiable {
     public var id: String { "\(chainID):\(symbol)" }
     public let chainID: String
@@ -38,12 +39,14 @@ public struct Chain: Hashable, Sendable, Identifiable {
         switch kind {
         case .evm: URL(string: "\(explorer)/tx/\(tx)")
         case .solana: URL(string: "https://explorer.solana.com/tx/\(tx)" + (isTestnet ? "?cluster=devnet" : ""))
+        case .near: URL(string: "\(explorer)/txns/\(tx)")
         }
     }
     public func explorerURL(address: String) -> URL? {
         switch kind {
         case .evm: URL(string: "\(explorer)/address/\(address)")
         case .solana: URL(string: "https://explorer.solana.com/address/\(address)" + (isTestnet ? "?cluster=devnet" : ""))
+        case .near: URL(string: "\(explorer)/address/\(address)")
         }
     }
 
@@ -96,7 +99,13 @@ extension Chain {
                                            nativeDecimals: 9, logo: "solana", rpc: URL(string: "https://api.devnet.solana.com")!, explorer: "",
                                            isTestnet: true, mainnetID: "solana")
 
-    public static let all: [Chain] = [ethereum, base, bnb, monad, arbitrum, polygon, robinhood, solana,
+    // NEAR mainnet: docs.near.org/api/rpc/providers (FastNEAR's free endpoint; rpc.mainnet.near.org is deprecated and
+    // rate limited). 24 decimals (yoctoNEAR). Accounts are names ("alice.near") or implicit (64 hex = the ed25519 key).
+    public static let near = Chain(id: "near", name: "NEAR", kind: .near, chainId: nil, nativeSymbol: "NEAR", nativeDecimals: 24,
+                                   logo: "near", rpc: URL(string: "https://free.rpc.fastnear.com")!, explorer: "https://nearblocks.io",
+                                   isTestnet: false, mainnetID: nil)
+
+    public static let all: [Chain] = [ethereum, base, bnb, monad, arbitrum, polygon, robinhood, solana, near,
                                       sepolia, baseSepolia, bnbTestnet, monadTestnet, arbitrumSepolia, robinhoodTestnet, solanaDevnet]
     public static let mainnets = all.filter { !$0.isTestnet }
     public static let testnets = all.filter(\.isTestnet)
@@ -143,6 +152,11 @@ public enum TokenTable {
         Token(chainID: "solana", symbol: "USDC", name: "USD Coin", address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6),
         Token(chainID: "solana", symbol: "USDT", name: "Tether USD", address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6),
         Token(chainID: "solana-devnet", symbol: "USDC", name: "USD Coin (testnet)", address: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", decimals: 6),
+        // NEAR (NEP-141). Native USDC is Circle's implicit-account contract; USDT is Tether's. Both listed by the 1Click
+        // tokens endpoint (2026-11-08) and checked with ft_metadata.
+        Token(chainID: "near", symbol: "USDC", name: "USD Coin", address: "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", decimals: 6),
+        Token(chainID: "near", symbol: "USDT", name: "Tether USD", address: "usdt.tether-token.near", decimals: 6),
+        Token(chainID: "near", symbol: "wNEAR", name: "Wrapped NEAR", address: "wrap.near", decimals: 24),
     ]
 
     /// Dollar-pegged tokens count 1:1 towards the daily limit.
