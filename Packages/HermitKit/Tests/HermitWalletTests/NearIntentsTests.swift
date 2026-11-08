@@ -193,6 +193,28 @@ final class NearIntentsTests: XCTestCase {
         XCTAssertEqual(p2.evaluate(usd: 150, payee: nil, origin: .user).decision, .allow)
     }
 
+    /// AI-prepared Hyperliquid trades: margin counts toward the daily limit and the assistant's per-move cap.
+    func testSpendPolicyAgentTrade() {
+        let d = UserDefaults(suiteName: "policy-\(UUID())")!
+        let limit = SpendLimit(defaults: d)
+        let p = SpendPolicy(limit: limit, book: AddressBook(defaults: d), defaults: d)
+        let small = p.evaluateAgentTrade(marginUSD: 20)
+        XCTAssertEqual(small.decision, .allow)
+        XCTAssertTrue(small.passed.contains { $0.contains("per-move cap") })
+        let near = p.evaluateAgentTrade(marginUSD: 90)                       // close to the $100 cap: warned, not blocked
+        XCTAssertEqual(near.decision, .warn)
+        let over = p.evaluateAgentTrade(marginUSD: 150)                      // over the $100 assistant cap
+        XCTAssertEqual(over.decision, .block)
+        XCTAssertTrue(over.blocks.contains { $0.contains("margin per trade") })
+        XCTAssertEqual(p.evaluateAgentTrade(marginUSD: 0).decision, .block)
+        XCTAssertEqual(p.evaluateAgentTrade(marginUSD: .nan).decision, .block)
+        // Daily limit: what's left today is what counts.
+        limit.record(usd: limit.dailyLimitUSD - 10)
+        let daily = p.evaluateAgentTrade(marginUSD: 15)
+        XCTAssertEqual(daily.decision, .block)
+        XCTAssertTrue(daily.blocks.contains { $0.contains("daily limit") })
+    }
+
     @MainActor func testAgentToolsParseChainsAndPrepareIsGuarded() async throws {
         XCTAssertEqual(WalletTools.place("bsc"), .chain(.bnb))
         XCTAssertEqual(WalletTools.place("NEAR"), .chain(.near))

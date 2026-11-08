@@ -91,6 +91,29 @@ public final class SpendPolicy: @unchecked Sendable {
         return v
     }
 
+    /// A leveraged trade the assistant prepared (Hyperliquid). What leaves the user's control is the margin, so the margin
+    /// in dollars counts toward the daily limit and must fit the assistant's per-move cap. The position itself stays in
+    /// the user's own Hyperliquid account, so there is no payee to check.
+    public func evaluateAgentTrade(marginUSD: Double, now: Date = Date()) -> PolicyVerdict {
+        var v = PolicyVerdict(decision: .allow, passed: [], warnings: [], blocks: [])
+        let left = limit.remaining(now: now), cap = limit.dailyLimitUSD
+        let m = Decimal(marginUSD)
+        if !marginUSD.isFinite || marginUSD <= 0 { v.blocks.append("The trade has no margin to check.") }
+        else if m > left { v.blocks.append("Over your daily limit: \(Self.money(left)) of \(Self.money(cap)) left today.") }
+        else { v.passed.append("Within daily limit (\(Self.money(left - m)) left today)") }
+        if marginUSD.isFinite, m > agentCapUSD {
+            v.blocks.append("The assistant can prepare up to \(Self.money(agentCapUSD)) of margin per trade. Open Trade yourself for more.")
+        } else if marginUSD.isFinite, marginUSD > 0 {
+            v.passed.append("Under the assistant's \(Self.money(agentCapUSD)) per-move cap")
+            // Close to the cap or most of what's left today: worth a second look on the sheet.
+            if m > agentCapUSD * Decimal(0.8) || m > left * Decimal(0.8) {
+                v.warnings.append("This trade uses \(Self.money(m)) of margin, close to your limits (\(Self.money(agentCapUSD)) per move, \(Self.money(left)) left today).")
+            }
+        }
+        v.decision = !v.blocks.isEmpty ? .block : !v.warnings.isEmpty ? .warn : .allow
+        return v
+    }
+
     static func money(_ d: Decimal) -> String {
         let n = NSDecimalNumber(decimal: d).doubleValue
         return "$" + n.formatted(.number.precision(.fractionLength(n == n.rounded() ? 0 : 2)).locale(Locale(identifier: "en_US")))

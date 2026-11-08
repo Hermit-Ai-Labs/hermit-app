@@ -173,6 +173,13 @@ public struct HermitToolbox: AgentToolbox {
             return ToolOutcome(content: #"{"prepared":false,"error":"Not enough margin: \#(String(format: "%.2f", available)) USDC available, \#(String(format: "%.2f", margin)) needed"}"#,
                                action: Action("Add funds to Hyperliquid", primary: true, symbol: "plus.circle", open: "fund-hyperliquid"))
         }
+        // The same spending policy as sends and swaps: the margin is what's at stake, so it counts toward the daily limit
+        // and the assistant's per-move cap. A block stops here; no review sheet opens.
+        let policy = WalletsViewModel.shared.service.policy
+        let verdict = policy.evaluateAgentTrade(marginUSD: margin)
+        if verdict.decision == .block {
+            return Self.json(["status": "blocked", "reasons": verdict.blocks, "note": "Nothing was prepared. Tell the user why."])
+        }
         let isBuy = side == "long"
         let limitIn = (a["order_type"] as? String) == "limit" ? n("limit_price") : nil
         let px = limitIn ?? mark
@@ -190,10 +197,13 @@ public struct HermitToolbox: AgentToolbox {
         if let tp = n("take_profit") { lines.append(["Take profit", "$\(tp)"]) }
         if let sl = n("stop_loss") { lines.append(["Stop loss", "$\(sl)"]) }
         lines.append(["Asked for by", "\(label), from your message"])
+        let spent = Decimal(margin)
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(coin)", lines: lines,
-                                checks: ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
-                                success: "\(isBuy ? "Long" : "Short") \(coin) sent") {
-            try await trader.place(order, leverage: lev).summary
+                                checks: verdict.passed + ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
+                                success: "\(isBuy ? "Long" : "Short") \(coin) sent", warnings: verdict.warnings) {
+            let summary = try await trader.place(order, leverage: lev).summary
+            policy.limit.record(usd: spent)
+            return summary
         }
         return ToolOutcome(content: prepared("trade"), action: Action("Review \(isBuy ? "long" : "short") \(coin)", approval: approval))
     }
