@@ -12,7 +12,7 @@ struct SettingsPage: View {
     @AppStorage("home.showToday") private var showToday = true
 
     var body: some View {
-        Page(title: "Settings", tabs: [("profile", "Profile"), ("safety", "Safety"), ("memory", "Memory"), ("models", "Models"), ("home", "Home")], tab: $tab) { t in
+        Page(title: "Settings", tabs: [("profile", "Profile"), ("safety", "Safety"), ("memory", "Memory"), ("models", "Models"), ("cloud", "Private Cloud"), ("home", "Home")], tab: $tab) { t in
             switch t {
             case "profile": ProfileSettings()
             case "safety": safety
@@ -22,12 +22,13 @@ struct SettingsPage: View {
                     Text("Hermit runs on this device. Nothing you type leaves it.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     ModelSheet(embedded: true)
                 }
+            case "cloud": CloudSettings()
             case "home": home
             default: ProfileSettings()
             }
         }
         .onAppear {
-            if let r = model.tabRequest, ["profile", "safety", "memory", "models", "home"].contains(r) { tab = r; model.tabRequest = nil }
+            if let r = model.tabRequest, ["profile", "safety", "memory", "models", "cloud", "home"].contains(r) { tab = r; model.tabRequest = nil }
         }
     }
 

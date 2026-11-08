@@ -114,11 +114,11 @@ public final class AppModel {
     /// The on-device models (download, pick, delete).
     public let models: ModelStore
 
-    /// Defaults to the hybrid agent: every prompt on the on-device model.
+    /// Defaults to the mode agent: the on-device model, or Private Cloud (NEAR AI, TEE) when picked in the chat box.
     public init(agent: Agent? = nil, models: ModelStore? = nil) {
         let models = models ?? .shared
         self.models = models
-        self.agent = agent ?? HybridAgent(store: models)
+        self.agent = agent ?? ModeAgent(local: HybridAgent(store: models))
         persist = !SnapshotMode.active
         if persist {
             user = UserDefaults.standard.string(forKey: Self.nameKey) ?? ""
@@ -140,6 +140,8 @@ public final class AppModel {
         if let r = d.string(forKey: "hermitRoute").flatMap(Route.init(rawValue:)) { open(r, tab: d.string(forKey: "hermitTab")) }
         if d.bool(forKey: "hermitDrawer") { drawerOpen = true }
         if d.bool(forKey: "hermitDownload") { models.download(models.selectedID) }
+        if let m = d.string(forKey: "hermitMode").flatMap({ ChatMode(rawValue: $0) }) { d.set(m.rawValue, forKey: ChatMode.key) }
+        if let q = d.string(forKey: "hermitAsk"), !q.isEmpty { Task { @MainActor in try? await Task.sleep(for: .seconds(1)); self.send(q) } }
     }
     #endif
 
@@ -284,6 +286,7 @@ public final class AppModel {
             case .card(let c): m.card = c
             case .actions(let a): m.actions = a
             case .block(let b): m.blocks.append(b)
+            case .proof(let p): m.proof = p
             }
         }
     }
@@ -302,6 +305,13 @@ public final class AppModel {
     /// The user tapped an action under a reply. Money moves go through the approval sheet.
     public func run(_ action: Action) {
         if let a = action.approval { approval = a }
+        else if let o = action.open {
+            switch o {
+            case "fund-hyperliquid": fundGoal = .hyperliquid
+            case "swap": open(.wallets, tab: "swap")
+            default: fundGoal = .wallet
+            }
+        }
         else if let q = action.ask { ask(q) }
         else if let r = action.reply { react(action.title, r) }
         else if let t = action.toast { toast(t) }

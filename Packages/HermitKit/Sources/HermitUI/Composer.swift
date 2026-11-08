@@ -24,6 +24,7 @@ struct Composer: View {
     @State private var importing = false
     @State private var showModels = false
     @FocusState private var focused: Bool
+    @AppStorage(ChatMode.key) private var chatMode = ChatMode.device.rawValue
 
     /// Commands that do something real today.
     static let commands: [(String, String)] = [("/remember", "Save something to long-term memory")]
@@ -35,7 +36,9 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if onSend == nil && !model.inChat && projectPicker { ModelPrompt().padding(.bottom, 14) }
+            if onSend == nil && !model.inChat && projectPicker {
+                if chatMode == ChatMode.cloud.rawValue { CloudPrompt().padding(.bottom, 14) } else { ModelPrompt().padding(.bottom, 14) }
+            }
             box
             if projectPicker, let p = model.project(model.chatProject) {
                 HStack(spacing: 7) {
@@ -89,11 +92,7 @@ struct Composer: View {
                 if let label, !label.isEmpty {
                     Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1).padding(.trailing, 6)
                 } else if label == nil {
-                    Button { showModels = true } label: {
-                        Text(model.models.label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
-                            .contentTransition(.numericText()).animation(.snappy, value: model.models.label)
-                    }
-                    .buttonStyle(.plain).padding(.trailing, 6).help("On-device model")
+                    ModeMenu { showModels = true }
                 }
                 sendButton
             }

@@ -24,13 +24,15 @@ public struct Message: Identifiable, Equatable, Sendable, Codable {
     public var note: Bool
     /// Set on automation runs: "Oct 20, 09:00".
     public var run: String?
+    /// Private Cloud replies: what was verified about the enclave that wrote this answer.
+    public var proof: CloudProof?
 
     public init(id: UUID = UUID(), role: Role, text: String = "", status: String? = nil, steps: Int = 0, tools: [String] = [],
                 card: Card? = nil, blocks: [Block] = [], actions: [Action] = [], done: Bool = true,
-                attachment: Attachment? = nil, note: Bool = false, run: String? = nil) {
+                attachment: Attachment? = nil, note: Bool = false, run: String? = nil, proof: CloudProof? = nil) {
         self.id = id; self.role = role; self.text = text; self.status = status; self.steps = steps; self.tools = tools
         self.card = card; self.blocks = blocks; self.actions = actions; self.done = done
-        self.attachment = attachment; self.note = note; self.run = run
+        self.attachment = attachment; self.note = note; self.run = run; self.proof = proof
     }
 }
 
@@ -292,10 +294,12 @@ public struct Action: Equatable, Sendable, Identifiable, Codable {
     public var primary: Bool
     /// SF Symbol shown before the title.
     public var symbol: String?
+    /// Opens a screen when tapped: "fund-wallet", "fund-hyperliquid" or "swap".
+    public var open: String?
     public init(_ title: String, approval: Approval? = nil, reply: String? = nil, ask: String? = nil, toast: String? = nil,
-                primary: Bool = false, symbol: String? = nil) {
+                primary: Bool = false, symbol: String? = nil, open: String? = nil) {
         self.title = title; self.approval = approval; self.reply = reply; self.ask = ask; self.toast = toast
-        self.primary = primary || approval != nil; self.symbol = symbol
+        self.primary = primary || approval != nil; self.symbol = symbol; self.open = open
     }
 }
 

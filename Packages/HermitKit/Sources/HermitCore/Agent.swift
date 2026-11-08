@@ -9,6 +9,8 @@ public enum AgentEvent: Sendable {
     case actions([Action])
     /// A new piece of a rich reply (text streams into it with `.text` chunks).
     case block(Block)
+    /// Private Cloud: the attestation and signature checks for this reply.
+    case proof(CloudProof)
 }
 
 /// The agent behind the chat box: the on-device model (see HybridAgent).

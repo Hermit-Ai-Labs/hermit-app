@@ -136,7 +136,9 @@ struct MessageView: View {
                     .transition(.opacity.combined(with: .offset(y: 6)))
             }
             if !message.actions.isEmpty { ActionRow(actions: message.actions) }
+            if let p = message.proof { ProofChip(proof: p).transition(.opacity) }
         }
+        .animation(.smooth(duration: 0.3), value: message.proof)
         .animation(.smooth(duration: 0.3), value: message.blocks.count)
         .animation(.smooth(duration: 0.3), value: message.card)
         .animation(.smooth(duration: 0.3), value: message.actions)
