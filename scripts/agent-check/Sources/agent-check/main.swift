@@ -117,6 +117,14 @@ func main() async {
     let stats = StatsBox()
     let agent = LocalAgent(store: store, toolbox: HarnessToolbox(harness: harness)) { stats.add($0) }
     print("model: \(args[2])")
+    // As the app does at launch: load the model and read the system prompt (with the tool block) into the cache.
+    let w0 = Date()
+    agent.warmUp()
+    agent.setContext(name: "Rahul", memory: [])
+    try? await Task.sleep(for: .seconds(1))
+    for await _ in agent.reply(to: "hi") {}   // waits behind the warm-up
+    print(String(format: "warm-up and a first hello: %.1fs", Date().timeIntervalSince(w0)))
+    for s in stats.take() { print("  STATS \(s)") }
 
     for prompt in prompts {
         agent.reset()

@@ -71,7 +71,11 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     /// so this applies from the next new chat (or right away if this one hasn't started).
     public func setContext(name: String, memory: [String]) {
         let text = Self.instructions(name: name, memory: memory)
-        Task { [chat] in await chat.setSystem(text) }
+        Task { [chat, engine] in
+            await chat.setSystem(text)
+            // Before the chat starts, read the new system prompt into the cache too, so the first answer is quick.
+            if await chat.history.isEmpty, await engine.isLoaded { await engine.prefill(await chat.systemPrefix()) }
+        }
     }
 
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
@@ -168,6 +172,7 @@ actor LocalEngine {
     private var current: Task<Void, Never>?
 
     func isLoaded(_ id: String) -> Bool { loadedID == id && container != nil }
+    var isLoaded: Bool { container != nil }
 
     /// Hermit never shows reasoning. Templates that switch it off with `enable_thinking is false` don't take effect in
     /// swift-jinja, so a downloaded template with that switch is rewritten to always close the think block.
@@ -202,9 +207,20 @@ actor LocalEngine {
         return .instruct
     }
 
+    /// A load in progress: a second caller (the first question during warm-up) waits for it instead of loading twice.
+    private var loading: (id: String, task: Task<TimeInterval, Error>)?
+
     /// Loads the model (once). Returns how long it took, or nil if it was already loaded.
     func load(id: String, directory: URL) async throws -> TimeInterval? {
         if isLoaded(id) { return nil }
+        if let l = loading, l.id == id { _ = try await l.task.value; return nil }
+        let task = Task { try await self.loadNow(id: id, directory: directory) }
+        loading = (id, task)
+        defer { if loading?.id == id { loading = nil } }
+        return try await task.value
+    }
+
+    private func loadNow(id: String, directory: URL) async throws -> TimeInterval {
         await unload()
         // Freed GPU buffers are cached for reuse; keep that cache small on 8 GB devices.
         Memory.cacheLimit = (ModelCatalog.deviceMemoryGB <= 8 ? 64 : 512) << 20
