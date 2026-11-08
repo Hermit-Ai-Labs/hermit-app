@@ -47,9 +47,17 @@ struct CloudSettings: View {
         .sheet(item: $proof) { ProofSheet(proof: $0) }
     }
 
+    private var keySub: String {
+        if status.hasOwnKey { return "Saved in the Keychain on this device only" }
+        if NearAICloud.usesSharedKey {
+            return "Using Hermit's shared key: \(SharedQuota.left) of \(SharedQuota.perDay) free messages left today. Add your own key for unlimited use."
+        }
+        return "Get one at cloud.near.ai. NEAR Builders members can claim $10 of credit"
+    }
+
     private var keyRow: some View {
-        SettingRow(title: "NEAR AI Cloud API key", sub: status.hasKey ? "Saved in the Keychain on this device only" : "Get one at cloud.near.ai. NEAR Builders members can claim $10 of credit") {
-            if status.hasKey {
+        SettingRow(title: "NEAR AI Cloud API key", sub: keySub) {
+            if status.hasOwnKey {
                 HStack(spacing: 8) {
                     Text("Saved").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
                     Button("Remove") { status.setKey(nil); model.toast("Key removed") }.buttonStyle(PlainCardButton())

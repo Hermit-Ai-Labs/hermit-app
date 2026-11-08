@@ -49,7 +49,7 @@ let package = Package(
             "HermitCore",
             .product(name: "libsecp256k1", package: "swift-secp256k1"),
             .product(name: "CryptoSwift", package: "CryptoSwift"),
-        ], resources: [.copy("Resources/hermit_tools.json")]),
+        ], resources: [.process("Resources")]),
         .target(name: "HermitUI", dependencies: ["HermitCore", "HermitModel", "HermitWallet", "HermitCloud"], resources: [.process("Resources")]),
         .testTarget(name: "HermitCoreTests", dependencies: ["HermitCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "HermitUITests", dependencies: ["HermitUI"]),

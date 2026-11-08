@@ -48,6 +48,7 @@ final class CloudStatus {
     private(set) var preflight: Preflight?
     private(set) var models: [NearAICloud.Model] = []
     var hasKey = NearAICloud.apiKey != nil
+    var hasOwnKey = NearAICloud.ownKey != nil
     var model = NearAICloud.model { didSet { NearAICloud.model = model; preflight = nil } }
 
     var passed: Bool { preflight?.passed == true }
@@ -71,8 +72,9 @@ final class CloudStatus {
     }
 
     func setKey(_ key: String?) {
-        NearAICloud.apiKey = key
+        NearAICloud.ownKey = key
         hasKey = NearAICloud.apiKey != nil
+        hasOwnKey = NearAICloud.ownKey != nil
     }
 
     /// The proof to show for a check made outside a chat (no completion).

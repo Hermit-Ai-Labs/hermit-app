@@ -15,11 +15,26 @@ public struct NearAICloud: Sendable {
     static let keyName = "near-ai-cloud.api-key"
     static let modelKey = "hermit.cloud.model"
 
-    /// The key from cloud.near.ai, in the Keychain on this device only.
-    public static var apiKey: String? {
+    /// The user's own key from cloud.near.ai, in the Keychain on this device only.
+    public static var ownKey: String? {
         get { Secrets.get(keyName).flatMap { $0.isEmpty ? nil : $0 } }
         set { Secrets.set(newValue?.trimmingCharacters(in: .whitespacesAndNewlines), for: keyName) }
     }
+
+    /// Hermit's shared key, so anyone can try Private Cloud without signing up. It is added to the app at build time
+    /// (Resources/shared.bin, never in git), masked, and limited per device per day (`SharedQuota`).
+    static let sharedKey: String? = {
+        guard let url = Bundle.module.url(forResource: "shared", withExtension: "bin"),
+              let d = try? Data(contentsOf: url), let b = Data(base64Encoded: d) else { return nil }
+        let mask = Array("hermit-private-cloud".utf8)
+        let key = String(decoding: b.enumerated().map { $0.element ^ mask[$0.offset % mask.count] }, as: UTF8.self)
+        return key.hasPrefix("sk-") ? key : nil
+    }()
+
+    /// The key a message goes out with: the user's own, else the shared one while today's free messages last.
+    public static var apiKey: String? { ownKey ?? (SharedQuota.left > 0 ? sharedKey : nil) }
+    /// True when there's no own key and the build carries the shared one.
+    public static var usesSharedKey: Bool { ownKey == nil && sharedKey != nil }
     public static var model: String {
         get { UserDefaults.standard.string(forKey: modelKey) ?? defaultModel }
         set { UserDefaults.standard.set(newValue, forKey: modelKey) }
@@ -277,5 +292,20 @@ public struct Preflight: Sendable {
                    signatureKind: kind, modelSigner: bundle.models.first?.signingAddress, gatewaySigner: gatewaySigner,
                    measurements: bundle.models.first.map(AttestationVerifier.measurements) ?? [],
                    checks: replyChecks + checks + Self.notChecked, completions: completions, signedCompletions: signed)
+    }
+}
+
+/// Free Private Cloud messages per device per day on Hermit's shared key. Your own key has no limit here.
+public enum SharedQuota {
+    public static let perDay = 30
+    static let dayKey = "hermit.cloud.shared.day", countKey = "hermit.cloud.shared.count"
+    static var today: String { ISO8601DateFormatter.string(from: .now, timeZone: .current, formatOptions: [.withFullDate]) }
+    public static var used: Int {
+        UserDefaults.standard.string(forKey: dayKey) == today ? UserDefaults.standard.integer(forKey: countKey) : 0
+    }
+    public static var left: Int { max(perDay - used, 0) }
+    static func consume() {
+        let d = UserDefaults.standard
+        d.set(used + 1, forKey: countKey); d.set(today, forKey: dayKey)
     }
 }

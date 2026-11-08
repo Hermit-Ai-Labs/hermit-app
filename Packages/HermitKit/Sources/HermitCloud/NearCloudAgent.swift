@@ -89,10 +89,13 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                 }
                 guard let key = NearAICloud.apiKey else {
                     cont.yield(.steps(0))
-                    cont.yield(.text("The enclave checks out (tap Enclave verified below to see every check), but there's no NEAR AI Cloud API key yet, so I didn't send your message. Add one in Settings, Private Cloud."))
+                    cont.yield(.text(NearAICloud.usesSharedKey
+                        ? "The enclave checks out, but today's \(SharedQuota.perDay) free Private Cloud messages are used up, so I didn't send your message. Add your own NEAR AI Cloud key in Settings, Private Cloud, or switch to On-device."
+                        : "The enclave checks out (tap Enclave verified below to see every check), but there's no NEAR AI Cloud API key yet, so I didn't send your message. Add one in Settings, Private Cloud."))
                     cont.yield(.proof(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: [])))
                     return
                 }
+                if NearAICloud.usesSharedKey { SharedQuota.consume() }
                 await run(prompt: prompt, model: model, key: key, preflight: pre, cont: cont)
             }
             cont.onTermination = { _ in task.cancel() }
