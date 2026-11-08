@@ -63,6 +63,8 @@ SHOTS=(
   "sheet-fund-hl|@w -hermitRoute trade -hermitSheet fund-hyperliquid"
   "sheet-fund-empty|-hermitRoute wallets -hermitSheet fund"
   "dialog-remove|@w -hermitRoute wallets -hermitSheet remove"
+  "dialog-remove-dark|@dark @w -hermitRoute wallets -hermitSheet remove"
+  "sheet-swap-dark|@dark @w -hermitRoute wallets -hermitTab swap"
   "sheet-approval|@w -hermitRoute wallets -hermitSheet approval"
   "sheet-approval-xl|@xl @w -hermitRoute wallets -hermitSheet approval"
   "status-pending|@w -hermitRoute wallets -hermitSheet status-pending"

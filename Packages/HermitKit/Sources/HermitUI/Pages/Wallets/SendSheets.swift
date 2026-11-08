@@ -57,6 +57,8 @@ struct WalletSendSheet: View {
     @State private var scanning = false
     @State private var error: String?
     @State private var busy = false
+    /// Opened before balances loaded: pick the biggest balance once they arrive (unless the user already chose).
+    @State private var autoPick = false
     // Add address form
     @State private var newLabel = ""
     @State private var newKind: ChainKind = .evm
@@ -67,10 +69,14 @@ struct WalletSendSheet: View {
         let w = vm.wallet(fromID) ?? vm.wallets.first
         let pre = vm.sendPrefill
         vm.sendPrefill = nil
-        let c = pre?.chain ?? chain ?? Chain.defaultSend
+        // Opened plainly: start on the biggest balance this wallet can send, not an empty ETH on Base.
+        let plain = pre == nil && chain == nil && token == nil
+        let biggest = plain ? Self.biggest(vm, wallet: w?.id) : nil
+        _autoPick = State(initialValue: plain && biggest == nil)
+        let c = pre?.chain ?? chain ?? biggest?.chain ?? Chain.defaultSend
         _fromID = State(initialValue: w?.id ?? "")
         _chain = State(initialValue: c)
-        let want = pre?.token ?? token
+        let want = pre?.token ?? token ?? biggest?.symbol
         _token = State(initialValue: want.flatMap { t in vm.tokens(chain: c).contains(t) ? t : nil } ?? c.nativeSymbol)
         _address = State(initialValue: pre?.address ?? "")
         _amount = State(initialValue: pre?.amount ?? "")
@@ -197,8 +203,18 @@ struct WalletSendSheet: View {
         #endif
         .onChange(of: chain) { _, c in
             if !vm.tokens(chain: c).contains(token) { token = c.nativeSymbol }
-            error = nil
+            error = nil; autoPick = false
         }
+        .onChange(of: vm.holdings(wallet: fromID, chain: nil).count) { _, _ in
+            guard autoPick, amount.isEmpty, let b = Self.biggest(vm, wallet: fromID) else { return }
+            autoPick = false; chain = b.chain; token = b.symbol
+        }
+    }
+
+    static func biggest(_ vm: WalletsViewModel, wallet: String?) -> Holding? {
+        vm.holdings(wallet: wallet, chain: nil)
+            .filter { h in h.amount > 0 && h.chain.isTestnet == !WalletService.mainnetSendsEnabled && vm.tokens(chain: h.chain).contains(h.symbol) }
+            .max { ($0.usd, $0.amount) < ($1.usd, $1.amount) }
     }
 
     @ViewBuilder private var status: some View {

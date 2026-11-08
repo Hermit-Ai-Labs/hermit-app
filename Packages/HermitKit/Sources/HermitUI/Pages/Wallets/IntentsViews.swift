@@ -105,7 +105,9 @@ struct IntentsProgress: View {
         case 0: if let h = swap?.txHash { return shortAddr(h, keep: 8) }; return external ? "Waiting for it to arrive" : nil
         case 1:
             // The same deposit transaction as step 1 says nothing new; show it only when step 1 had none.
-            guard let h = state?.originTxs.first?.hash, h != swap?.txHash else { return state?.originTxs.isEmpty == false ? "Deposit confirmed" : nil }
+            guard let h = state?.originTxs.first?.hash, h != swap?.txHash else {
+                return state?.originTxs.isEmpty == false && status.step > 1 ? "Deposit confirmed" : nil
+            }
             return shortAddr(h, keep: 8)
         case 2: return state?.nearTxs.isEmpty == false ? "\(state!.nearTxs.count) NEAR transaction\(state!.nearTxs.count == 1 ? "" : "s")" : nil
         default:

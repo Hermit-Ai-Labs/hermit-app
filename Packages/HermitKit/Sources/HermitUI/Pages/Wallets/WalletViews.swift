@@ -439,7 +439,7 @@ struct ExplorerLinks: View {
     var chain: Chain?
     var body: some View {
         if let w = vm.wallet(walletID) ?? vm.wallets.first {
-            let chains = chain.map { [$0] } ?? [Chain.ethereum, .base, .solana]
+            let chains = chain.map { [$0] } ?? [Chain.ethereum, .base, .solana, .near]
             VStack(alignment: .leading, spacing: 6) {
                 Text("Received transfers and older history are on the explorer\(walletID == nil && vm.wallets.count > 1 ? " (\(w.name))" : ""):")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.faint)
