@@ -105,6 +105,9 @@ struct MessageView: View {
         }
     }
 
+    /// The label counts what the list shows (the enclave and signature checks are steps too).
+    private var stepCount: Int { max(message.steps, message.tools.count) }
+
     private var reply: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let status = message.status {
@@ -121,7 +124,7 @@ struct MessageView: View {
                     Button { withAnimation(.snappy) { showTools.toggle() } } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle").foregroundStyle(Theme.green)
-                            Text(message.steps == 1 ? "1 step" : "\(message.steps) steps").foregroundStyle(Theme.muted)
+                            Text(stepCount == 1 ? "1 step" : "\(stepCount) steps").foregroundStyle(Theme.muted)
                             Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.faint)
                                 .rotationEffect(.degrees(showTools ? 90 : 0))
                         }
