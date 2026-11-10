@@ -5,6 +5,7 @@
 # Launch arguments (DEBUG only, AppModel / DebugLaunch.swift; -hermitSteps YES opens a reply's tool steps):
 #   -hermitRoute <page> -hermitTab <tab or wallets flow> -hermitDrawer YES -hermitSheet <sheet> -hermitScroll bottom|<y>
 #   -hermitDapp <url> -hermitDappAsk connect|sign|sol-connect|sol-tx (Explore's in-app browser, Pages/Browser/DappBrowser.swift)
+#   -hermitAttach csv|pdf|photo with -hermitAsk (Debug/DebugFixtures.swift; also -hermitSheet batch-review|batch-status|batch-card|aave-deposit|aave-withdraw)
 #   -hermitTestWallet YES (memory-only vault with the public "abandon … about" phrase) -hermitMode cloud -hermitAsk <text>
 # Per shot, @dark shoots in dark appearance and @xl at a larger Dynamic Type size; @w adds the test wallet.
 set -uo pipefail
@@ -29,6 +30,18 @@ SHOTS=(
   "chat-swap|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Swap_5_USDT_on_NEAR_to_NEAR"
   "chat-bridge|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Bridge_1_SOL_on_Solana_to_USDC_on_Base"
   "chat-steps|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk What_are_my_balances,_and_what_would_I_get_for_5_USDT_on_NEAR_in_NEAR?"
+  "chat-csv|@w -hermitRoute home -hermitMode cloud -hermitAttach csv -hermitAsk What's_in_this_file?"
+  "chat-csv-send|@w -hermitRoute home -hermitMode cloud -hermitAttach csv -hermitAsk Send_these_amounts_in_USDC_on_Base"
+  "chat-pdf|@w -hermitRoute home -hermitMode cloud -hermitAttach pdf -hermitAsk Summarize_this_PDF"
+  "chat-photo|@w -hermitRoute home -hermitMode cloud -hermitAttach photo -hermitAsk How_much_did_I_spend?"
+  "chat-quote|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk How_much_NEAR_would_I_get_for_10_USDC_on_Base?"
+  "chat-deposit|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Deposit_25_USDC_into_Aave_on_Base"
+  "chat-withdraw|@w -hermitSteps YES -hermitRoute home -hermitMode cloud -hermitAsk Withdraw_my_USDC_from_Aave"
+  "batch-review|@w -hermitRoute home -hermitSheet batch-review"
+  "batch-status|@w -hermitRoute home -hermitSheet batch-status"
+  "batch-card|@w -hermitRoute home -hermitSheet batch-card"
+  "aave-deposit|@w -hermitRoute earn -hermitTab positions -hermitSheet aave-deposit"
+  "aave-withdraw|@w -hermitRoute earn -hermitTab positions -hermitSheet aave-withdraw"
   "projects|-hermitRoute projects"
   "automations|-hermitRoute automations"
   "calendar|-hermitRoute calendar"
@@ -36,6 +49,7 @@ SHOTS=(
   "trade-order|-hermitRoute trade -hermitTab markets -hermitScroll bottom"
   "trade-positions|-hermitRoute trade -hermitTab positions"
   "earn-positions|-hermitRoute earn -hermitTab positions"
+  "earn-positions-w|@w -hermitRoute earn -hermitTab positions"
   "earn-defi|-hermitRoute earn -hermitTab defi"
   "earn-arb|-hermitRoute earn -hermitTab arb"
   "earn-reverse|-hermitRoute earn -hermitTab reverse"
@@ -82,10 +96,14 @@ SHOTS=(
   "explore|-hermitRoute explore"
   "browser|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap"
   "browser-connect|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap -hermitDappAsk connect"
+  "browser-connected|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap -hermitDappAsk connected"
+  "browser-tx|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap -hermitDappAsk tx"
   "browser-sign|@w -hermitRoute explore -hermitDapp https://app.aave.com -hermitDappAsk sign"
+  "browser-sol-list|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-list"
   "browser-sol-connect|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-connect"
   "browser-sol-tx|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-tx"
-  "settings-sites|-hermitRoute settings -hermitTab sites"
+  "settings-sites|@w -hermitRoute settings -hermitTab sites -hermitSheet sites"
+  "settings-sites-empty|-hermitRoute settings -hermitTab sites -hermitSheet sites-empty"
   "connectors|-hermitRoute connectors"
   "sheet-mcp|-hermitRoute connectors -hermitSheet mcp"
   "settings-profile|-hermitRoute settings -hermitTab profile"
@@ -127,9 +145,10 @@ for entry in $SHOTS; do
     # -hermitAsk text uses _ for spaces (one shell word).
     a=(${=args}); for (( i = 2; i <= $#a; i++ )); do [[ ${a[i-1]} == -hermitAsk ]] && a[i]=${a[i]//_/ }; done
     [[ $args == *-hermitMode* ]] || extra+=(-hermitMode device)
-    xcrun simctl launch "$UDID" $BID -hermitUser Rahul $extra "${a[@]}" >/dev/null
+    # -hermitFresh: no saved chats read or written, so earlier runs never show up in a shot.
+    xcrun simctl launch "$UDID" $BID -hermitUser Rahul -hermitFresh YES $extra "${a[@]}" >/dev/null
   fi
-  w=${WAIT:-5}; [[ $name == chat-* ]] && w=${CHATWAIT:-40}; [[ $name == sheet-proof || $name == sheet-quote* || $name == home-cloud ]] && w=12; [[ $name == browser* ]] && w=20
+  w=${WAIT:-5}; [[ $name == chat-* ]] && w=${CHATWAIT:-40}; [[ $name == sheet-proof || $name == sheet-quote* || $name == home-cloud ]] && w=12; [[ $name == browser* ]] && w=20; [[ $name == aave-* || $name == batch-* ]] && w=12
   sleep $w
   xcrun simctl io "$UDID" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1 && echo "shot $name"
 done

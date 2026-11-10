@@ -54,6 +54,13 @@ final class BatchStore {
     }
 }
 
+#if DEBUG
+extension BatchStore {
+    /// Screenshots only (DebugFixtures): a batch in memory, never saved.
+    func debugInsert(_ p: BatchPlan) { plans[p.id] = p }
+}
+#endif
+
 struct BatchRef: Identifiable, Hashable { let id: String }
 
 /// How a row's state reads.

@@ -3,11 +3,11 @@
 # (Debug build; HermitUI/Debug/MacTour.swift parks the window off-screen below the desktop and captures it).
 # Run under ~/hermit/.buildlock.
 #   zsh scripts/mac-shots.sh [name,name]     default: all. Output: ~/hermit/mac-shots/<name>.png
-#   NOBUILD=1 skips the build.
+#   NOBUILD=1 skips the build; DD and OUT override the DerivedData and output folders.
 set -uo pipefail
 cd "${0:A:h}/.."
-DD=~/hermit/dd
-OUT=~/hermit/mac-shots
+DD=${DD:-~/hermit/dd}
+OUT=${OUT:-~/hermit/mac-shots}
 CONT=~/Library/Containers/my.hermit.mac/Data/tmp/shots
 if [[ -z ${NOBUILD:-} ]]; then
   ~/hermit/xg/xcodegen/bin/xcodegen generate -q

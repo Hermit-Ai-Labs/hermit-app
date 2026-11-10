@@ -149,7 +149,13 @@ public final class AppModel {
         if d.bool(forKey: "hermitDrawer") { drawerOpen = true }
         if d.bool(forKey: "hermitDownload") { models.download(models.selectedID) }
         if let m = d.string(forKey: "hermitMode").flatMap({ ChatMode(rawValue: $0) }) { d.set(m.rawValue, forKey: ChatMode.key) }
-        if let q = d.string(forKey: "hermitAsk"), !q.isEmpty { Task { @MainActor in try? await Task.sleep(for: .seconds(1)); self.send(q) } }
+        if let q = d.string(forKey: "hermitAsk"), !q.isEmpty {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                // -hermitAttach csv|pdf|photo: the message goes with a generated file (Debug/DebugFixtures.swift).
+                if let k = d.string(forKey: "hermitAttach"), !k.isEmpty { DebugFixtures.ask(q, attach: k, model: self) } else { self.send(q) }
+            }
+        }
     }
     #endif
 

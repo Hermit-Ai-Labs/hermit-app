@@ -40,7 +40,7 @@ final class DappBrowser: DappPresenter {
 
     #if DEBUG
     /// Simulator screenshots (scripts/phone-shots.sh): `-hermitDapp <url>` opens the browser once on launch, and
-    /// `-hermitDappAsk connect|sign|sol-connect|sol-tx` makes the page ask for a connection or a signature, so the real approval sheet
+    /// `-hermitDappAsk connect|connected|sign|tx|sol-connect|sol-list|sol-tx` makes the page ask for a connection or a signature, so the real approval sheet
     /// shows over it. Nobody taps Approve in a screenshot run. Never compiled into Release.
     private static var debugUsed = false
     func debugLaunch(_ model: AppModel) {
@@ -49,8 +49,9 @@ final class DappBrowser: DappPresenter {
         open(u, dapp: ExploreData.dapps.first { $0.url?.host() == u.host() }, model: model)
         guard let ask = UserDefaults.standard.string(forKey: "hermitDappAsk"), let session, let o = session.origin,
               let w = WalletsViewModel.shared.service.selected else { return }
-        if ask == "sign" { DappPermissions.shared.connect(o, walletID: w.id, address: w.evmAddress, chainID: 1) }
-        if ask == "sol-tx" { DappPermissions.shared.connectSolana(o, walletID: w.id, address: w.solanaAddress) }
+        if ["sign", "connected", "tx"].contains(ask) { DappPermissions.shared.connect(o, walletID: w.id, address: w.evmAddress, chainID: 1) }
+        // Uniswap connects Hermit on both EVM and Solana from one pick.
+        if ask == "sol-tx" || ask == "connected" { DappPermissions.shared.connectSolana(o, walletID: w.id, address: w.solanaAddress) }
         Task { @MainActor [weak session] in
             // Pages with long-running analytics may never report "finished": ask after a fixed wait instead.
             try? await Task.sleep(for: .seconds(9))
@@ -61,6 +62,27 @@ final class DappBrowser: DappPresenter {
                 script = "window.ethereum.request({ method: 'eth_accounts' }).then(a => window.ethereum.request({ method: 'personal_sign', params: ['0x' + Array.from(new TextEncoder().encode(location.host + ' wants you to sign in with your Ethereum account:\\n' + a[0] + '\\n\\nURI: https://' + location.host + '\\nVersion: 1\\nChain ID: 1\\nNonce: hermitdemo1\\nIssued At: 2026-11-10T09:00:00Z')).map(b => b.toString(16).padStart(2, '0')).join(''), a[0]] }))"
             case "sol-connect":
                 script = "window.hermit.connect()"
+            case "connected", "sol-list":
+                // The page's own Connect button, then (EVM) Hermit in its wallet list; the site was connected above,
+                // so no sheet comes up and the page shows the account. sol-list stops at the list.
+                let pick = ask == "connected" ? "true" : "false"
+                script = """
+                (async () => { const sleep = t => new Promise(r => setTimeout(r, t));
+                  const vis = e => e.getClientRects().length > 0;
+                  const press = e => { for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                    const r = e.getBoundingClientRect(), o = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, pointerType: 'mouse', isPrimary: true };
+                    e.dispatchEvent(t.startsWith('pointer') ? new PointerEvent(t, o) : new MouseEvent(t, o)); } };
+                  const find = re => [...document.querySelectorAll('*')].filter(e => re.test((e.innerText || '').trim()) && vis(e)).pop();
+                  for (let i = 0; i < 6; i++) {
+                    const b = find(/^connect( wallet)?$/i); if (b) press(b);
+                    await sleep(1500);
+                    if (!\(pick)) return;
+                    const h = find(/^Hermit$/); if (h) { press(h); return; }
+                  } })()
+                """
+            case "tx":
+                // approve(Permit2, unlimited) on Ethereum USDC: the transaction review with its warnings. Nobody approves it.
+                script = "window.ethereum.request({ method: 'eth_accounts' }).then(a => window.ethereum.request({ method: 'eth_sendTransaction', params: [{ from: a[0], to: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', data: '0x095ea7b3000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba3' + 'f'.repeat(64) }] }))"
             case "sol-tx":
                 // A real mainnet transfer of 0.01 SOL to a public address, shown for review only: nobody approves in a screenshot run.
                 guard let me = SolanaPublicKey(w.solanaAddress), let to = SolanaPublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"),

@@ -19,13 +19,16 @@ public enum MacTour {
         return m
     }()
 
-    struct Step { var name: String; var route: Route; var tab: String? = nil; var size = CGSize(width: 1320, height: 822) }
+    /// `wait` overrides -hermitTourWait for slow steps (a model reply, a web page).
+    struct Step { var name: String; var route: Route; var tab: String? = nil; var size = CGSize(width: 1320, height: 822); var wait: Double? = nil }
 
     static let narrow = CGSize(width: 900, height: 640)
     static let steps: [Step] = [
         Step(name: "welcome", route: .home, tab: "welcome"),
         Step(name: "home", route: .home),
         Step(name: "chat", route: .home, tab: "help"),
+        // A message with a generated CSV (Debug/DebugFixtures.swift) and the model's answer; run with -hermitMode cloud.
+        Step(name: "chat-attach", route: .home, tab: "attach-csv", wait: 35),
         Step(name: "projects", route: .projects),
         Step(name: "automations", route: .automations),
         Step(name: "trade-markets", route: .trade, tab: "markets"),
@@ -41,6 +44,8 @@ public enum MacTour {
         Step(name: "payments-transfer", route: .payments, tab: "transfer"),
         Step(name: "payments-apis", route: .payments, tab: "apis"),
         Step(name: "explore", route: .explore),
+        // Hermit's browser on Uniswap. Nothing is connected or approved, and the tour's wallet is the test one.
+        Step(name: "browser", route: .explore, tab: "browser", wait: 18),
         Step(name: "calendar", route: .calendar),
         Step(name: "wallets", route: .wallets),
         Step(name: "sheet-create-wallet", route: .wallets, tab: "create"),
@@ -83,9 +88,11 @@ public enum MacTour {
                 switch step.tab {
                 case "help": model.showHelp()
                 case "welcome": break
+                case "attach-csv": DebugFixtures.ask("What's in this file?", attach: "csv", model: model)
+                case "browser": DappBrowser.shared.open(URL(string: "https://app.uniswap.org/swap")!, dapp: ExploreData.dapps.first { $0.url?.host() == "app.uniswap.org" }, model: model)
                 default: model.open(step.route, tab: step.tab)
                 }
-                try? await Task.sleep(for: .seconds(wait))
+                try? await Task.sleep(for: .seconds(step.wait ?? wait))
                 // A sheet can nudge its parent back toward the screen: park it again (attached sheets move with it).
                 if win.frame.origin != parkedOrigin(win.frame.size) {
                     win.setFrame(CGRect(origin: parkedOrigin(win.frame.size), size: win.frame.size), display: true)
@@ -141,6 +148,7 @@ public enum MacTour {
 
     private static func reset(_ m: AppModel) {
         m.approval = nil; m.fundGoal = nil
+        if DappBrowser.shared.session != nil { DappBrowser.shared.close() }
         if m.inChat { m.messages = []; m.currentID = nil }
         m.route = .files   // a neutral page, so the next page appears fresh and reads its tab request
     }

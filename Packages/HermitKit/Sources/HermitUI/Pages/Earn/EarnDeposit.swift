@@ -143,22 +143,29 @@ struct EarnDepositSheet: View {
         do {
             let amt = try Units.parse(amount, decimals: token.decimals)
             let allowance = try await vm.service.allowance(chain: chain, token: EVMAddress(token.address)!, owner: owner, spender: pool)
-            let calls = AaveV3.supplyCalls(token: token, amount: amt, owner: owner, pool: pool, allowance: allowance)
-            let svc = vm.service, wid = w.record.id
-            let a = Approval(kind: "Deposit on \(chain.name)", title: "Deposit \(amount) \(token.symbol) into Aave",
-                             lines: [["Pool", "Aave v3, \(chain.name)"], ["Amount", "\(amount) \(token.symbol)"],
-                                     ["Rate now", "\(EarnPoolRow.pct(self.pool.apy)) APY, variable"],
-                                     ["Steps", calls.count == 2 ? "Allow, then deposit (two \(Device.bio) prompts)" : "Deposit"],
-                                     ["Contract", short(pool.checksummed)]],
-                             checks: ["Each step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
-                             success: "Deposited \(amount) \(token.symbol)") {
-                try await svc.executeCalls(walletID: wid, chain: chain, calls).last ?? ""
-            }
+            let a = Self.approval(pool: self.pool, chain: chain, token: token, amountText: amount, amount: amt, owner: owner,
+                                  aavePool: pool, allowance: allowance, walletID: w.record.id)
             ask(a) { Task { await vm.refresh() } }
         } catch {
             self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription
         }
     }
 
-    private func short(_ a: String) -> String { a.count > 12 ? "\(a.prefix(6))…\(a.suffix(4))" : a }
+    /// The Deposit review: allow (if the allowance is short) then supply, each simulated and signed with Face ID.
+    static func approval(pool: EarnData.Pool, chain: Chain, token: Token, amountText amount: String, amount amt: UInt128, owner: EVMAddress,
+                         aavePool: EVMAddress, allowance: UInt128, walletID wid: UUID) -> Approval {
+        let calls = AaveV3.supplyCalls(token: token, amount: amt, owner: owner, pool: aavePool, allowance: allowance)
+        let svc = WalletsViewModel.shared.service
+        return Approval(kind: "Deposit on \(chain.name)", title: "Deposit \(amount) \(token.symbol) into Aave",
+                        lines: [["Pool", "Aave v3, \(chain.name)"], ["Amount", "\(amount) \(token.symbol)"],
+                                ["Rate now", "\(EarnPoolRow.pct(pool.apy)) APY, variable"],
+                                ["Steps", calls.count == 2 ? "Allow, then deposit (two \(Device.bio) prompts)" : "Deposit"],
+                                ["Contract", short(aavePool.checksummed)]],
+                        checks: ["Each step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
+                        success: "Deposited \(amount) \(token.symbol)") {
+            try await svc.executeCalls(walletID: wid, chain: chain, calls).last ?? ""
+        }
+    }
+
+    private static func short(_ a: String) -> String { a.count > 12 ? "\(a.prefix(6))…\(a.suffix(4))" : a }
 }

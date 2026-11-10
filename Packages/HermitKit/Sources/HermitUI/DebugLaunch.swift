@@ -40,7 +40,9 @@ enum DebugLaunch {
         case "status-pending", "status-processing", "status-success", "status-refunded", "status-failed", "status-incomplete":
             guard take(s) else { return }
             IntentsActivity.shared.debugFixture(String(s.dropFirst("status-".count)))
-        default: break
+        default:
+            // Batch sends and Aave reviews (Debug/DebugFixtures.swift).
+            if ["batch-review", "batch-status", "batch-card", "aave-deposit", "aave-withdraw", "sites", "sites-empty"].contains(s), take(s) { _ = DebugFixtures.applyRoot(s, model: model) }
         }
     }
 }
