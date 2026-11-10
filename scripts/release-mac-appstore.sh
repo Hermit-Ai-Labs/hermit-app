@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Archive the Mac app for the Mac App Store and upload it to TestFlight. Runs on the team Mac.
 #   zsh scripts/release-mac-appstore.sh      bumps the build number, archives, exports a signed .pkg, uploads
+#   ARCHIVE_ONLY=1 zsh scripts/release-mac-appstore.sh   archives, checks and writes export.plist, then stops (no export, no upload)
 # App Store Connect app: "Hermit - Private AI for Mac" (Apple ID 6831778645, bundle my.hermit.mac).
 # Needs ~/hermit/asc.env (App Manager key) and, once, scripts/mac-appstore-signing.sh: the Apple Distribution and
 # Mac Installer Distribution certificates in signing.keychain-db and the "Hermit Mac App Store" profile.
@@ -48,6 +49,11 @@ cat > "$OUT/export.plist" <<PLIST
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 PLIST
+if [[ -n ${ARCHIVE_ONLY:-} ]]; then
+  echo "Archived build $BUILD at $OUT/Hermit.xcarchive. Not uploaded. To upload this archive:"
+  echo "  xcodebuild -exportArchive -archivePath $OUT/Hermit.xcarchive -exportOptionsPlist $OUT/export.plist -exportPath $OUT ${AUTH[*]}"
+  exit 0
+fi
 xcodebuild -exportArchive -archivePath "$OUT/Hermit.xcarchive" -exportOptionsPlist "$OUT/export.plist" \
   -exportPath "$OUT" "${AUTH[@]}"
 echo "Uploaded build $BUILD. It shows in TestFlight after Apple processes it (5 to 30 minutes)."

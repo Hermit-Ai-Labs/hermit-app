@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Archive the iPhone app and upload it to TestFlight. Runs on the team Mac.
 #   zsh scripts/release-ios.sh            bumps the build number, archives, uploads
+#   ARCHIVE_ONLY=1 zsh scripts/release-ios.sh    archives and writes export.plist, then stops (no export, no upload)
 # Needs an App Store Connect API key (App Manager or Admin) in ~/hermit/asc.env:
 #   ASC_KEY_ID=...  ASC_ISSUER_ID=...  ASC_KEY_PATH=~/hermit/AuthKey_<id>.p8
 # Signs with the Apple Distribution certificate in signing.keychain-db and the "Hermit iOS App Store" and
@@ -41,6 +42,11 @@ cat > "$OUT/export.plist" <<PLIST
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 PLIST
+if [[ -n ${ARCHIVE_ONLY:-} ]]; then
+  echo "Archived build $BUILD at $OUT/Hermit.xcarchive. Not uploaded. To upload this archive:"
+  echo "  xcodebuild -exportArchive -archivePath $OUT/Hermit.xcarchive -exportOptionsPlist $OUT/export.plist -exportPath $OUT ${AUTH[*]}"
+  exit 0
+fi
 xcodebuild -exportArchive -archivePath "$OUT/Hermit.xcarchive" -exportOptionsPlist "$OUT/export.plist" \
   -exportPath "$OUT" "${AUTH[@]}"
 echo "Uploaded build $BUILD. It shows in TestFlight after Apple processes it (5 to 30 minutes)."
