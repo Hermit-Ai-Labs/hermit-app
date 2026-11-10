@@ -40,6 +40,8 @@ struct FundSheet: View {
     @State private var source: Holding?
     @State private var amount = ""
     @State private var quote: Relay.Quote?
+    /// For Hyperliquid: a cheaper way than Relay's one step, when there is one (HyperliquidRoute).
+    @State private var hlRoute: HyperliquidRoute?
     @State private var quoting = false
     @State private var error: String?
     @State private var family: Family = .evm
@@ -191,7 +193,7 @@ struct FundSheet: View {
                         Text("You get").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         HStack(spacing: 6) {
                             if quoting { ProgressView().controlSize(.small) }
-                            Text(quote.map { "\($0.amountOut) \(goal.symbol)" } ?? "—").font(.system(size: 18, weight: .semibold)).monospacedDigit()
+                            Text((hlRoute?.amountOut ?? quote?.amountOut).map { "\($0) \(goal.symbol)" } ?? "—").font(.system(size: 18, weight: .semibold)).monospacedDigit()
                         }
                         Text("on \(goal.place.name)").font(.system(size: 12)).foregroundStyle(Theme.muted)
                     }
@@ -199,7 +201,15 @@ struct FundSheet: View {
                     LogoMark(goal.place.logo, size: 30)
                 }
                 .padding(12).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 14))
-                if let q = quote {
+                if let r = hlRoute {
+                    DetailLines(lines: [("Fee", MoneyFmt.usd(r.feeUSD, digits: 2)), ("Arrives", r.steps == 1 ? "In about a minute" : "In a few minutes"),
+                                        ("Route", r.routeName)])
+                    if r.savedUSD >= 0.05 {
+                        Label("Saves \(MoneyFmt.usd(r.savedUSD, digits: 2)) against the one-step route" + (quote?.setupUSD ?? 0 > 0 ? ": no new-account charge" : ""),
+                              systemImage: "leaf.fill")
+                            .font(.system(size: 12.5)).foregroundStyle(Theme.green).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else if let q = quote {
                     DetailLines(lines: (q.setupUSD > 0
                         ? [("Transfer fee", MoneyFmt.usd(max(0, q.feeUSD - q.setupUSD), digits: 2)),
                            ("Hyperliquid account setup", MoneyFmt.usd(q.setupUSD, digits: 2) + ", first deposit only")]
@@ -211,13 +221,13 @@ struct FundSheet: View {
             }
         } foot: {
             Button("Review") { review() }.buttonStyle(WideButton())
-                .disabled(quote == nil || quoting || value <= 0 || value > (h?.amount ?? 0))
+                .disabled((quote == nil && hlRoute == nil) || quoting || value <= 0 || value > (h?.amount ?? 0))
         }
         .task(id: "\(h?.id ?? "")|\(amount)") { await requote() }
     }
 
     private func requote() async {
-        quote = nil; error = nil
+        quote = nil; hlRoute = nil; error = nil
         guard let h = source, let w = wallet, let v = AmountText.value(amount), v > 0, v <= h.amount else { return }
         let tok = h.symbol == h.chain.nativeSymbol ? nil : h.chain.token(h.symbol)
         guard let amt = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? h.chain.nativeDecimals) else { return }
@@ -229,17 +239,26 @@ struct FundSheet: View {
             if case .token(let c, _) = goal, c.kind == .solana { return w.record.solanaAddress }
             return w.record.evmAddress
         }()
+        var q: Relay.Quote?
         do {
-            let q = try await Relay.quote(from: .chain(h.chain), fromToken: tok, to: goal.place, toToken: goal.token, amount: amt,
-                                          user: user, recipient: recipient)
+            q = try await Relay.quote(from: .chain(h.chain), fromToken: tok, to: goal.place, toToken: goal.token, amount: amt,
+                                      user: user, recipient: recipient)
             if !Task.isCancelled { quote = q }
         } catch {
             if !Task.isCancelled { self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription }
         }
+        // Hyperliquid: the bridge (or Relay to Arbitrum, then the bridge) when that's cheaper than Relay's one step.
+        if goal == .hyperliquid, !Task.isCancelled,
+           let r = await HyperliquidRoute.best(chain: h.chain, symbol: h.symbol, amount: v, raw: amt, relay: q, user: user), !Task.isCancelled {
+            hlRoute = r
+            if quote == nil { error = nil }
+        }
     }
 
     private func review() {
-        guard let q = quote, let h = source, let w = wallet else { return }
+        guard let h = source, let w = wallet else { return }
+        if let r = hlRoute { reviewHyperliquid(r, h, w); return }
+        guard let q = quote else { return }
         let svc = vm.service, wid = w.record.id, dest = goal.place.name, sym = goal.symbol
         let txs = q.steps.reduce(0) { n, s in if case .evm(_, let c) = s { return n + c.count }; return n + 1 }
         ask(Approval(kind: "Move funds", title: "\(amount) \(h.symbol) to \(dest)",
@@ -249,6 +268,25 @@ struct FundSheet: View {
                      checks: ["Every step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
                      success: "On its way to \(dest)") {
             try await svc.execute(q, walletID: wid)
+        }) {
+            Task { try? await Task.sleep(for: .seconds(4)); await vm.refresh(); await hl.refresh() }
+        }
+    }
+
+    /// The cheap Hyperliquid route: the bridge from Arbitrum, or Relay to your Arbitrum address and then the bridge.
+    private func reviewHyperliquid(_ r: HyperliquidRoute, _ h: Holding, _ w: WalletAccount) {
+        let svc = vm.service, wid = w.record.id
+        let tok = h.chain.token(h.symbol)
+        guard let raw = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? 6) else { return }
+        let steps = r.steps == 1 ? "One transaction" : "2 transactions, one \(Device.bio) each"
+        ask(Approval(kind: "Move funds", title: "\(amount) USDC to Hyperliquid",
+                     lines: [["From", "\(amount) USDC on \(h.chain.name)"], ["To", "about \(r.amountOut) USDC on Hyperliquid"],
+                             ["Fee", MoneyFmt.usd(r.feeUSD, digits: 2)], ["Arrives", r.steps == 1 ? "About a minute" : "A few minutes"],
+                             ["Steps", steps], ["Route", r.routeName]],
+                     checks: ["Deposited into Hyperliquid's own bridge from your wallet, so it's credited to this address",
+                              "Signed on \(Device.here) with your wallet's key"],
+                     success: "On its way to Hyperliquid") {
+            try await svc.executeHyperliquid(r, amount: raw, walletID: wid)
         }) {
             Task { try? await Task.sleep(for: .seconds(4)); await vm.refresh(); await hl.refresh() }
         }
