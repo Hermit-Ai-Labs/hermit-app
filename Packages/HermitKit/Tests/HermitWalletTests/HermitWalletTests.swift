@@ -419,11 +419,16 @@ final class LiveReadTests: XCTestCase {
         print("LIVE balances: \(svc.balances(for: .baseSepolia).map { "\($0.formatted) \($0.symbol)" }) \(svc.balances(for: .solanaDevnet).map { "\($0.formatted) \($0.symbol)" })")
         let p = try await svc.prepareSend(to: "0x3535353535353535353535353535353535353535", amount: "1.25", token: "USDC")
         print("LIVE prepared: \(p.lines) checks=\(p.checks.map { "\($0.title): \($0.detail)" })")
-        XCTAssertEqual(p.chain.id, "base-sepolia")
+        // Mainnet sends are on (WalletService.mainnetSendsEnabled), so a send that names no network defaults to Base.
+        XCTAssertEqual(p.chain.id, WalletService.mainnetSendsEnabled ? "base" : "base-sepolia")
         XCTAssertEqual(p.amount, 1_250_000)
+        // The wallet has no ETH for gas on Base: the simulation fails, so the send is blocked and nothing can be approved.
+        XCTAssertFalse(p.canSend, "\(p.checks)")
         do { _ = try svc.approval(for: p); if !p.canSend { XCTFail("approval should be refused") } } catch {}
-        do { _ = try await svc.prepareSend(chain: .base, to: "0x3535353535353535353535353535353535353535", amount: "1", token: "USDC"); XCTFail() }
-        catch { XCTAssertTrue("\(error)".contains("beta")) }
+        if !WalletService.mainnetSendsEnabled {
+            do { _ = try await svc.prepareSend(chain: .base, to: "0x3535353535353535353535353535353535353535", amount: "1", token: "USDC"); XCTFail() }
+            catch { XCTAssertTrue("\(error)".contains("beta")) }
+        }
         let quotes = await PriceFeed().quotes()
         print("LIVE prices: \(quotes.mapValues(\.usd))")
         XCTAssertNotNil(quotes["ETH"])
