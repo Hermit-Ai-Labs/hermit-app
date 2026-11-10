@@ -4,6 +4,7 @@
 #   SIM="Hermit NEAR" DD=~/hermit/dd-near OUT=~/hermit/shots-near NOBUILD=1 zsh scripts/phone-shots.sh wallets-w
 # Launch arguments (DEBUG only, AppModel / DebugLaunch.swift; -hermitSteps YES opens a reply's tool steps):
 #   -hermitRoute <page> -hermitTab <tab or wallets flow> -hermitDrawer YES -hermitSheet <sheet> -hermitScroll bottom|<y>
+#   -hermitDapp <url> -hermitDappAsk connect|sign|sol-connect|sol-tx (Explore's in-app browser, Pages/Browser/DappBrowser.swift)
 #   -hermitTestWallet YES (memory-only vault with the public "abandon … about" phrase) -hermitMode cloud -hermitAsk <text>
 # Per shot, @dark shoots in dark appearance and @xl at a larger Dynamic Type size; @w adds the test wallet.
 set -uo pipefail
@@ -79,6 +80,12 @@ SHOTS=(
   "status-incomplete|@w -hermitRoute wallets -hermitSheet status-incomplete"
   "sheet-proof|-hermitRoute home -hermitMode cloud -hermitSheet proof"
   "explore|-hermitRoute explore"
+  "browser|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap"
+  "browser-connect|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap -hermitDappAsk connect"
+  "browser-sign|@w -hermitRoute explore -hermitDapp https://app.aave.com -hermitDappAsk sign"
+  "browser-sol-connect|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-connect"
+  "browser-sol-tx|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-tx"
+  "settings-sites|-hermitRoute settings -hermitTab sites"
   "connectors|-hermitRoute connectors"
   "sheet-mcp|-hermitRoute connectors -hermitSheet mcp"
   "settings-profile|-hermitRoute settings -hermitTab profile"
@@ -122,7 +129,7 @@ for entry in $SHOTS; do
     [[ $args == *-hermitMode* ]] || extra+=(-hermitMode device)
     xcrun simctl launch "$UDID" $BID -hermitUser Rahul $extra "${a[@]}" >/dev/null
   fi
-  w=${WAIT:-5}; [[ $name == chat-* ]] && w=${CHATWAIT:-40}; [[ $name == sheet-proof || $name == sheet-quote* || $name == home-cloud ]] && w=12
+  w=${WAIT:-5}; [[ $name == chat-* ]] && w=${CHATWAIT:-40}; [[ $name == sheet-proof || $name == sheet-quote* || $name == home-cloud ]] && w=12; [[ $name == browser* ]] && w=20
   sleep $w
   xcrun simctl io "$UDID" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1 && echo "shot $name"
 done
