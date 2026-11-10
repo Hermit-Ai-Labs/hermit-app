@@ -97,9 +97,8 @@ struct SheetChrome<Content: View, Foot: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         if SnapshotMode.active { inner.fixedSize(horizontal: false, vertical: true) } else {
-            ScrollView { inner }
+            ThinScrollView { inner }
                 .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicators(.automatic)
                 #if os(macOS)
                 .frame(height: min(contentHeight, 580))
                 #endif

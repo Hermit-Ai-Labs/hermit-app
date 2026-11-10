@@ -14,8 +14,7 @@ struct Page<Tab: Hashable, Trailing: View, Content: View>: View {
 
     var body: some View {
         if SnapshotMode.active { inner.frame(maxHeight: .infinity, alignment: .top) } else {
-            ScrollView { inner }
-                .scrollIndicators(.automatic)
+            ThinScrollView { inner }
                 .debugScroll()
                 .animation(.easeOut(duration: 0.18), value: tab)
         }

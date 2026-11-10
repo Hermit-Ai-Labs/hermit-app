@@ -37,7 +37,8 @@ struct TradeTerminal: View {
     private var hl: HyperliquidStore { .shared }
     private var feed: MarketFeed { .shared }
 
-    @State private var coin = "HYPE"
+    /// The market you were on, kept across visits and launches (it used to snap back to HYPE every time).
+    @AppStorage("hermitTradeCoin") private var coin = "HYPE"
     @State private var pickOpen = false
     @State private var tf = "1H"
     @State private var side = "long"

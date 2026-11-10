@@ -384,7 +384,7 @@ struct ScrollPage<Content: View>: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, compact ? 16 : 32).padding(.top, compact ? 12 : 36).padding(.bottom, 48)
         if SnapshotMode.active { inner.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped() } else {
-            ScrollView { inner }.scrollIndicators(.automatic)
+            ThinScrollView { inner }
         }
     }
 }

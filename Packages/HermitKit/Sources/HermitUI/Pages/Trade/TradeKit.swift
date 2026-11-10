@@ -396,7 +396,7 @@ struct TradeExploreSheet: View {
             }
             .padding(16)
             Divider().overlay(Theme.border)
-            ScrollView {
+            ThinScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(list) { i in
                         Button {
@@ -422,7 +422,6 @@ struct TradeExploreSheet: View {
                 }
                 .padding(.horizontal, 18).padding(.vertical, 6)
             }
-            .scrollIndicators(.automatic)
         }
         .tradeSheet(width: 520, height: 600)
         .onAppear { focused = true }
