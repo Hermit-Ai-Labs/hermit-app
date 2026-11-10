@@ -11,7 +11,6 @@ struct ExplorePage: View {
     @State private var width: CGFloat = 1000
     @FocusState private var searching: Bool
     @State private var adding = false
-    @State private var newSite = ""
     private var store: ExploreStore { .shared }
 
     enum Tab: String, Hashable { case new, trending, all }
@@ -27,7 +26,7 @@ struct ExplorePage: View {
         } content: { t in
             VStack(alignment: .leading, spacing: 0) {
                 if compact { search.padding(.bottom, 16) }
-                SavedSitesRow { newSite = ""; adding = true }
+                SavedSitesRow { adding = true }
                 switch t {
                 case .new: grid(ExploreData.dapps.filter(\.isNew), compact)
                 case .trending: trending(compact)
@@ -36,17 +35,7 @@ struct ExplorePage: View {
             }
         }
         .payWidth($width)
-        .alert("Add a site", isPresented: $adding) {
-            TextField("app.uniswap.org", text: $newSite)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .textInputAutocapitalization(.never).keyboardType(.URL)
-                #endif
-            Button("Add") { addSite(newSite) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Type the site's address. It shows in Your sites and opens in Hermit's browser.")
-        }
+        .sheet(isPresented: $adding) { AddSiteSheet().environment(model).tint(Theme.text) }
         .marketPoll(every: 900) { await store.refresh() }
         .onChange(of: q) { _, v in if !v.isEmpty && tab != .all { tab = .all } }
         .onAppear {
