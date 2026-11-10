@@ -90,6 +90,9 @@ public actor ToolChat {
         }
     }
 
+    /// "Face ID" on a phone, "Touch ID" on a Mac; the app sets it at launch.
+    public static var bioWord = "Face ID"
+
     static let malformedReply = #"{"error": "That tool call wasn't valid JSON. Write it again as {\"name\": ..., \"arguments\": {...}} inside <tool_call></tool_call>, or answer without tools."}"#
 
     /// Answers one message. Events go to `cont` in the app's usual order: steps, text, then action buttons.
@@ -236,7 +239,7 @@ public actor ToolChat {
         }
         if !finalAnswer {
             // The model ran out of rounds, or couldn't write a readable call: a plain line instead of anything raw.
-            let text = !actions.isEmpty ? "It's ready for your review below. Nothing moves until you approve it with Face ID."
+            let text = !actions.isEmpty ? "It's ready for your review below. Nothing moves until you approve it with \(Self.bioWord)."
                 : shownAny ? "" : "I couldn't finish that here. Try asking another way."
             if !text.isEmpty {
                 if !shownAny { cont.yield(.steps(steps)) }
@@ -307,9 +310,9 @@ public actor ToolChat {
         if out.action != nil || opened(out.content) {
             if tool == "prepare_withdraw", arguments["amount"] == nil {
                 let sym = (arguments["symbol"] as? String).map { " \($0)" } ?? ""
-                return "I opened the withdrawal for all of your\(sym) in Aave below. Tell me an amount if you want less. Nothing moves until you approve it with Face ID."
+                return "I opened the withdrawal for all of your\(sym) in Aave below. Tell me an amount if you want less. Nothing moves until you approve it with \(Self.bioWord)."
             }
-            return "It's ready for your review below. Nothing moves until you approve it with Face ID."
+            return "It's ready for your review below. Nothing moves until you approve it with \(Self.bioWord)."
         }
         guard let v = JSONValue.parse(out.content) else { return nil }
         if let e = v["error"]?.string { return e }

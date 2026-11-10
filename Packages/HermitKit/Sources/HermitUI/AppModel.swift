@@ -118,6 +118,7 @@ public final class AppModel {
 
     /// Defaults to the mode agent: the on-device model, or Private Cloud (NEAR AI, TEE) when picked in the chat box.
     public init(agent: Agent? = nil, models: ModelStore? = nil) {
+        ToolChat.bioWord = Device.bio
         let models = models ?? .shared
         self.models = models
         self.agent = agent ?? ModeAgent(local: HybridAgent(store: models))
@@ -421,19 +422,29 @@ public final class AppModel {
     }
 
     /// Called by the approval sheet once Touch ID / Face ID passed and the move went through.
-    public func approved(_ a: Approval) {
+    public func approved(_ a: Approval, hash: String? = nil) {
         approval = nil
         approvedIDs.insert(a.title)
         approvalCount += 1
         guard route == .home, inChat else { toast(a.success); return }
-        if let idx = messages.lastIndex(where: { $0.role == .assistant }), messages[idx].blocks.isEmpty {
-            messages[idx].actions = []
+        // The button that opened this review is done: take it out of every message it was in.
+        for i in messages.indices {
+            messages[i].actions.removeAll { $0.approval?.title == a.title }
+            messages[i].blocks = messages[i].blocks.compactMap { b in
+                if case .actions(let list) = b {
+                    let kept = list.filter { $0.approval?.title != a.title }
+                    return kept.isEmpty ? nil : .actions(kept)
+                }
+                return b
+            }
         }
         withAnimation(.smooth) {
             if let r = a.receipt {
                 messages.append(Message(role: .assistant, blocks: [.card(r)]))
             } else {
-                messages.append(Message(role: .assistant, text: a.success + ".", note: true))
+                // "Sent 0.5 USDC. Tx 0xeb32…5a95": the hash is in Activity with its explorer link.
+                let tx = hash.map { h in h.count > 16 ? " Tx \(h.prefix(8))…\(h.suffix(6))" : " Tx \(h)" } ?? ""
+                messages.append(Message(role: .assistant, text: a.success + "." + tx, note: true))
             }
             if let live = a.live { messages.append(Message(role: .assistant, blocks: [.card(.liveTrade(live))])) }
         }

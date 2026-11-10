@@ -29,6 +29,7 @@ extension Chain {
     static func kind(of raw: String) -> ChainKind? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if EVMAddress(s) != nil { return .evm }
+        if s.hasPrefix("0x") { return nil }   // a half-typed EVM address is not a NEAR name
         if SolanaPublicKey(s) != nil { return .solana }
         if NearAccount.isImplicit(s.lowercased()) || (s.contains(".") && NearAccount.isValid(s) && !ENS.looksLikeName(s)) { return .near }
         return nil
@@ -41,6 +42,8 @@ extension ChainKind {
     /// "EVM networks", "Solana", "NEAR": how address families are named on screen.
     var familyName: String { switch self { case .evm: "EVM networks"; case .solana: "Solana"; case .near: "NEAR" } }
     var shortName: String { switch self { case .evm: "EVM"; case .solana: "Solana"; case .near: "NEAR" } }
+    /// "an EVM address", "a Solana address".
+    var article: String { self == .evm ? "an" : "a" }
     var familyLogo: String { switch self { case .evm: "ethereum"; case .solana: "solana"; case .near: "near" } }
 }
 

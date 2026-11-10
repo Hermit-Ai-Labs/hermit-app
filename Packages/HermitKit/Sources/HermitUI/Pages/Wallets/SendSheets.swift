@@ -130,7 +130,8 @@ struct WalletSendSheet: View {
                 }
                 .modifier(FieldBox())
             }
-            if !address.isEmpty { status.transition(.opacity.combined(with: .offset(y: -4))) }
+            // Always one line tall, so the fields below never jump when the hint appears.
+            if address.isEmpty { Text(" ").font(.system(size: 12.5)).padding(.top, -6) } else { status.transition(.opacity) }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "Saved addresses") {
@@ -222,8 +223,11 @@ struct WalletSendSheet: View {
             if let s = saved, wrongNet { return ("exclamationmark.triangle.fill", "\(s.label) is saved as a \(s.networkName) address, not \(chain.name)", Theme.red) }
             if let s = saved, !s.hold { return ("checkmark.shield.fill", "Saved: \(s.label)", Theme.green) }
             if saved?.hold == true { return ("clock", "Unlocks 24 hours after it was saved", Theme.amber) }
+            if address.hasPrefix("0x"), EVMAddress(address.trimmingCharacters(in: .whitespacesAndNewlines)) == nil {
+                return ("exclamationmark.circle", "Not a complete EVM address: 42 characters starting with 0x", Theme.red)
+            }
             if kindMismatch, let k = Chain.kind(of: address) {
-                return ("exclamationmark.triangle.fill", "That is a \(k.shortName) address. Pick a \(k.shortName) network or paste a \(chain.kind.shortName) address.", Theme.red)
+                return ("exclamationmark.triangle.fill", "That is \(k.article) \(k.shortName) address. Pick a \(k.shortName) network or paste \(chain.kind.article) \(chain.kind.shortName) address.", Theme.red)
             }
             if !valid { return ("exclamationmark.circle", "Not a valid \(chain.name) address", Theme.red) }
             if let own = vm.ownWallet(for: address) { return ("person.crop.circle.badge.checkmark", "Your own wallet: \(own.name)", Theme.green) }

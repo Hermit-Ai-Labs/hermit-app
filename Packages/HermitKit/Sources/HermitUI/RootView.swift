@@ -50,7 +50,7 @@ public struct RootView: View {
         .focusedSceneValue(\.hermitModel, model)
         .overlay(alignment: .bottom) { ToastHost(place: .page, bottom: compact ? 96 : 28) }
         .sheet(item: $model.approval) { a in
-            ApprovalSheet(approval: a) { model.approved(a) }
+            ApprovalSheet(approval: a) { h in model.approved(a, hash: h) }
                 .environment(model)
                 .foregroundStyle(Theme.text)
                 .fitSheet()

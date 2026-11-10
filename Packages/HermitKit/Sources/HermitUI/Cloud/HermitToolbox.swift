@@ -162,7 +162,7 @@ public struct HermitToolbox: AgentToolbox {
 
     /// What a prepare_ tool tells the model: the review is open and nothing has happened (the training format's shape).
     static func prepared(_ kind: String) -> String {
-        #"{"status":"review_opened","kind":"\#(kind)","executed":false,"note":"Waiting for the user to approve with Face ID."}"#
+        #"{"status":"review_opened","kind":"\#(kind)","executed":false,"note":"Waiting for the user to approve with \#(Device.bio)."}"#
     }
 
     @MainActor static func prepareTrade(_ a: [String: Any], label: String = "Hermit Private Cloud") async throws -> ToolOutcome {
@@ -240,7 +240,7 @@ public struct HermitToolbox: AgentToolbox {
         approval.warnings += verdict.warnings
         // The network goes back to the model: it may have been picked here, not named by the user.
         var out = json(["status": "review_opened", "kind": "send", "executed": false, "network": chain.name, "amount": "\(p.amountText) \(p.symbol)",
-                        "note": "Waiting for the user to approve with Face ID."])
+                        "note": "Waiting for the user to approve with \(Device.bio)."])
         out.action = Action("Review send", approval: approval)
         return out
     }

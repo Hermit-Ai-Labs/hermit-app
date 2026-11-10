@@ -89,7 +89,7 @@ extension HermitToolbox {
         BatchStore.shared.add(plan)
         out["status"] = "review_opened"
         if !plan.warnings.isEmpty { out["warnings"] = plan.warnings }
-        out["note"] = "Nothing has moved. The Batch send review lists every recipient; the user approves all of it with one Face ID, or cancels."
+        out["note"] = "Nothing has moved. The Batch send review lists every recipient; the user approves all of it with one \(Device.bio), or cancels."
         var o = json(out)
         o.action = Action("Review batch send", primary: true, symbol: "list.bullet.rectangle", open: "batch:\(plan.id)")
         return o
@@ -139,7 +139,7 @@ extension HermitToolbox {
         let pool = await EarnFlow.pool(chain: chain, symbol: token.symbol)
         var out: [String: Any] = ["status": "review_opened", "kind": "deposit", "executed": false, "pool": "Aave v3 on \(chain.name)",
                                   "amount": "\(Units.approx(amount)) \(token.symbol)",
-                                  "note": "Waiting for the user to review the deposit and approve it with Face ID."]
+                                  "note": "Waiting for the user to review the deposit and approve it with \(Device.bio)."]
         if let p = pool { out["apy_pct"] = (p.apy * 100).rounded() / 100 }
         var o = json(out)
         o.action = Action("Review deposit", primary: true, symbol: "leaf", open: EarnFlow.depositLink(chain: chain, symbol: token.symbol, amount: amount))

@@ -5,7 +5,7 @@ import HermitCore
 /// The one sheet every money move goes through: summary, hazard scan ticking through, then Approve with Touch ID / Face ID.
 struct ApprovalSheet: View {
     let approval: Approval
-    let onApproved: () -> Void
+    let onApproved: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var passed = 0
     @State private var phase: Phase = .scanning
@@ -130,7 +130,7 @@ struct ApprovalSheet: View {
                 txHash = try await perform()
                 phase = .done
                 try? await Task.sleep(for: .milliseconds(1400))
-                onApproved()
+                onApproved(txHash)
             } catch {
                 failure = error.localizedDescription
                 phase = .ready
@@ -142,7 +142,7 @@ struct ApprovalSheet: View {
         try? await Task.sleep(for: .milliseconds(900))
         phase = .done
         try? await Task.sleep(for: .milliseconds(900))
-        onApproved()
+        onApproved(nil)
     }
 
     /// Touch ID on a Mac, Face ID on an iPhone, falling back to the device password.
