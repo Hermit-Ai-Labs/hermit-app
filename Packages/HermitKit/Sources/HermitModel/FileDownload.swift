@@ -16,6 +16,8 @@ enum DownloadError: LocalizedError {
     case sizeMismatch(String)
     case checksum(String)
     case offline
+    /// Bytes still needed, bytes free.
+    case noSpace(Int64, Int64)
 
     var errorDescription: String? {
         switch self {
@@ -23,124 +25,109 @@ enum DownloadError: LocalizedError {
         case .sizeMismatch(let f): "\(f) came down the wrong size."
         case .checksum(let f): "\(f) failed its checksum."
         case .offline: "No internet connection."
+        case .noSpace(let need, let free):
+            "Not enough space. Hermit needs \(Self.gb(need)) free and this \(Self.device) has \(Self.gb(free)). Free up some space, then try again."
         }
+    }
+
+    static func gb(_ b: Int64) -> String { String(format: "%.1f GB", Double(b) / 1e9) }
+    #if os(iOS)
+    static let device = "iPhone"
+    #else
+    static let device = "Mac"
+    #endif
+}
+
+enum FileDownload {
+    /// SHA-256 of a file (or of `length` bytes from `offset`), read in 8 MB chunks so a 2 GB file doesn't sit in memory.
+    static func sha256(of url: URL, offset: Int64 = 0, length: Int64? = nil) throws -> String {
+        let h = try FileHandle(forReadingFrom: url)
+        defer { try? h.close() }
+        try h.seek(toOffset: UInt64(offset))
+        var hasher = SHA256()
+        var left = length ?? Int64.max
+        while left > 0, let chunk = try h.read(upToCount: Int(min(8 << 20, left))), !chunk.isEmpty {
+            if Task.isCancelled { throw CancellationError() }
+            hasher.update(data: chunk)
+            left -= Int64(chunk.count)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Free bytes on the volume holding `url`, as the system counts them for things the user asked for.
+    static func freeSpace(at url: URL) -> Int64? {
+        var probe = url
+        while !FileManager.default.fileExists(atPath: probe.path), probe.pathComponents.count > 1 { probe.deleteLastPathComponent() }
+        guard let v = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        else { return nil }
+        if let important = v.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return v.volumeAvailableCapacity.map(Int64.init)
     }
 }
 
-/// Streams one file to `<dest>.part` with HTTP Range resume, so a download survives quitting the app.
-/// `onBytes` gets the bytes on disk for this file, at most every 1 MB.
-final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let url: URL
-    private let part: URL
-    private let expected: Int64
-    private let onBytes: @Sendable (Int64) -> Void
+/// Puts finished pieces into their file, off the main thread, one file at a time.
+///
+/// Each piece is read once: hashed (against the pin, when there is one) and written at its offset into
+/// `<file>.part` in the same pass, then deleted. The .part file is written sparsely, so the disk only ever holds the
+/// bytes that came down plus the piece being merged: no second full copy. Merged pieces are listed in
+/// `<file>.pieces` so a relaunch only fetches what's missing.
+actor PieceAssembler {
+    static let shared = PieceAssembler()
 
-    private let lock = NSLock()
-    private var handle: FileHandle?
-    private var written: Int64 = 0
-    private var reported: Int64 = 0
-    private var failure: Error?
-    private var task: URLSessionDataTask?
-    private var continuation: CheckedContinuation<Void, Error>?
+    struct Done: Codable { var pieces: Set<Int> }
 
-    init(url: URL, part: URL, expected: Int64, onBytes: @escaping @Sendable (Int64) -> Void) {
-        self.url = url; self.part = part; self.expected = expected; self.onBytes = onBytes
+    static func stateFile(_ file: URL) -> URL { file.appendingPathExtension("pieces") }
+    static func partFile(_ file: URL) -> URL { file.appendingPathExtension("part") }
+
+    /// The pieces already merged into `<file>.part`. A .part with no list belongs to an older download and goes.
+    func merged(_ file: URL) -> Set<Int> {
+        let state = Self.stateFile(file)
+        if let data = try? Data(contentsOf: state), let done = try? JSONDecoder().decode(Done.self, from: data),
+           FileManager.default.fileExists(atPath: Self.partFile(file).path) {
+            return done.pieces
+        }
+        try? FileManager.default.removeItem(at: state)
+        return []
     }
 
-    func run() async throws {
+    /// Merges one landed piece. Returns false (and deletes it) if its hash is wrong, so it's fetched again.
+    func merge(file: URL, index: Int, offset: Int64, length: Int64, sha256: String?) throws -> Bool {
+        let piece = BackgroundDownloads.pieceFile(file, index)
         let fm = FileManager.default
-        var have = (try? fm.attributesOfItem(atPath: part.path)[.size] as? Int64) ?? 0
-        if have > expected { try? fm.removeItem(at: part); have = 0 }
-        onBytes(have)
-        if have == expected { return }
+        guard BackgroundDownloads.size(piece) == length else { try? fm.removeItem(at: piece); return false }
+        let part = Self.partFile(file)
         if !fm.fileExists(atPath: part.path) { fm.createFile(atPath: part.path, contents: nil) }
-        handle = try FileHandle(forWritingTo: part)
-        written = have
-
-        var request = URLRequest(url: url, timeoutInterval: 60)
-        if have > 0 { request.setValue("bytes=\(have)-", forHTTPHeaderField: "Range") }
-        let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = true                      // ride out brief Wi-Fi/cellular drops instead of failing
-        config.timeoutIntervalForResource = 7 * 24 * 60 * 60    // a multi-GB file on a slow phone link may take a while
-        let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
-        let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
-        defer { session.finishTasksAndInvalidate() }
-
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                lock.lock()
-                continuation = c
-                let t = session.dataTask(with: request)
-                task = t
-                lock.unlock()
-                if Task.isCancelled { t.cancel() } else { t.resume() }
-            }
-        } onCancel: {
-            lock.lock(); let t = task; lock.unlock()
-            t?.cancel()
+        let src = try FileHandle(forReadingFrom: piece)
+        defer { try? src.close() }
+        // Hash first, then write: a bad piece never touches the .part file.
+        if let sha256 {
+            var hasher = SHA256()
+            while let chunk = try src.read(upToCount: 8 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+            let got = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            guard got == sha256 else { try? fm.removeItem(at: piece); return false }
+            try src.seek(toOffset: 0)
         }
+        let dst = try FileHandle(forWritingTo: part)
+        defer { try? dst.close() }
+        try dst.seek(toOffset: UInt64(offset))
+        while let chunk = try src.read(upToCount: 8 << 20), !chunk.isEmpty { try dst.write(contentsOf: chunk) }
+        try dst.synchronize()
+        var done = merged(file)
+        done.insert(index)
+        try JSONEncoder().encode(Done(pieces: done)).write(to: Self.stateFile(file), options: .atomic)
+        try? fm.removeItem(at: piece)
+        return true
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
-                    completionHandler: @escaping (URLRequest?) -> Void) {
-        // Hugging Face's resolve/ URL 302-redirects to a CDN on another host. URLSession can drop the
-        // Range header across that hop, so the CDN replies 200 (whole file) and we restart from 0%.
-        // Re-apply the Range we need on the redirected request so the CDN replies 206 and we resume.
-        var req = request
-        lock.lock(); let have = written; lock.unlock()
-        if have > 0 { req.setValue("bytes=\(have)-", forHTTPHeaderField: "Range") }
-        else { req.setValue(nil, forHTTPHeaderField: "Range") }
-        completionHandler(req)
+    /// After the last piece: the bookkeeping goes, and the .part file is ready for its final check.
+    func finish(_ file: URL) {
+        try? FileManager.default.removeItem(at: Self.stateFile(file))
+        try? FileManager.default.removeItem(at: file.appendingPathExtension("parts"))
     }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        do {
-            switch status {
-            case 206: try handle?.seekToEnd()
-            case 200: try handle?.truncate(atOffset: 0); written = 0   // the server ignored the range: start over
-            default: throw DownloadError.http(status)
-            }
-            completionHandler(.allow)
-        } catch {
-            failure = error
-            completionHandler(.cancel)
-        }
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        do { try handle?.write(contentsOf: data) } catch { failure = error; dataTask.cancel(); return }
-        written += Int64(data.count)
-        if written - reported >= 1_048_576 || written == expected { reported = written; onBytes(written) }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        try? handle?.synchronize()
-        try? handle?.close()
-        handle = nil
-        onBytes(written)
-        lock.lock(); let c = continuation; continuation = nil; lock.unlock()
-        if let failure { c?.resume(throwing: failure) }
-        else if let error {
-            let ns = error as NSError
-            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { c?.resume(throwing: CancellationError()) }
-            else if ns.domain == NSURLErrorDomain && [NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost].contains(ns.code) {
-                c?.resume(throwing: DownloadError.offline)
-            } else { c?.resume(throwing: error) }
-        } else { c?.resume() }
-    }
-
-    /// SHA-256 of a file, read in 8 MB chunks so a 2 GB file doesn't sit in memory.
-    static func sha256(of url: URL) throws -> String {
-        let h = try FileHandle(forReadingFrom: url)
-        defer { try? h.close() }
-        var hasher = SHA256()
-        while let chunk = try h.read(upToCount: 8 << 20), !chunk.isEmpty {
-            if Task.isCancelled { throw CancellationError() }
-            hasher.update(data: chunk)
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    /// Forget everything for a file (after a failed final check).
+    func reset(_ file: URL) {
+        finish(file)
+        try? FileManager.default.removeItem(at: Self.partFile(file))
     }
 }

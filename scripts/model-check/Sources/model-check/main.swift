@@ -25,7 +25,7 @@ func check() async {
         try? await Task.sleep(for: .milliseconds(500))
     }
     guard store.state(id) == .ready else { print("FAILED"); exit(1) }
-    print(String(format: "download ready in %.1fs", Date().timeIntervalSince(started)))
+    print(String(format: "download ready in %.1fs", Date().timeIntervalSince(started)), "from", store.source[id]?.host ?? "disk")
 
     let stats = StatsBox()
     let local = LocalAgent(store: store) { s in stats.add(s) }
@@ -41,6 +41,7 @@ func check() async {
             case .actions(let a): print("  [actions: \(a.map(\.title))]")
             case .card: print("  [card]")
             case .steps: break
+            default: break
             }
         }
         print(text)
