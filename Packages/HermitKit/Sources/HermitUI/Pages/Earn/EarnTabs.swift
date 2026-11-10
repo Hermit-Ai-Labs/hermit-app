@@ -4,22 +4,18 @@ import HermitCore
 
 // MARK: Positions
 
-/// Everything already earning, read from chain for the first wallet: Aave v3 deposits (aToken balances, which grow with
-/// interest) with Withdraw, and the Hyperliquid account. Nothing here is sample data.
+/// Everything already earning, read from chain for every wallet: Aave v3 supplies on Ethereum, Base and Arbitrum
+/// (aToken balances, which grow with interest) with the live supply APY and Withdraw, and the Hyperliquid account.
+/// Nothing here is sample data.
 struct EarnPositions: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var ask
-    @State private var rows: [AaveRow] = []
+    @State private var rows: [AavePosition] = []
+    @State private var failed: [Chain] = []
     @State private var loaded = false
     @State private var error: String?
     private var vm: WalletsViewModel { .shared }
     private var hl: HyperliquidStore { .shared }
-
-    struct AaveRow: Identifiable, Hashable {
-        var id: String { chain.id + token.symbol }
-        let chain: Chain, token: Token, amount: UInt128
-        var text: String { Units.format(amount, decimals: token.decimals, maxFraction: 4) }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -28,21 +24,34 @@ struct EarnPositions: View {
                     TradeEmpty(icon: "leaf", title: "No wallet yet", note: "Create a wallet, then deposit into a pool from DeFi.")
                 } else if !loaded {
                     MarketStatus(kind: .loading("Reading your deposits"))
-                } else if rows.isEmpty {
-                    TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Open a pool in DeFi and tap Deposit. It shows here, earning.")
+                } else if rows.isEmpty && failed.isEmpty {
+                    TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Open an Aave pool in DeFi and tap Deposit, or ask Hermit to deposit. It shows here, earning.")
                 }
                 ForEach(rows) { r in
                     HStack(spacing: 12) {
                         MarketLogo(key: TradeData.logo(r.token.symbol), name: r.token.symbol, size: 30)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Aave \(r.token.symbol)").font(.system(size: 14, weight: .medium))
-                            Text(r.chain.name).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                            Text([r.chain.name, vm.wallets.count > 1 ? vm.wallet(r.walletID.uuidString)?.name : nil].compactMap { $0 }.joined(separator: ", "))
+                                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                         }
                         Spacer(minLength: 8)
-                        Text("\(r.text) \(r.token.symbol)").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(r.text) \(r.token.symbol)").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                            Text(r.supplyAPY.map { String(format: "%.2f%% APY", $0 * 100) } ?? "APY unknown")
+                                .font(.system(size: 12.5)).foregroundStyle(r.supplyAPY == nil ? Theme.faint : Theme.green).monospacedDigit()
+                        }
                         Button("Withdraw") { withdraw(r) }.buttonStyle(TradeSmallButton())
                     }
                     .padding(.vertical, 11)
+                }
+                if loaded && !failed.isEmpty {
+                    MarketStatus(kind: .failed("Couldn't reach \(failed.map(\.name).joined(separator: ", ")), so deposits there aren't shown")) {
+                        Task { await load() }
+                    }
+                }
+                if loaded && !rows.isEmpty {
+                    MarketSource(text: "Supplied amounts include interest so far. APY is Aave's live supply rate, read from the pool contract.").padding(.top, 6)
                 }
             }
             TradeSection(title: "Hyperliquid") {
@@ -60,39 +69,22 @@ struct EarnPositions: View {
             }
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).padding(.top, 10) }
         }
-        .task(id: vm.firstWalletID) { await load(); await hl.refresh() }
+        .task(id: vm.wallets.map(\.id)) { await load(); await hl.refresh() }
+        .onChange(of: model.approvalCount) { _, _ in Task { await load() } }
     }
 
     private func load() async {
-        guard let w = vm.wallets.first, let owner = EVMAddress(w.record.evmAddress) else { loaded = true; return }
-        var out: [AaveRow] = []
-        let jobs = Chain.mainnets.filter { AaveV3.pool(on: $0) != nil }.flatMap { c in
-            c.tokens.filter { TokenTable.stableSymbols.contains($0.symbol) }.map { (c, $0, vm.service.evm(c)) }
-        }
-        await withTaskGroup(of: AaveRow?.self) { g in
-            for (chain, token, client) in jobs {
-                g.addTask {
-                    guard let aToken = try? await AaveV3.aToken(chain: chain, token: token, client: client),
-                          let bal = try? await client.tokenBalance(token: aToken, owner: owner), bal > 0 else { return nil }
-                    return AaveRow(chain: chain, token: token, amount: bal)
-                }
-            }
-            for await r in g { if let r { out.append(r) } }
-        }
-        rows = out.sorted { $0.chain.name < $1.chain.name }
-        loaded = true
+        guard vm.hasWallet else { rows = []; loaded = true; return }
+        let r = await vm.service.aavePositions(wallets: vm.wallets.map(\.record))
+        withAnimation(.smooth) { rows = r.positions; failed = r.failed; loaded = true }
     }
 
-    private func withdraw(_ r: AaveRow) {
-        guard let w = vm.wallets.first, let owner = EVMAddress(w.record.evmAddress), let pool = AaveV3.pool(on: r.chain) else { return }
-        let call = AaveV3.withdrawCall(token: r.token, amount: nil, owner: owner, pool: pool)
-        let svc = vm.service, wid = w.record.id, chain = r.chain
-        ask(Approval(kind: "Withdraw on \(r.chain.name)", title: "Withdraw \(r.text) \(r.token.symbol)",
-                     lines: [["From", "Aave v3, \(r.chain.name)"], ["Amount", "All, about \(r.text) \(r.token.symbol)"], ["To", w.name]],
-                     checks: ["Simulated before it's signed", "Signed on \(Device.here) with your wallet's key"],
-                     success: "Withdrew \(r.token.symbol)") {
-            try await svc.executeCalls(walletID: wid, chain: chain, [call]).last ?? ""
-        }) { Task { await load(); await vm.refresh() } }
+    private func withdraw(_ r: AavePosition) {
+        do {
+            ask(try HermitToolbox.withdrawApproval(r, amount: nil)) { Task { await load(); await vm.refresh() } }
+        } catch {
+            self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription
+        }
     }
 }
 

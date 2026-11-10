@@ -56,6 +56,12 @@ public struct Attachment: Equatable, Sendable, Codable, Hashable, Identifiable {
     public var text: String? = nil
     /// True when `text` is only the start of the file.
     public var truncated = false
+    /// How much of the file `text` holds when it was cut ("the first 140 of 600 rows"). Not saved.
+    public var cutNote: String? = nil
+    /// What the file is, for the model: "spreadsheet, sheet Payees", "PDF, 3 pages", "image, text read on this device".
+    public var detail: String? = nil
+    /// Address and amount rows found in the whole file (not only the part in `text`), for a batch send. Not saved.
+    public var recipients: [RecipientTable.Row]? = nil
 
     enum CodingKeys: String, CodingKey { case name, kind, size, source }
 
@@ -93,8 +99,8 @@ public struct Attachment: Equatable, Sendable, Codable, Hashable, Identifiable {
     }
     public static func kind(of name: String) -> Kind {
         let n = name.lowercased()
-        if n.hasSuffix(".png") || n.hasSuffix(".jpg") { return .chart }
-        if n.hasSuffix(".xlsx") { return .sheet }
+        if [".png", ".jpg", ".jpeg", ".heic", ".heif", ".gif", ".tiff", ".webp"].contains(where: n.hasSuffix) { return .chart }
+        if n.hasSuffix(".xlsx") || n.hasSuffix(".xlsm") { return .sheet }
         if n.hasSuffix(".csv") { return .csv }
         if n.contains("invoice") { return .invoice }
         if [".ts", ".js", ".json", ".prompt", ".swift", ".py"].contains(where: n.hasSuffix) { return .code }
@@ -132,7 +138,8 @@ public indirect enum Card: Equatable, Sendable, Codable {
     case apiBuy(Approval)
     case buildProgress
     case apiCheckout
-    case multiSend
+    /// A real batch send (BatchPlan id): every recipient with its live status and transaction link.
+    case batchSend(String)
     case flapLaunch
     case memory(String)
     case liveTrade(LiveTrade)

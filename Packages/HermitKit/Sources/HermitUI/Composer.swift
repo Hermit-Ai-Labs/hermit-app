@@ -1,6 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import HermitCore
+#if os(iOS)
+import PhotosUI
+#endif
 
 /// The chat box, the same everywhere (home, chat, project pages, automations), like Claude and ChatGPT:
 /// text, then + (files, commands, project), attach and speak on the left; model and send on the right.
@@ -22,6 +25,13 @@ struct Composer: View {
     @State private var text = ""
     @State private var file: Attachment?
     @State private var importing = false
+    /// A file is being read (PDF, OCR, spreadsheet): the chip shows that until it's ready.
+    @State private var reading: String?
+    @State private var dropping = false
+    #if os(iOS)
+    @State private var pickingPhoto = false
+    @State private var photo: PhotosPickerItem?
+    #endif
     @State private var showModels = false
     @FocusState private var focused: Bool
     @AppStorage(ChatMode.key) private var chatMode = ChatMode.device.rawValue
@@ -66,18 +76,48 @@ struct Composer: View {
         .task { try? await Task.sleep(for: .seconds(1.2)); if DebugLaunch.take("models") { showModels = true } }
         #endif
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
-            // Text files come with their content, which goes to the model with the message.
-            if case .success(let url) = result {
-                let picked = Attachment.read(url)
-                withAnimation(.snappy) { file = picked }
+            // The file is read on this device (text, spreadsheet, PDF, image text); that text goes to the model with the message.
+            if case .success(let url) = result { attach(url) }
+        }
+        #if os(iOS)
+        .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+        .onChange(of: photo) { _, item in
+            guard let item else { return }
+            photo = nil
+            withAnimation(.snappy) { reading = "Photo" }
+            Task {
+                let data = try? await item.loadTransferable(type: Data.self)
+                var picked: Attachment?
+                if let data { picked = await AttachmentReader.read(imageData: data, name: "Photo.jpg") }
+                withAnimation(.snappy) { reading = nil; if let picked { file = picked } }
+                if picked == nil { model.toast("Couldn't open that photo") }
                 focused = true
             }
+        }
+        #endif
+    }
+
+    /// Reads a picked or dropped file off the main thread, then shows its chip.
+    private func attach(_ url: URL) {
+        withAnimation(.snappy) { reading = url.lastPathComponent }
+        Task {
+            let picked = await AttachmentReader.read(url)
+            withAnimation(.snappy) { reading = nil; file = picked }
+            focused = true
         }
     }
 
     private var box: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let f = file {
+            if let r = reading {
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small).frame(width: 28, height: 28)
+                    Text("Reading \(r)").font(.system(size: 13)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
+                .padding(.leading, 6).padding(.trailing, 10).padding(.vertical, 6)
+                .background(Theme.hover, in: RoundedRectangle(cornerRadius: 11))
+                .transition(.opacity)
+            } else if let f = file {
                 AttachmentChip(file: f) { withAnimation(.snappy) { file = nil } }
                     .transition(.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
             }
@@ -103,7 +143,14 @@ struct Composer: View {
         }
         .padding(.horizontal, 16).padding(.top, 15).padding(.bottom, 11)
         .background(Theme.bg, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(focused ? Theme.faint.opacity(0.6) : Theme.border))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(dropping ? Theme.accent.opacity(0.7) : focused ? Theme.faint.opacity(0.6) : Theme.border,
+                                                                 lineWidth: dropping ? 2 : 1))
+        // Drag a file from Finder (or another app on iPad) onto the box to attach it.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let u = urls.first(where: \.isFileURL) else { return false }
+            attach(u)
+            return true
+        } isTargeted: { dropping = $0 }
         .shadow(color: .black.opacity(0.04), radius: 10, y: 4)
         .overlay(alignment: .topLeading) { if let _ = slash, !matching.isEmpty { commandList } }
         .animation(.smooth(duration: 0.15), value: focused)
@@ -115,7 +162,7 @@ struct Composer: View {
         .onChange(of: model.focusTick) { if onSend == nil || autoFocus { focused = true } }
     }
 
-    private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || file != nil }
+    private var canSend: Bool { reading == nil && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || file != nil) }
     private var stoppable: Bool { onSend == nil && model.busy }
 
     private var sendButton: some View {
@@ -142,6 +189,9 @@ struct Composer: View {
     private var plusMenu: some View {
         Menu {
             Button("Add a file", systemImage: "paperclip") { importing = true }
+            #if os(iOS)
+            Button("Add a photo", systemImage: "photo") { pickingPhoto = true }
+            #endif
             Divider()
             Menu {
                 ForEach(Self.commands, id: \.0) { c in Button { use(c.0) } label: { Text(c.0); Text(c.1) } }

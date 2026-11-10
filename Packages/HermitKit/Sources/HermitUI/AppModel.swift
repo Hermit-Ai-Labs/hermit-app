@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 import HermitCore
 import HermitModel
+import HermitWallet
 
 public enum Route: String, CaseIterable, Identifiable, Hashable {
     case home, projects, automations, trade, earn, payments, explore, calendar, wallets, connectors, files, settings
@@ -178,7 +179,7 @@ public final class AppModel {
         commit()
         pushContext()
         replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
-        currentID = nil; chatProject = project; drawerOpen = false
+        currentID = nil; chatProject = project; drawerOpen = false; batchFile = nil
         focusTick += 1
     }
 
@@ -197,7 +198,7 @@ public final class AppModel {
         commit()
         // The model starts this one fresh: it doesn't carry the other chat's context in.
         replyTask?.cancel(); agent.reset(); busy = false
-        messages = c.messages; currentID = id; chatProject = c.project
+        messages = c.messages; currentID = id; chatProject = c.project; batchFile = nil
         route = .home; drawerOpen = false
     }
 
@@ -248,12 +249,21 @@ public final class AppModel {
             MemoryStore.shared.append(item)
             pushContext()
             stream = ScriptedAgent(pace: SnapshotMode.active ? 0 : 0.5).stream(ScriptedAgent.memoryScript(item))
+        } else if let a = attachment, let rows = a.recipients, !rows.isEmpty, MoneyIntent.asksToMultisend(text) {
+            // "Send 25 USDC to everyone in this sheet": the app reads the list from the user's own file and opens the
+            // batch review itself; the model never retypes 50 addresses. Approve still needs Face ID.
+            batchFile = (a.name, rows)
+            stream = Self.batchFromFile(text, file: a.name, rows: rows)
         } else if let a = attachment {
+            if a.recipients?.isEmpty == false { batchFile = (a.name, a.recipients!) }
             if let body = a.text {
                 stream = agent.reply(to: Self.prompt(text, with: a, body))
             } else {
-                stream = ScriptedAgent(pace: 0).say("I can't read \(a.name) yet. Here on the device I can read text files: plain text, Markdown, CSV, JSON and code. Paste the part you need, or save it as one of those and attach it again.")
+                stream = ScriptedAgent(pace: 0).say(Self.unreadable(a))
             }
+        } else if let f = batchFile, MoneyIntent.asksToMultisend(text) || Self.answersNetwork(text) {
+            // The follow-up to "which network?" for the list attached earlier in this chat.
+            stream = Self.batchFromFile(text, file: f.name, rows: f.rows)
         } else {
             stream = agent.reply(to: text)
         }
@@ -267,11 +277,85 @@ public final class AppModel {
         }
     }
 
-    /// What the model sees for a message with a readable file: the file between markers, then the question.
+    /// What the model sees for a message with a readable file: what it is and how much of it is included, the file
+    /// between markers, then the question.
     static func prompt(_ question: String, with a: Attachment, _ body: String) -> String {
-        let note = a.truncated ? " (only the first \(Attachment.maxChars) characters, the file is longer)" : ""
+        var about: [String] = []
+        if let d = a.detail { about.append(d) }
+        if let c = a.cutNote { about.append("only \(c) are included, the file is longer") }
+        else if a.truncated { about.append("only the first \(Attachment.maxChars) characters, the file is longer") }
+        let note = about.isEmpty ? "" : " (" + about.joined(separator: "; ") + ")"
         let content = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(the file is empty)" : body
         return "The user attached the file \(a.name)\(note):\n<file>\n\(content)\n</file>\n\n\(question)"
+    }
+
+    /// Why a file gave no text, in plain words.
+    static func unreadable(_ a: Attachment) -> String {
+        switch a.kind {
+        case .chart: return "I didn't find any text in \(a.name). On this device I read the text in images (receipts, screenshots, tables), but I can't describe pictures yet."
+        case .paper: return "I couldn't read text from \(a.name)\(a.detail.map { " (\($0))" } ?? ""). If it's protected, export it again without a password."
+        case .sheet: return "I couldn't open \(a.name). Save it as .xlsx or CSV and attach it again."
+        default: return "I can't read \(a.name) yet. On this device I read text files (plain text, Markdown, CSV, JSON, code), spreadsheets (.xlsx), PDFs and the text in images."
+        }
+    }
+
+    /// The address and amount rows of the last file attached in this chat, for a batch send asked for later.
+    var batchFile: (name: String, rows: [RecipientTable.Row])?
+
+    /// A short reply that only names a network ("on Base", "arbitrum"): the answer to the batch's "which network?".
+    static func answersNetwork(_ text: String) -> Bool {
+        let t = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        return t.count <= 24 && ChainWords.mentioned(in: t).count == 1
+            && t.range(of: #"^(on |use |via |the )?[a-z ]+( please| network| chain)?$"#, options: .regularExpression) != nil
+    }
+
+    /// The batch review for a list in the user's file: token and network from what they typed (or the file's only
+    /// option), each row's own amount, or "25 each" for all. Streams one short reply with the review button.
+    static func batchFromFile(_ text: String, file: String, rows: [RecipientTable.Row]) -> AsyncStream<AgentEvent> {
+        AsyncStream { cont in
+            let task = Task { @MainActor in
+                defer { cont.finish() }
+                cont.yield(.status("Reading \(rows.count) row\(rows.count == 1 ? "" : "s") from \(file)…"))
+                let p = MoneyIntent.parts(text)
+                let each = text.lowercased().range(of: #"\b(each|every|per)\b"#, options: .regularExpression) != nil ? p.amount : nil
+                guard let symbol = p.symbol ?? (text.lowercased().contains("eth") ? "ETH" : nil) else {
+                    cont.yield(.steps(1))
+                    cont.yield(.text("I found \(rows.count) address\(rows.count == 1 ? "" : "es") in \(file). Which token should go out, and on which network? For example: send USDC on Base to everyone in this file."))
+                    return
+                }
+                let recips: [[String: Any]] = rows.prefix(WalletService.batchMax + 1).map { ["address": $0.address, "amount": $0.amount.isEmpty ? (each ?? "") : $0.amount] }
+                var args: [String: Any] = ["symbol": symbol, "recipients": recips]
+                if let c = p.chain { args["chain"] = c }
+                cont.yield(.status("Checking every address and your balance…"))
+                let out: ToolOutcome
+                do { out = try await HermitToolbox.prepareMultisend(args, origin: .user, source: file) }
+                catch { out = HermitToolbox.json(["error": (error as? CustomStringConvertible)?.description ?? "\(error)"]) }
+                cont.yield(.steps(2))
+                cont.yield(.block(.text("")))
+                cont.yield(.text(batchReply(out, file: file)))
+                if let a = out.action { cont.yield(.block(.actions([a]))) }
+            }
+            cont.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// The reply for a file batch, from the tool's result.
+    static func batchReply(_ out: ToolOutcome, file: String) -> String {
+        guard let v = JSONValue.parse(out.content) else { return "I couldn't check that list." }
+        if let q = v["question"]?.string { return q }
+        if let e = v["error"]?.string { return e }
+        let reasons: [String] = { if case .array(let r)? = v["reasons"] { return r.compactMap(\.string) }; return [] }()
+        let n = v["recipients"].flatMap { if case .number(let s) = $0 { return Int(s) }; return nil } ?? 0
+        let total = v["total"]?.string ?? "", net = v["network"]?.string ?? ""
+        var left: [String] = []
+        if case .array(let l)? = v["left_out"] { left = l.compactMap(\.string) }
+        var s = n > 0 ? "\(file) has **\(n) recipient\(n == 1 ? "" : "s")**, \(total) in total on \(net)." : ""
+        if !left.isEmpty {
+            let more = (v["left_out_count"].flatMap { if case .number(let x) = $0 { return Int(x) }; return nil } ?? left.count) - left.count
+            s += " Left out: " + left.joined(separator: "; ") + (more > 0 ? ", and \(more) more" : "") + "."
+        }
+        if !reasons.isEmpty { return (s.isEmpty ? "" : s + " ") + "It can't go out yet: " + reasons.joined(separator: " ") }
+        return s + " Review the list below. One \(Device.bio) approval sends them one after another, and you can follow each transfer here."
     }
 
     /// Stop the reply that is streaming.
@@ -317,6 +401,9 @@ public final class AppModel {
             switch o {
             case "fund-hyperliquid": fundGoal = .hyperliquid
             case "swap": open(.wallets, tab: "swap")
+            case let o where o.hasPrefix("batch:"): BatchStore.shared.review(String(o.dropFirst("batch:".count)), model: self)
+            case let o where o.hasPrefix("earn-deposit:"): EarnFlow.open(link: o, model: self)
+            case "earn-positions": open(.earn, tab: "positions")
             default: fundGoal = .wallet
             }
         }

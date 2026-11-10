@@ -48,7 +48,7 @@ enum ShellShots {
         let tall = CGSize(width: 760, height: 2000)
 
         if want("chat") {
-            for (s, h) in [(Scenario.news, 1500.0), (.meme, 1650), (.yield, 900), (.multisend, 980), (.budgetAPI, 1700), (.flap, 900),
+            for (s, h) in [(Scenario.news, 1500.0), (.meme, 1650), (.yield, 900), (.budgetAPI, 1700), (.flap, 900),
                            (.inject, 640), (.oppsDefi, 2000), (.airdrop, 900), (.build, 1150), (.perpHYPE, 820), (.reverse, 1300), (.inbox, 860)] {
                 let m = AppModel()
                 try shoot(messages(exchange(s), model: m), "chat-\(s.id)", CGSize(width: tall.width, height: h))

@@ -20,6 +20,51 @@ enum EarnRoute {
 final class EarnFlow {
     static let shared = EarnFlow()
     var deposit: EarnData.Pool?
+    /// The amount the Deposit sheet opens with (prepared by the assistant), read once.
+    @ObservationIgnored var amount: String?
+
+    /// The Aave v3 pool for a token on a chain: DefiLlama's row when the feed has it, else the live rate read from the
+    /// pool contract itself (getReserveData), so the review always shows a real APY.
+    static func pool(chain: Chain, symbol: String) async -> EarnData.Pool? {
+        let feed = YieldsFeed.shared
+        await feed.refresh()
+        if let p = feed.pools.first(where: { $0.project == "aave-v3" && $0.chain.lowercased() == chain.id && $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame }) {
+            return p
+        }
+        guard let token = AaveV3.tokens(on: chain).first(where: { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame }),
+              let r = try? await AaveV3.reserve(chain: chain, token: token, client: WalletsViewModel.shared.service.evm(chain)) else { return nil }
+        let apy = r.supplyAPY * 100
+        return EarnData.Pool(pool: "aave-v3-\(chain.id)-\(token.symbol)", chain: chain.name, project: "aave-v3", symbol: token.symbol, tvlUsd: 0,
+                             apy: apy, apyBase: apy, apyReward: nil, apyMean30d: nil, stablecoin: true, ilRisk: "no", exposure: "single", poolMeta: nil)
+    }
+
+    /// "earn-deposit:base:USDC:25", an action link that survives the chat being saved.
+    static func depositLink(chain: Chain, symbol: String, amount: Double) -> String {
+        "earn-deposit:\(chain.id):\(symbol):\(AmountFmt.plain(amount))"
+    }
+
+    /// Opens Earn on the prefilled Deposit review for a link from chat.
+    static func open(link: String, model: AppModel) {
+        let parts = link.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3, let chain = Chain.with(id: parts[1]) else { model.open(.earn); return }
+        let symbol = parts[2], amount = parts.count > 3 ? parts[3] : ""
+        Task { @MainActor in
+            guard let p = await pool(chain: chain, symbol: symbol) else { model.toast("Couldn't load the Aave pool on \(chain.name)"); model.open(.earn); return }
+            shared.amount = amount.isEmpty ? nil : amount
+            shared.deposit = p
+            model.open(.earn, tab: "defi")
+        }
+    }
+}
+
+/// Amounts written back into fields: no grouping, no exponent, at most 6 decimals.
+enum AmountFmt {
+    static func plain(_ v: Double) -> String {
+        var s = String(format: "%.6f", v)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        return s
+    }
 }
 
 /// Deposit into an Aave v3 pool: amount from the wallet's balance, then the review screen. Approve + supply are signed
@@ -38,6 +83,8 @@ struct EarnDepositSheet: View {
     init(pool: EarnData.Pool) {
         self.pool = pool
         _walletID = State(initialValue: WalletsViewModel.shared.firstWalletID ?? "")
+        _amount = State(initialValue: EarnFlow.shared.amount ?? "")
+        EarnFlow.shared.amount = nil
     }
 
     private var route: (chain: Chain, token: Token)? { EarnRoute.aave(pool) }

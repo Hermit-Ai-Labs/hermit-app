@@ -27,7 +27,7 @@ struct CardView: View {
         case .apiBuy(let a): ApiBuyCard(approval: a)
         case .buildProgress: BuildProgressCard()
         case .apiCheckout: ApiCheckoutCard()
-        case .multiSend: MultiSendCard()
+        case .batchSend(let id): BatchSendCard(id: id)
         case .flapLaunch: FlapLaunchCard()
         case .memory(let item): MemoryCard(item: item)
         case .liveTrade(let t): LiveTradeCard(trade: t)

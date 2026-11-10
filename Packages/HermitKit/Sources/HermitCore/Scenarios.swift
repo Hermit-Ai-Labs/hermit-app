@@ -16,7 +16,6 @@ public struct Scenario: Sendable, Identifiable {
     public static func match(_ text: String) -> Scenario? {
         let t = text.lowercased()
         let rules: [(String, String)] = [
-            ("multisend", #"xlsx|spreadsheet|multiple wallets|many wallets|batch send|multi.?send"#),
             ("flap", #"flap|launch (my |a )?token|deploy (my |a )?token"#),
             ("budget-api", #"budget(ing)? app|wire up the api|frontend is done"#),
             ("opps-defi", #"opportunit|defi idea|what defi|where.*(earn|yield)"#),
@@ -349,14 +348,6 @@ public struct Scenario: Sendable, Identifiable {
             ]),
         ])
 
-    public static let multisend = Scenario(
-        id: "multisend", chip: "Pay many wallets", prompt: "Send USDC to every wallet in this spreadsheet",
-        tools: ["Reading wallets.xlsx", "Checking every address", "Screening for sanctions", "Planning a private route"],
-        blocks: [
-            .text("Found 49 rows. **1 address is invalid** (row 31, missing characters), so I left it out. The other 48 are clean. I'll route it through **Relay** so the recipients can't link the payments back to your wallet."),
-            .card(.multiSend),
-        ])
-
     public static let flap = Scenario(
         id: "flap", chip: "Launch a token", prompt: "Launch my token $HERMIT on flap.sh",
         tools: ["Drafting token details", "Making the logo", "Checking flap.sh fees", "Preparing the deploy"],
@@ -366,5 +357,5 @@ public struct Scenario: Sendable, Identifiable {
             .text("With a 0.5 BNB first buy you'd hold about 2.8% of supply. It graduates to PancakeSwap at a $69k market cap."),
         ])
 
-    public static let all: [Scenario] = [reverse, news, newsETH, build, oppsDefi, oppsVol, meme, perpHYPE, yield, dev, airdrop, arb, inbox, pay, inject, budgetAPI, multisend, flap]
+    public static let all: [Scenario] = [reverse, news, newsETH, build, oppsDefi, oppsVol, meme, perpHYPE, yield, dev, airdrop, arb, inbox, pay, inject, budgetAPI, flap]
 }

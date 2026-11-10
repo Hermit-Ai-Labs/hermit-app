@@ -219,7 +219,7 @@ struct AttachmentChip: View {
             FileIcon(kind: file.kind, size: 28)
             VStack(alignment: .leading, spacing: 0) {
                 Text(file.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                if !file.size.isEmpty { Text(file.size).font(.system(size: 11.5)).foregroundStyle(Theme.muted) }
+                if !file.chipLine.isEmpty { Text(file.chipLine).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1) }
             }
             if let onRemove {
                 Button(action: onRemove) {

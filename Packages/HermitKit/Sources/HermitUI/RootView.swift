@@ -74,6 +74,10 @@ public struct RootView: View {
         .sheet(item: Bindable(IntentsActivity.shared).focus) { f in
             IntentsStatusSheet(depositAddress: f.id).environment(model).tint(Theme.text)
         }
+        // A batch send's review (from chat): every recipient, one Face ID, then each transfer's status.
+        .sheet(item: Bindable(BatchStore.shared).reviewing) { r in
+            BatchSendSheet(id: r.id).environment(model).tint(Theme.text)
+        }
     }
 
     private var split: some View {

@@ -12,7 +12,8 @@ import HermitWallet
 // DeFiLlama). get_quote and prepare_swap are the app's WalletTools on a memory-only wallet holding the public BIP-39
 // test phrase (live NEAR Intents quotes, real spending policy). This Mac has no funded wallet, so get_balances,
 // hyperliquid_account, prepare_trade and prepare_send answer from a fixed funded wallet ("stub"), with
-// prepare_send still running the real spending policy. Nothing here can sign or send.
+// prepare_send still running the real spending policy. prepare_multisend runs the real batch checks on the test wallet
+// and prepare_deposit / prepare_withdraw are stubs. Nothing here can sign or send.
 
 let defaultPrompts = [
     "what's the price of HYPE",
@@ -20,6 +21,11 @@ let defaultPrompts = [
     "swap 20 USDC on Base to NEAR",
     "long HYPE 3x with $50",
     "send 10 USDC to 0x1111111111111111111111111111111111111111 on base",
+    "send 10 USDC to 0x1111111111111111111111111111111111111111",
+    "how much NEAR do I get for 20 USDC on Base?",
+    "send 5 USDC to each of these on base:\n0x1111111111111111111111111111111111111111\n0x2222222222222222222222222222222222222222\n0x3333333333333333333333333333333333333333",
+    "deposit 20 USDC into Aave on Base",
+    "withdraw my USDC from Aave",
 ]
 
 @MainActor
@@ -76,12 +82,33 @@ struct HarnessToolbox: AgentToolbox {
             if verdict.decision == .block {
                 out = ToolOutcome(content: #"{"status":"blocked","reasons":\#(verdict.blocks)}"#)
             } else {
-                var approval = Approval(kind: "Send on Base", title: "Send \(amount) \(sym)", lines: [["To", to], ["Amount", "\(amount) \(sym)"]],
+                // No chain left after ToolGuard.adjusted (the user didn't name one): the app picks the network holding the
+                // token; in the stub balances USDC is only on Base.
+                let net = (args["chain"] as? String).map { "\($0) (named)" } ?? "Base (picked: only network holding \(sym) in the stub)"
+                print("      [chain] \(net)")
+                var approval = Approval(kind: "Send", title: "Send \(amount) \(sym)", lines: [["To", to], ["Amount", "\(amount) \(sym)"], ["Network", net]],
                                         checks: verdict.passed, success: "sent")
                 approval.warnings = verdict.warnings
                 out = ToolOutcome(content: #"{"status":"review_opened","kind":"send","executed":false,"note":"Waiting for the user to approve with Face ID."}"#,
                                   action: Action("Review send", approval: approval))
             }
+        case "prepare_multisend":
+            // The real batch checks on the memory-only test wallet (it holds nothing, so balance checks block), shown
+            // in the log; the model gets an opened review so its summary can be judged.
+            source = "stub + real batch checks"
+            let rows = ((args["recipients"] as? [Any]) ?? []).compactMap { $0 as? [String: Any] }.map {
+                (address: ($0["address"] as? String) ?? "", amount: ($0["amount"] as? NSNumber)?.stringValue ?? ($0["amount"] as? String) ?? "")
+            }
+            let chain = (args["chain"] as? String).flatMap(WalletTools.place)?.chain ?? .base
+            let plan = try? await harness.service.planBatch(walletID: nil, chain: chain, symbol: args["symbol"] as? String ?? "USDC", recipients: rows, origin: .agent)
+            if let plan { print("      [batch] \(plan.valid.count) valid, \(plan.invalid.count) left out, total \(plan.total) \(plan.symbol) on \(chain.name); blocks: \(plan.blocks)") }
+            out = ToolOutcome(content: #"{"status":"review_opened","kind":"multisend","executed":false,"recipients":\#(plan?.valid.count ?? rows.count),"total":"\#(plan?.total ?? "?") \#(plan?.symbol ?? "")","network":"\#(chain.name)","note":"stub"}"#,
+                              action: Action("Review batch send", primary: true, open: "batch:stub"))
+        case "prepare_deposit", "prepare_withdraw":
+            source = "stub"
+            let kind = name == "prepare_deposit" ? "deposit" : "withdraw"
+            out = ToolOutcome(content: #"{"status":"review_opened","kind":"\#(kind)","executed":false,"pool":"Aave v3 on \#(args["chain"] as? String ?? "base")","note":"stub"}"#,
+                              action: Action(kind == "deposit" ? "Review deposit" : "Review withdrawal", primary: true, open: "earn-positions"))
         default:
             out = await real.run(name, arguments: arguments)
         }

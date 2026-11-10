@@ -1,7 +1,7 @@
 import SwiftUI
 import HermitCore
 
-/// Earn: what you have earning (nothing until deposits are wired), real DeFi yields, live funding-rate carry,
+/// Earn: what you have earning (Aave v3 supplies with their live APY, and Hyperliquid), real DeFi yields, live funding-rate carry,
 /// airdrops, and Reverse (Hermit explains any vault in chat).
 struct EarnPage: View {
     @Environment(AppModel.self) private var model

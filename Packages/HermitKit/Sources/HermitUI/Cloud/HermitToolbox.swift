@@ -30,6 +30,9 @@ public struct HermitToolbox: AgentToolbox {
             case "get_yields": return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String)])
             case "prepare_trade": return try await Self.prepareTrade(args, label: label)
             case "prepare_send": return try await Self.prepareSend(args)
+            case "prepare_multisend": return try await Self.prepareMultisend(args, origin: .agent)
+            case "prepare_deposit": return try await Self.prepareDeposit(args)
+            case "prepare_withdraw": return try await Self.prepareWithdraw(args, label: label)
             case "open_add_funds":
                 let hl = (args["goal"] as? String) == "hyperliquid"
                 return ToolOutcome(content: #"{"status":"button_shown","screen":"add_funds","goal":"\#(hl ? "hyperliquid" : "wallet")","note":"The user taps it to open Add funds."}"#,
@@ -210,8 +213,13 @@ public struct HermitToolbox: AgentToolbox {
 
     @MainActor static func prepareSend(_ a: [String: Any]) async throws -> ToolOutcome {
         guard let to = a["to_address"] as? String, let amount = (a["amount"] as? NSNumber)?.stringValue ?? a["amount"] as? String,
-              let symbol = a["symbol"] as? String, let chainName = a["chain"] as? String else { throw ToolError("Needs to_address, amount, symbol and chain") }
-        guard let chain = findChain(chainName) else { throw ToolError("Unknown chain \(chainName)") }
+              let symbol = a["symbol"] as? String else { throw ToolError("Needs to_address, amount and symbol") }
+        // No chain the user named: the one where they hold the token, or a question back (never a silent Ethereum).
+        let chain: Chain
+        switch try await pickChain(a["chain"] as? String, symbol: symbol, candidates: sendChains(symbol: symbol, to: to), doing: "send") {
+        case .chain(let c): chain = c
+        case .ask(let out): return out
+        }
         let vm = WalletsViewModel.shared
         guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
         // The spending policy for an assistant-prepared send: daily limit, the per-move cap, priced tokens only.
