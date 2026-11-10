@@ -65,7 +65,7 @@ public struct DappRPCError: Error, Sendable, Equatable {
     /// The connected address for this origin, if its wallet still exists.
     public func account(for origin: DappOrigin) -> (wallet: WalletRecord, address: EVMAddress)? {
         guard let s = sites.site(origin), let w = service.wallets.first(where: { $0.id == s.walletID }),
-              let a = EVMAddress(w.evmAddress) else { return nil }
+              let a = EVMAddress(w.evmAddress), EVMAddress(s.address) == a else { return nil }
         return (w, a)
     }
 
@@ -84,6 +84,7 @@ public struct DappRPCError: Error, Sendable, Equatable {
     func disconnected(_ origin: String) {
         guard let o = URL(string: origin).flatMap(DappOrigin.init(url:)) else { return }
         emit?(o, "accountsChanged", .array([]))
+        emit?(o, "solana:accounts", .array([]))
     }
 
     static func hex(_ v: UInt64) -> String { "0x" + String(v, radix: 16) }
@@ -114,6 +115,7 @@ public struct DappRPCError: Error, Sendable, Equatable {
     }
 
     private func route(_ method: String, _ p: [JSON], _ origin: DappOrigin) async throws -> JSON {
+        if method.hasPrefix("sol_") { return try await solana(method, p.first ?? .object([:]), origin) }
         let c = chain(for: origin)
         switch method {
         case "eth_chainId": return .string(Self.hex(c.chainId!))
@@ -162,7 +164,7 @@ public struct DappRPCError: Error, Sendable, Equatable {
     // MARK: Prompts
 
     /// One sheet at a time. A site may have at most three requests waiting.
-    private func ask(_ approval: Approval, _ origin: DappOrigin) async throws -> String {
+    func ask(_ approval: Approval, _ origin: DappOrigin) async throws -> String {
         guard let presenter else { throw DappRPCError(4900, "Hermit isn't showing this page.") }
         guard waiting[origin, default: 0] < 3 else { throw DappRPCError(-32002, "Requests are already waiting for the user.") }
         waiting[origin, default: 0] += 1
@@ -180,9 +182,10 @@ public struct DappRPCError: Error, Sendable, Equatable {
     }
 
     /// Lines and checks every request shares: who asks, from where.
-    private func header(_ origin: DappOrigin, wallet: WalletRecord?, address: EVMAddress?, chain: Chain) -> (lines: [[String]], checks: [String], warnings: [String]) {
+    func header(_ origin: DappOrigin, wallet: WalletRecord?, address: EVMAddress?, chain: Chain) -> (lines: [[String]], checks: [String], warnings: [String]) {
         var lines = [["Site", origin.host]]
         if let wallet, let address { lines.append(["Wallet", "\(wallet.name), \(DappDecoder.short(address))"]) }
+        if let wallet, address == nil { lines.append(["Wallet", "\(wallet.name), \(SolanaDecoder.short(wallet.solanaAddress))"]) }
         lines.append(["Network", chain.name + (chain.isTestnet ? " (testnet)" : "")])
         var checks = ["Asked by \(origin.host), the page itself (HTTPS, not an embedded frame)"]
         if DappSiteCheck.isListed(origin.host, known: knownHosts) { checks.append("\(origin.host) is in Hermit's Explore directory") }
