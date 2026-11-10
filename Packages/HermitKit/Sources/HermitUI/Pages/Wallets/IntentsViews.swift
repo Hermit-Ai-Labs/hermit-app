@@ -16,9 +16,16 @@ final class IntentsActivity {
     private(set) var swaps: [TrackedSwap] = WalletService.intentsLedger.all
     @ObservationIgnored private var polling: Set<String> = []
 
-    /// Swaps from the last two days that haven't settled.
+    /// Swaps from the last two days that haven't settled, minus the ones the user hid.
     var active: [TrackedSwap] {
-        swaps.filter { !$0.status.isFinal && Date().timeIntervalSince($0.created) < 172_800 }
+        swaps.filter { !$0.status.isFinal && Date().timeIntervalSince($0.created) < 172_800 && !hidden.contains($0.depositAddress) }
+    }
+    /// Hidden from the list (still tracked, still in Activity).
+    private(set) var hidden: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hermit.intents.hidden") ?? [])
+    func hide(_ depositAddress: String) {
+        withAnimation(.snappy) { hidden.insert(depositAddress) }
+        UserDefaults.standard.set(Array(hidden), forKey: "hermit.intents.hidden")
+        if focus?.id == depositAddress { focus = nil }
     }
 
     func show(_ depositAddress: String) {
@@ -219,6 +226,9 @@ struct IntentsStatusSheet: View {
                     .buttonStyle(WideButton(kind: .plain))
             } else if status.isFinal {
                 Button("Remove from list") { act.remove(depositAddress); dismiss(); model.toast("Removed") }
+                    .buttonStyle(WideButton(kind: .plain))
+            } else {
+                Button("Hide from list") { act.hide(depositAddress); dismiss(); model.toast("Hidden. It keeps going and stays in Activity.") }
                     .buttonStyle(WideButton(kind: .plain))
             }
             Button(status == .pendingDeposit ? "Keep waiting" : "Done") { dismiss() }.buttonStyle(WideButton())

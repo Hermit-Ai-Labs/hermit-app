@@ -13,6 +13,9 @@ public struct SwapIntent: Sendable, Equatable, Identifiable {
     public let origin: ActionOrigin
     /// The policy's verdict at preparation time (re-checked on Review with the live quote).
     public let verdict: PolicyVerdict
+    public init(from: Chain, fromSymbol: String, to: IntentsPlace, toSymbol: String, amount: String, origin: ActionOrigin, verdict: PolicyVerdict) {
+        self.from = from; self.fromSymbol = fromSymbol; self.to = to; self.toSymbol = toSymbol; self.amount = amount; self.origin = origin; self.verdict = verdict
+    }
     public static func == (a: Self, b: Self) -> Bool { a.id == b.id }
 }
 

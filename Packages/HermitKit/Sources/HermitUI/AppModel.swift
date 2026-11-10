@@ -56,6 +56,8 @@ public final class AppModel {
     public var busy = false
     /// Short confirmation shown at the bottom; set it with `toast(_:)`.
     public var toastText: String?
+    /// A file dropped anywhere on the chat; the composer picks it up and attaches it.
+    public var droppedFile: URL?
     /// What Hermit calls you, asked on first launch and editable in Settings > Profile. Empty until then.
     public var user = "" {
         didSet {
@@ -424,6 +426,12 @@ public final class AppModel {
     /// Called by the approval sheet once Touch ID / Face ID passed and the move went through.
     public func approved(_ a: Approval, hash: String? = nil) {
         approval = nil
+        if a.kind == "Buy", let p = BuyRecord.pending {
+            BuyRecord.pending = nil
+            ActivityLedger.shared.record(ActivityItem(id: hash ?? p.id, kind: p.kind, chainID: p.chainID, walletID: p.walletID, what: p.what, detail: p.detail,
+                                                      amount: p.amount, symbol: p.symbol, date: Date(), tx: hash, status: p.status,
+                                                      link: hash.flatMap { Chain.with(id: "solana")?.explorerURL(tx: $0) }))
+        }
         approvedIDs.insert(a.title)
         approvalCount += 1
         guard route == .home, inChat else { toast(a.success); return }

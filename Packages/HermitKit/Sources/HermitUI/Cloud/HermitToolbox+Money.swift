@@ -10,18 +10,23 @@ extension HermitToolbox {
     /// The chain a money tool runs on. A chain the user named wins; otherwise the only candidate, or the only one where
     /// the user holds the token; otherwise a question back to the user, listing where they hold it.
     @MainActor static func pickChain(_ given: String?, symbol: String, candidates: [Chain], doing: String) async throws -> ChainPick {
+        let vm = WalletsViewModel.shared
+        if !vm.loaded { await vm.refresh() }
+        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
+        func holding(_ c: Chain) -> Holding? { vm.holdings(wallet: w.id, chain: c).first { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame } }
         if let g = given?.trimmingCharacters(in: .whitespaces), !g.isEmpty {
             guard let c = findChain(g) else { throw ToolError("Unknown chain \(g)") }
+            // A named network where the user holds none of the token, while they hold it on exactly one other: that one.
+            // (The model tends to say "Ethereum" when nobody did.)
+            if holding(c) == nil, candidates.contains(c) {
+                let elsewhere = candidates.filter { $0 != c && holding($0) != nil }
+                if elsewhere.count == 1 { return .chain(elsewhere[0]) }
+            }
             return .chain(c)
         }
         guard !candidates.isEmpty else { throw ToolError("\(symbol.uppercased()) can't be used for that on any network Hermit supports") }
         if candidates.count == 1 { return .chain(candidates[0]) }
-        let vm = WalletsViewModel.shared
-        if !vm.loaded { await vm.refresh() }
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
-        let held: [(Chain, Holding)] = candidates.compactMap { c in
-            vm.holdings(wallet: w.id, chain: c).first { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame }.map { (c, $0) }
-        }
+        let held: [(Chain, Holding)] = candidates.compactMap { c in holding(c).map { (c, $0) } }
         if held.count == 1 { return .chain(held[0].0) }
         let sym = symbol.uppercased()
         let question = held.isEmpty

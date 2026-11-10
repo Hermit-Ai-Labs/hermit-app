@@ -160,6 +160,9 @@ struct Composer: View {
             #endif
         }
         .onChange(of: model.focusTick) { if onSend == nil || autoFocus { focused = true } }
+        .onChange(of: model.droppedFile) { _, u in if let u { model.droppedFile = nil; attach(u) } }
+        // Dropped while another page was showing: the chat opened for it, and the composer appears with it waiting.
+        .onAppear { if let u = model.droppedFile { model.droppedFile = nil; attach(u) } }
     }
 
     private var canSend: Bool { reading == nil && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || file != nil) }

@@ -42,6 +42,7 @@ public struct RootView: View {
             FundSheet(goal: g).environment(model).tint(Theme.text)
         }
         .approvalHost(sheetOpen: model.fundGoal != nil) { model.fundGoal = nil }
+        .chatDropTarget()
         .environment(model)
         .environment(\.compact, compact)
         .foregroundStyle(Theme.text)

@@ -729,88 +729,8 @@ struct TradeTickerStatus: View {
 
 // MARK: Spot
 
-struct TradeSpot: View {
-    @State private var to = TradeData.spotTokens[1]
-    @State private var amtText = "1000"
-    @State private var width: CGFloat = 900
-    private var feed: MarketFeed { .shared }
-
-    private var amt: Double { Double(amtText.replacingOccurrences(of: ",", with: "")) ?? 0 }
-    private var px: Double? { feed.tickers[to.sym]?.px }
-    private var out: String {
-        guard let px, px > 0, amt > 0 else { return "—" }
-        let o = amt / px
-        return o < 1 ? o.formatted(.number.precision(.significantDigits(4))) : o.tradeTrim(4)
-    }
-
-    var body: some View {
-        Group {
-            if width >= 680 {
-                HStack(alignment: .top, spacing: 32) { list.frame(maxWidth: .infinity); swap.frame(maxWidth: .infinity) }
-            } else {
-                VStack(spacing: 24) { list; swap }
-            }
-        }
-        .tradeWidth($width)
-        .marketPoll(every: 30) { await feed.refreshTickers() }
-    }
-
-    private var list: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TradeTickerStatus()
-            TradeRows(data: TradeData.spotTokens.map { TradeRowItem(token: $0) }) { i in
-                TradeTokenRow(token: i.token, selected: to == i.token, showMini: width >= 420) { withAnimation(.snappy) { to = i.token } } trailing: { EmptyView() }
-            }
-            if !feed.tickers.isEmpty { MarketSource(text: "Prices from \(feed.tickerSource)").padding(.top, 8) }
-        }
-    }
-
-    private var swap: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                VStack(spacing: 8) {
-                    box("You pay") {
-                        TextField("0", text: $amtText).textFieldStyle(.plain)
-                            .font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                        #if os(iOS)
-                            .keyboardType(.decimalPad)
-                        #endif
-                        token("USDC")
-                    }
-                    box("You receive, about") {
-                        Text(out).font(.system(size: 24, weight: .semibold)).monospacedDigit().lineLimit(1)
-                            .foregroundStyle(out == "—" ? Theme.faint : Theme.text)
-                            .contentTransition(.numericText()).frame(maxWidth: .infinity, alignment: .leading)
-                        token(to.sym)
-                    }
-                }
-                Image(systemName: "arrow.down").font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28).background(Theme.bg, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
-            }
-            HStack {
-                Text("1 \(to.sym) = \(px.map { "$" + $0.tradePx } ?? "—")")
-                Spacer()
-                Text("Before fees and slippage")
-            }
-            .font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.horizontal, 2).padding(.vertical, 4)
-        }
-    }
-
-    private func box<C: View>(_ label: String, @ViewBuilder _ c: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-            HStack(spacing: 8) { c() }
-        }
-        .padding(14)
-        .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
-    }
-
-    private func token(_ s: String) -> some View {
-        HStack(spacing: 6) { MarketLogo(key: TradeData.logo(s), name: s, size: 20); Text(s).font(.system(size: 14, weight: .medium)) }.fixedSize()
-    }
-}
+/// Spot on Solana: every liquid, verified token on Jupiter, bought from the wallet.
+struct TradeSpot: View { var body: some View { SolanaSwapScreen(memes: false) } }
 
 /// TradeRows wants Identifiable rows.
 struct TradeRowItem: Identifiable { var id: String { token.sym }; let token: TradeData.Token }
@@ -818,69 +738,8 @@ struct TradeRowItem: Identifiable { var id: String { token.sym }; let token: Tra
 // MARK: Memes
 
 /// Big meme coins with live prices; pick one for its candles and 24h range.
-struct TradeMemes: View {
-    @Environment(AppModel.self) private var model
-    @State private var sel = TradeData.memeTokens[0]
-    @State private var candles: [Candle] = []
-    @State private var chartState: FeedState = .loading
-    @State private var width: CGFloat = 900
-    private var feed: MarketFeed { .shared }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TradeTickerStatus()
-            TradeRows(data: TradeData.memeTokens.map { TradeRowItem(token: $0) }) { i in
-                TradeTokenRow(token: i.token, selected: sel == i.token, showMini: width >= 480) { pick(i.token) } trailing: { EmptyView() }
-            }
-            HStack {
-                if !feed.tickers.isEmpty { MarketSource(text: "Prices from \(feed.tickerSource)") }
-                Spacer()
-            }
-            .padding(.top, 8)
-            detail.padding(.top, 36)
-        }
-        .tradeWidth($width)
-        .marketPoll(every: 30) { await feed.refreshTickers() }
-        .marketPoll(every: 60, id: sel.sym) { await loadCandles() }
-    }
-
-    private var detail: some View {
-        let t = feed.tickers[sel.sym]
-        return TradeSection(title: "\(sel.name), 1H candles", top: 0) {
-            Button { model.send("What's going on with \(sel.name) (\(sel.sym))?") } label: { Label("Ask Hermit", systemImage: "sparkles") }
-                .buttonStyle(TradeSmallButton())
-        } content: {
-            VStack(alignment: .leading, spacing: 16) {
-                Group {
-                    if !candles.isEmpty {
-                        TradeCandleChart(data: candles).id(sel.sym).transition(.opacity)
-                    } else if chartState == .failed {
-                        MarketStatus(kind: .failed("Couldn't load candles")) { Task { await loadCandles() } }
-                    } else {
-                        MarketStatus(kind: .loading("Loading candles"))
-                    }
-                }
-                .frame(height: 220)
-                TradeKV(pairs: [("Price", t.map { "$" + $0.px.tradePx } ?? "—"), ("24h high", t.map { "$" + $0.high.tradePx } ?? "—"),
-                                ("24h low", t.map { "$" + $0.low.tradePx } ?? "—"), ("24h volume", t?.vol.tradeCompactUSD ?? "—")])
-            }
-        }
-    }
-
-    private func pick(_ t: TradeData.Token) {
-        guard t != sel else { return }
-        withAnimation(.smooth(duration: 0.3)) { sel = t; candles = []; chartState = .loading }
-    }
-
-    private func loadCandles() async {
-        let want = sel
-        do {
-            let c = try await TradeAPI.spotCandles(want, interval: "1h", count: 60)
-            guard want == sel else { return }
-            candles = c; chartState = .ready
-        } catch { if candles.isEmpty { chartState = .failed } }
-    }
-}
+/// Memes on Solana: Jupiter's verified meme coins, bought from the wallet.
+struct TradeMemes: View { var body: some View { SolanaSwapScreen(memes: true) } }
 
 // MARK: Predictions
 

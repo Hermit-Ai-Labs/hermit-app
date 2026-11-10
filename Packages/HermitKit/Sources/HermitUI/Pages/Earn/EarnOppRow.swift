@@ -46,7 +46,8 @@ struct EarnPoolRow: View {
     }
 }
 
-/// The expanded part: 90 days of APY from DefiLlama, the pool's own numbers, Deposit (greyed) and Ask.
+/// The expanded part: 90 days of APY from DefiLlama, the pool's own numbers, then Deposit (Aave, done by Hermit itself),
+/// or Open (the protocol's app inside Hermit, wallet connected, same review and approval), and Ask.
 struct EarnPoolDetail: View {
     let pool: EarnData.Pool
     @Environment(AppModel.self) private var model
@@ -79,6 +80,9 @@ struct EarnPoolDetail: View {
             HStack(spacing: 8) {
                 if EarnRoute.aave(pool) != nil {
                     Button("Deposit") { EarnFlow.shared.deposit = pool }.buttonStyle(TradeSmallButton(kind: .primary))
+                } else if let u = EarnData.site(for: pool.project) {
+                    Button("Open \(pool.name)") { DappBrowser.shared.open(u, dapp: ExploreData.dapps.first { $0.url?.host() == u.host() }, model: model) }
+                        .buttonStyle(TradeSmallButton(kind: .primary))
                 }
                 Button { model.send("Is \(pool.title) on \(pool.chainName) at \(EarnPoolRow.pct(pool.apy)) APY a good place for my money? What are the risks?") } label: {
                     Label("Ask", systemImage: "sparkles")

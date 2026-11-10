@@ -122,7 +122,10 @@ final class ActivityFeed {
                 for c in Chain.evmMainnets where c.id != "robinhood" {
                     list.append((c.name, wid, { try await ChainHistory.etherscan(chain: c, address: evm, walletID: wid, key: key) }))
                 }
+            } else if let eth = Chain.with(id: "ethereum") {
+                list.append(("Ethereum", wid, { try await ChainHistory.blockscout(chain: eth, host: "eth.blockscout.com", address: evm, walletID: wid) }))
             }
+            list.append(("Hyperliquid", wid, { try await ChainHistory.hyperliquid(address: evm, walletID: wid) }))
             return list
         }
         var out: [ActivityItem] = [], bad: [String] = []
@@ -167,7 +170,7 @@ final class ActivityFeed {
                     && abs(c.date.timeIntervalSince(i.date)) < 900
             }
             if twins.isEmpty { byID[i.id] = i }
-            else if i.kind == .deposit { for t in twins { byID[t.id] = nil }; byID[i.id] = i }
+            else if i.kind == .deposit || i.kind == .swap { for t in twins { byID[t.id] = nil }; byID[i.id] = i }
         }
         items = byID.values.filter { $0.walletID.isEmpty || ids.contains($0.walletID) }.sorted { $0.date > $1.date }
     }
@@ -287,6 +290,80 @@ enum ChainHistory {
             return ActivityItem(id: hash, kind: .contract, chainID: chain.id, walletID: walletID,
                                 what: method.map { "\($0) from \(signer)" } ?? "Transaction with \(signer == account ? receiver : signer)",
                                 detail: "", amount: nil, symbol: "NEAR", date: when, tx: hash, status: status, link: link)
+        }
+    }
+
+    // MARK: Ethereum (Blockscout, no key)
+
+    static func blockscout(chain: Chain, host: String, address: String, walletID: String) async throws -> [ActivityItem] {
+        let me = address.lowercased()
+        var out: [ActivityItem] = []
+        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func when(_ s: Any?) -> Date { (s as? String).flatMap { iso.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } ?? Date() }
+        func hash(_ v: Any?) -> String { ((v as? [String: Any])?["hash"] as? String ?? "").lowercased() }
+        let d = try await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/token-transfers?limit=25")
+        if let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let items = j["items"] as? [[String: Any]] {
+            for t in items {
+                guard let tx = t["transaction_hash"] as? String, let total = t["total"] as? [String: Any], let token = t["token"] as? [String: Any] else { continue }
+                let dec = Int(token["decimals"] as? String ?? "") ?? 18
+                let amt = Double(Units.format(UInt128(total["value"] as? String ?? "") ?? 0, decimals: dec)) ?? 0
+                let sym = token["symbol"] as? String ?? "token"
+                let from = hash(t["from"]), to = hash(t["to"]), recv = to == me
+                out.append(ActivityItem(id: tx + ":" + sym, kind: recv ? .received : .sent, chainID: chain.id, walletID: walletID,
+                                        what: (recv ? "Received " : "Sent ") + MoneyFmt.amount(amt) + " " + sym + (recv ? "" : " to " + shortAddr(to)),
+                                        detail: recv ? "From " + shortAddr(from) : "", amount: recv ? amt : -amt, symbol: sym,
+                                        date: when(t["timestamp"]), tx: tx, status: "Confirmed", link: chain.explorerURL(tx: tx)))
+            }
+        }
+        let d2 = try await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/transactions?filter=to%20%7C%20from")
+        if let j = try JSONSerialization.jsonObject(with: d2) as? [String: Any], let items = j["items"] as? [[String: Any]] {
+            for t in items.prefix(25) {
+                guard let tx = t["hash"] as? String else { continue }
+                let amt = Double(Units.format(UInt128(t["value"] as? String ?? "") ?? 0, decimals: 18)) ?? 0
+                let from = hash(t["from"]), to = hash(t["to"]), ok = (t["status"] as? String) == "ok"
+                let method = t["method"] as? String ?? ""
+                if amt > 0, method.isEmpty {
+                    let recv = to == me
+                    out.append(ActivityItem(id: tx, kind: recv ? .received : .sent, chainID: chain.id, walletID: walletID,
+                                            what: (recv ? "Received " : "Sent ") + MoneyFmt.amount(amt) + " ETH" + (recv ? "" : " to " + shortAddr(to)),
+                                            detail: recv ? "From " + shortAddr(from) : "", amount: recv ? amt : -amt, symbol: "ETH",
+                                            date: when(t["timestamp"]), tx: tx, status: ok ? "Confirmed" : "Failed", link: chain.explorerURL(tx: tx)))
+                } else if from == me, !out.contains(where: { $0.tx == tx }) {
+                    out.append(ActivityItem(id: tx, kind: .contract, chainID: chain.id, walletID: walletID, what: "\(method.isEmpty ? "Contract call" : method) on \(shortAddr(to))",
+                                            detail: amt > 0 ? "\(MoneyFmt.amount(amt)) ETH attached" : "", amount: amt > 0 ? -amt : nil, symbol: "ETH",
+                                            date: when(t["timestamp"]), tx: tx, status: ok ? "Confirmed" : "Failed", link: chain.explorerURL(tx: tx)))
+                }
+            }
+        }
+        return out
+    }
+
+    // MARK: Hyperliquid (its own ledger: deposits, withdrawals, transfers)
+
+    static func hyperliquid(address: String, walletID: String) async throws -> [ActivityItem] {
+        let d = try await MarketHTTP.data("https://api.hyperliquid.xyz/info", json: #"{"type":"userNonFundingLedgerUpdates","user":"\#(address)","startTime":0}"#)
+        guard let rows = try JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { return [] }
+        return rows.suffix(30).compactMap { r -> ActivityItem? in
+            guard let delta = r["delta"] as? [String: Any], let type = delta["type"] as? String, let ms = r["time"] as? Double else { return nil }
+            let usd = Double(delta["usdc"] as? String ?? delta["amount"] as? String ?? "") ?? 0
+            let hash = r["hash"] as? String ?? ""
+            let when = Date(timeIntervalSince1970: ms / 1000)
+            let link = URL(string: "https://app.hyperliquid.xyz/explorer/address/\(address)")
+            switch type {
+            case "deposit":
+                return ActivityItem(id: "hl-" + hash, kind: .deposit, chainID: "hyperliquid", walletID: walletID, what: "Deposited \(MoneyFmt.amount(usd)) USDC to Hyperliquid",
+                                    detail: "Hyperliquid", amount: usd, symbol: "USDC", date: when, tx: hash.isEmpty ? nil : hash, status: "Confirmed", link: link)
+            case "withdraw":
+                return ActivityItem(id: "hl-" + hash, kind: .sent, chainID: "hyperliquid", walletID: walletID, what: "Withdrew \(MoneyFmt.amount(usd)) USDC from Hyperliquid",
+                                    detail: "Hyperliquid, to Arbitrum", amount: -usd, symbol: "USDC", date: when, tx: hash.isEmpty ? nil : hash, status: "Confirmed", link: link)
+            case "send", "internalTransfer", "accountClassTransfer":
+                let dest = (delta["destination"] as? String ?? "").lowercased()
+                let recv = dest == address.lowercased()
+                return ActivityItem(id: "hl-" + hash + type, kind: recv ? .received : .sent, chainID: "hyperliquid", walletID: walletID,
+                                    what: (recv ? "Received " : "Sent ") + "\(MoneyFmt.amount(usd)) USDC on Hyperliquid", detail: "Hyperliquid",
+                                    amount: recv ? usd : -usd, symbol: "USDC", date: when, tx: hash.isEmpty ? nil : hash, status: "Confirmed", link: link)
+            default: return nil
+            }
         }
     }
 

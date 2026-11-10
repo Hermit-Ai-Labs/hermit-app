@@ -19,6 +19,23 @@ enum EarnData {
     /// Non-stablecoin pools are kept when the symbol holds one of these.
     static let majors = ["ETH", "BTC", "SOL", "BNB"]
 
+    /// Where each protocol's app lives, so any pool can be opened inside Hermit's browser with the wallet connected.
+    static let projectSites: [String: String] = [
+        "aave-v3": "app.aave.com", "aave-v4": "app.aave.com", "morpho-blue": "app.morpho.org", "pendle-v2": "app.pendle.finance",
+        "ethena-usde": "app.ethena.fi", "lido": "stake.lido.fi", "jupiter-lend": "jup.ag/lend", "jupiter-staked-sol": "jup.ag/stake",
+        "kamino-lend": "app.kamino.finance", "maple": "app.maple.finance", "falcon-finance": "app.falcon.finance",
+        "ether.fi-stake": "app.ether.fi/eeth", "ether.fi-liquid": "app.ether.fi/liquid", "symbiotic": "app.symbiotic.fi",
+        "ondo-yield-assets": "ondo.finance", "uniswap-v3": "app.uniswap.org/positions", "aerodrome-slipstream": "aerodrome.finance/liquidity",
+        "aerodrome-v1": "aerodrome.finance/liquidity", "sky-lending": "app.sky.money", "spark-savings": "app.spark.fi", "sparklend": "app.spark.fi",
+        "compound-v3": "app.compound.finance", "rocket-pool": "stake.rocketpool.net", "jito-liquid-staking": "jito.network/staking",
+        "marinade-liquid-staking": "app.marinade.finance", "euler-v2": "app.euler.finance", "fluid-lending": "fluid.io/lending",
+        "kelp": "kelpdao.xyz/restake", "renzo": "app.renzoprotocol.com/restake", "venus-core-pool": "app.venus.io", "lista-lending": "lista.org",
+        "lista-liquid-staking": "lista.org", "yearn-finance": "yearn.fi", "meth-protocol": "meth.mantle.xyz", "usual-usd0": "app.usual.money",
+        "midas-rwa": "midas.app", "frax-ether": "app.frax.finance", "frax": "app.frax.finance", "stader": "staderlabs.com",
+        "liquid-collective": "liquidcollective.io", "lombard-lbtc": "lombard.finance", "curve-llamalend": "lend.curve.fi",
+    ]
+    static func site(for project: String) -> URL? { projectSites[project].flatMap { URL(string: "https://" + $0) } }
+
     /// DefiLlama project slug -> name we show, and the LogoMark key when we have that project's real logo.
     static let projects: [String: (name: String, logo: String?)] = [
         "aave-v3": ("Aave V3", "Aave"), "aave-v4": ("Aave V4", "Aave"), "morpho-blue": ("Morpho", "Morpho"), "pendle-v2": ("Pendle", "Pendle"),
@@ -117,7 +134,13 @@ enum EarnAPI {
             return EarnData.Pool(pool: pool, chain: chain, project: project, symbol: symbol, tvlUsd: tvl, apy: apy, apyBase: r.apyBase,
                                  apyReward: r.apyReward, apyMean30d: r.apyMean30d, stablecoin: stable, ilRisk: r.ilRisk, exposure: r.exposure, poolMeta: r.poolMeta)
         }
-        return Array(out.sorted { $0.tvlUsd > $1.tvlUsd }.prefix(120))
+        let sorted = out.sorted { $0.tvlUsd > $1.tvlUsd }
+        // The biggest pools are nearly all on Ethereum; keep the ones Hermit can deposit into (Aave v3 on Base and
+        // Arbitrum) and the main Solana lenders too, whatever their size.
+        let keep: Set<String> = ["aave-v3", "kamino-lend", "jupiter-lend", "morpho-blue", "compound-v3", "fluid-lending"]
+        var list = Array(sorted.prefix(120))
+        for p in sorted.dropFirst(120) where keep.contains(p.project) && !list.contains(where: { $0.pool == p.pool }) { list.append(p) }
+        return list.sorted { $0.tvlUsd > $1.tvlUsd }
     }
 
     private struct ChartRow: Decodable { let timestamp: String; let apy: Double? }

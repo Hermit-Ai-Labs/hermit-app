@@ -114,6 +114,7 @@ public actor ToolChat {
         var quoteArgs: String?  // the last successful get_quote, for the swap follow-through below
         var triedMoney = false  // the model called a money tool (even one that answered "blocked" or asked a question)
         var blockedReason: String?  // why a money tool refused, for the honesty check
+        var executed = false        // a tool result said money actually moved
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -206,6 +207,7 @@ public actor ToolChat {
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
+                if out.content.contains("\"executed\":true") || out.content.contains("\"status\":\"sent\"") || out.content.contains("\"status\": \"sent\"") { executed = true }
                 if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
                 if ToolGuard.moneyTools.contains(call.name) {
                     triedMoney = true
@@ -285,6 +287,10 @@ public actor ToolChat {
         if !prepared, Self.claimsPrepared(said) {
             cont.yield(.text("\n\n" + (blockedReason.map { "Nothing was prepared: \($0)" } ?? Self.notPrepared)))
         }
+        // And it can't know money moved unless a tool said so: approvals happen on the review screen, out of its sight.
+        if !executed, Self.claimsDone(said) {
+            cont.yield(.text("\n\nTo be clear: I can't see approvals or results from here, so I don't know whether that went through. Activity in Wallets shows what actually happened."))
+        }
         cont.yield(.steps(steps))
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
     }
@@ -328,6 +334,18 @@ public actor ToolChat {
     }
 
     /// The reply says a trade, swap or send is prepared or waiting for approval.
+    /// "the sends went through", "funds are in their wallet", "has been sent": a claim that money moved.
+    public static func claimsDone(_ text: String) -> Bool {
+        let t = text.lowercased()
+        let patterns = [#"\b(went|gone) through\b"#, #"\b(has|have|had|was|were) been (sent|transferred|swapped|deposited|executed|completed)\b"#,
+                        #"\b(was|were) (sent|transferred|swapped|deposited|executed)\b"#, #"\bfunds are (now )?in\b"#, #"\bsuccessfully (sent|transferred|swapped|deposited)\b"#,
+                        #"\btransaction (is|was) (complete|confirmed|successful)\b"#, #"\bit(['’]s| is) (done|sent|confirmed)\b"#]
+        let sentences = t.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).filter {
+            $0.range(of: #"\b(nothing|not|no|never|once|after|when|if|until|unless|will|would)\b|n['’]t\b"#, options: .regularExpression) == nil
+        }
+        return sentences.contains { s in patterns.contains { s.range(of: $0, options: .regularExpression) != nil } }
+    }
+
     public static func claimsPrepared(_ text: String) -> Bool {
         let t = text.lowercased()
         let patterns = [#"\b(is|been|now|trade|order|swap|send|transfer|it|position)\s+(prepared|ready for (your )?(review|approval))"#,
