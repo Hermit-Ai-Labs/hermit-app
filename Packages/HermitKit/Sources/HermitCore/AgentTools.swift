@@ -40,6 +40,11 @@ public enum ToolStatus {
         case "prepare_swap": return "Preparing the swap for your review"
         case "prepare_send": return "Preparing the transfer for your review"
         case "open_add_funds": return "Opening Add funds"
+        case "prepare_multisend":
+            let n = (arguments["recipients"] as? [Any])?.count ?? 0
+            return n > 0 ? "Checking \(n) recipient\(n == 1 ? "" : "s") for your review" : "Preparing the batch send for your review"
+        case "prepare_deposit": return s("symbol").map { "Preparing the \($0.uppercased()) deposit for your review" } ?? "Preparing the deposit for your review"
+        case "prepare_withdraw": return "Preparing the withdrawal for your review"
         default: return "Running \(name)"
         }
     }
@@ -54,7 +59,7 @@ public enum ToolStatus {
 /// the approval sheet and Face ID.
 public enum ToolGuard {
     /// The tools that prepare a money move.
-    public static let moneyTools: Set<String> = ["prepare_trade", "prepare_swap", "prepare_send"]
+    public static let moneyTools: Set<String> = ["prepare_trade", "prepare_swap", "prepare_send", "prepare_multisend", "prepare_deposit", "prepare_withdraw"]
 
     /// nil when the call may run; otherwise the JSON error the model gets instead of a result.
     /// - Parameter userText: everything the user typed in this chat (their own messages only).
@@ -122,7 +127,7 @@ public enum ToolResult {
         #"\b(ignore|disregard|forget|override)\b.{0,40}\b(previous|prior|above|earlier|all|your|the)\b.{0,20}\b(instructions?|messages?|rules|prompt|context)"#,
         #"\b(system|assistant|developer)\s*(prompt|message)?\s*:"#,
         #"\bnew instructions?\b"#, #"\byou (must|should|are now|will now)\b"#,
-        #"\b(prepare_send|prepare_swap|prepare_trade|tool_call|function call)\b"#,
+        #"\b(prepare_send|prepare_swap|prepare_trade|prepare_multisend|prepare_deposit|prepare_withdraw|tool_call|function call)\b"#,
         #"\bsend (all|every|your|the user'?s)\b.{0,30}\b(funds|money|tokens|balance|usdc|eth)"#,
         #"\b(transfer|withdraw|drain)\b.{0,30}\b(all|everything|funds)\b"#,
     ]

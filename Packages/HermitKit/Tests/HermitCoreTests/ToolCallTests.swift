@@ -144,7 +144,7 @@ final class HermitPromptTests: XCTestCase {
         let names = HermitPrompt.names(HermitPrompt.toolLines)
         XCTAssertEqual(Array(names.prefix(11)), ["calculator", "get_price", "get_balances", "hyperliquid_account", "position_math", "search_markets",
                                                  "get_yields", "prepare_trade", "prepare_swap", "prepare_send", "open_add_funds"])
-        XCTAssertEqual(names.dropFirst(11), ["get_quote"])
+        XCTAssertEqual(Array(names.dropFirst(11)), ["get_quote", "prepare_multisend", "prepare_deposit", "prepare_withdraw"])
     }
 
     func testNeutralize() {

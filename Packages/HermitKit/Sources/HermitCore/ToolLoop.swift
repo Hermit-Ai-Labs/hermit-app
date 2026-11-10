@@ -65,6 +65,11 @@ public actor ToolChat {
         history.compactMap { if case .user(let s) = $0 { return Self.withoutFiles(s) }; return nil }.joined(separator: "\n")
     }
 
+    /// What the user gave in this chat including the files they attached (a batch send's list is the user's own file).
+    public func userTextWithFiles() -> String {
+        history.compactMap { if case .user(let s) = $0 { return s }; return nil }.joined(separator: "\n")
+    }
+
     public static func withoutFiles(_ s: String) -> String {
         var t = s
         while let a = t.range(of: "<file>") {
@@ -101,6 +106,7 @@ public actor ToolChat {
         var said = ""          // everything shown, for the honesty check
         var results: [String: String] = [:], repeatTurns = 0
         var quoteArgs: String?  // the last successful get_quote, for the swap follow-through below
+        var triedMoney = false  // the model called a money tool (even one that answered "blocked" or asked a question)
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -174,7 +180,9 @@ public actor ToolChat {
                 let key = call.name + " " + call.argumentsJSON
                 if let earlier = results[key] { history.append(.tool(earlier)); continue }
                 fresh += 1
-                let args = (try? JSONSerialization.jsonObject(with: Data(call.argumentsJSON.utf8))) as? [String: Any] ?? [:]
+                // A send's chain the user never named is dropped here: the toolbox picks it from the balances or asks.
+                let argsJSON = ToolGuard.adjusted(call.name, argumentsJSON: call.argumentsJSON, userText: typed)
+                let args = (try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))) as? [String: Any] ?? [:]
                 cont.yield(.status(ToolStatus.label(call.name, arguments: args) + "…"))
                 steps += 1
                 let out: ToolOutcome
@@ -182,14 +190,17 @@ public actor ToolChat {
                     out = ToolOutcome(content: #"{"error": "Unknown tool \#(call.name)."}"#)
                 } else if let refusal = ToolGuard.refusal(call.name, arguments: args, userText: typed) {
                     out = ToolOutcome(content: refusal)
+                } else if call.name == "prepare_multisend", let refusal = ToolGuard.multisendRefusal(args, userTextWithFiles: userTextWithFiles()) {
+                    out = ToolOutcome(content: refusal)
                 } else if let toolbox {
-                    out = await toolbox.run(call.name, arguments: call.argumentsJSON)
+                    out = await toolbox.run(call.name, arguments: argsJSON)
                 } else {
                     out = ToolOutcome(content: #"{"error": "Tools are off."}"#)
                 }
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
                 if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
+                if ToolGuard.moneyTools.contains(call.name) { triedMoney = true }
                 let cleaned = ToolResult.clean(out.content)
                 results[key] = cleaned
                 history.append(.tool(cleaned))
@@ -223,6 +234,27 @@ public actor ToolChat {
                 history.append(.tool(ToolResult.clean(out.content)))
             }
         }
+        // Asked plainly for a batch send, a deposit or a withdrawal and the model didn't prepare it: the app opens the
+        // same review itself (only if the model wasn't stopped by a guard). The user still approves with Face ID.
+        if !prepared, !triedMoney, let toolbox, !Task.isCancelled, toolNames.contains("prepare_deposit") || toolNames.contains("prepare_multisend"),
+           let (name, args) = Self.appRoute(prompt), toolNames.contains(name) {
+            let parsed = (try? JSONSerialization.jsonObject(with: Data(args.utf8))) as? [String: Any] ?? [:]
+            let argsJSON = ToolGuard.adjusted(name, argumentsJSON: args, userText: userText())
+            let refused = name == "prepare_multisend" ? ToolGuard.multisendRefusal(parsed, userTextWithFiles: userTextWithFiles()) : nil
+            if refused == nil {
+                cont.yield(.status(ToolStatus.label(name, arguments: parsed) + "…"))
+                steps += 1
+                let out = await toolbox.run(name, arguments: argsJSON)
+                if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
+                if out.action != nil || Self.opened(out.content) { prepared = true }
+                history.append(.tool(ToolResult.clean(out.content)))
+                // The model didn't prepare it, so its text may not say why nothing opened: say what the app did.
+                if let note = Self.routeNote(out) {
+                    if !shownAny { cont.yield(.steps(steps)) }
+                    cont.yield(.text((shownAny ? "\n\n" : "") + note)); shownAny = true
+                }
+            }
+        }
         // A model can say "prepared for review" without calling the tool. Nothing is waiting then, so say so.
         if !prepared, Self.claimsPrepared(said) {
             cont.yield(.text("\n\n" + Self.notPrepared))
@@ -237,6 +269,24 @@ public actor ToolChat {
         guard t.range(of: #"^(please\s+|can you\s+|could you\s+)?(swap|bridge|convert|exchange|trade)\b"#, options: .regularExpression) != nil
         else { return false }
         return !t.contains("how much") && !t.contains("what would") && !t.contains("quote")
+    }
+
+    /// The tool the app runs for a plain request the model didn't act on, with its arguments.
+    public static func appRoute(_ prompt: String) -> (String, String)? {
+        if let a = MoneyIntent.multisendArguments(prompt) { return ("prepare_multisend", a) }
+        if let a = MoneyIntent.depositArguments(prompt) { return ("prepare_deposit", a) }
+        if let a = MoneyIntent.withdrawArguments(prompt) { return ("prepare_withdraw", a) }
+        return nil
+    }
+
+    /// One plain line about an app-routed tool's result: ready for review, or why not (its error or block reason).
+    static func routeNote(_ out: ToolOutcome) -> String? {
+        if out.action != nil || opened(out.content) { return "It's ready for your review below. Nothing moves until you approve it with Face ID." }
+        guard let v = JSONValue.parse(out.content) else { return nil }
+        if let e = v["error"]?.string { return e }
+        if let q = v["question"]?.string { return q }
+        if case .array(let r)? = v["reasons"], let first = r.first?.string { return first }
+        return nil
     }
 
     static let notPrepared = "Nothing is waiting for your approval yet. Ask me to prepare it and the review will open."

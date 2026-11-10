@@ -328,5 +328,98 @@
         ]
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_multisend",
+      "description": "Prepare one token transfer to many addresses (a list or a spreadsheet of address and amount) and open the Batch send review for the user to approve. Nothing is executed by this call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "address",
+                "amount"
+              ]
+            }
+          }
+        },
+        "required": [
+          "symbol",
+          "recipients"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_deposit",
+      "description": "Prepare a deposit into a yield pool (Aave v3 on Ethereum, Base or Arbitrum) and open the Deposit review for the user to approve. Nothing is executed by this call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Pool project, e.g. 'aave-v3'."
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "amount"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_withdraw",
+      "description": "Prepare a withdrawal from the user's Aave v3 deposit and open the review for the user to approve. Leave amount out to withdraw all. Nothing is executed by this call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    }
   }
 ]

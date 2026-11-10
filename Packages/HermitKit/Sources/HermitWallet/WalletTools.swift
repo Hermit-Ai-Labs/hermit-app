@@ -38,6 +38,8 @@ public final class WalletTools {
     ]
     """#
     public static let names: Set<String> = ["get_balances", "get_quote", "prepare_swap"]
+    /// The route name in tool results and step lines.
+    public static let intentsRoute = "NEAR Intents"
 
     /// "base", "bsc", "near", "btc"… to a place.
     public static func place(_ name: String) -> IntentsPlace? {
@@ -119,9 +121,12 @@ public final class WalletTools {
         let req = try service.intentsRequest(walletID: nil, from: from, fromToken: fromToken, to: tc, toSymbol: ts, amount: value,
                                              recipient: recipient, dry: true, tokens: tokens)
         let q = try await oneClick.quote(req)
+        // Amounts rounded for reading (a 24-decimal NEAR amount was echoed digit for digit); the route is named as the
+        // user should hear it, so a NEAR Intents quote is never called Relay.
+        let out_ = Units.approx(q.amountOutFormatted)
         var out: [String: Any] = [
-            "route": "NEAR Intents (1Click)", "from": "\(q.amountInFormatted) \(fs.uppercased()) on \(from.name)",
-            "to": "\(q.amountOutFormatted) \(ts.uppercased()) on \(tc.name)", "amount_out": q.amountOutFormatted,
+            "route": Self.intentsRoute, "from": "\(q.amountInFormatted) \(fs.uppercased()) on \(from.name)",
+            "to": "about \(out_) \(ts.uppercased()) on \(tc.name)", "amount_out": out_,
             "seconds": q.seconds, "fee_bps": q.appFeeBps, "signature_verified": q.signatureValid,
         ]
         if let u = q.amountInUSD { out["amount_in_usd"] = (u * 100).rounded() / 100 }
@@ -140,7 +145,7 @@ public final class WalletTools {
         presentSwap?(intent)
         out["status"] = "prepared_for_review"
         if !verdict.warnings.isEmpty { out["warnings"] = verdict.warnings }
-        out["note"] = "Nothing has moved. The Swap review is open; the user approves it with Face ID or cancels."
+        out["note"] = "Nothing has moved. The Swap review is open with this \(Self.intentsRoute) quote; the user approves it with Face ID or cancels."
         return Self.json(out)
     }
 

@@ -132,13 +132,17 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                 await state.append(assistant)
                 for call in calls {
                     let fn = call["function"] as? [String: Any]
-                    let name = fn?["name"] as? String ?? "", args = fn?["arguments"] as? String ?? "{}"
+                    let name = fn?["name"] as? String ?? ""
+                    // As on the device: a send's chain the user never named is left for the toolbox to work out.
+                    let args = ToolGuard.adjusted(name, argumentsJSON: fn?["arguments"] as? String ?? "{}", userText: await state.userText())
                     let parsed = (try? JSONSerialization.jsonObject(with: Data(args.utf8))) as? [String: Any] ?? [:]
                     cont.yield(.status(CloudTools.status(name, arguments: parsed) + "…"))
                     steps += 1
                     // The same guard as on the device: a transfer only goes to an address the user typed in this chat.
                     let out: ToolOutcome
                     if let refusal = ToolGuard.refusal(name, arguments: parsed, userText: await state.userText()) {
+                        out = ToolOutcome(content: refusal)
+                    } else if name == "prepare_multisend", let refusal = ToolGuard.multisendRefusal(parsed, userTextWithFiles: await state.userTextWithFiles()) {
                         out = ToolOutcome(content: refusal)
                     } else {
                         out = await toolbox?.run(name, arguments: args) ?? ToolOutcome(content: #"{"error":"no tools"}"#)
@@ -283,6 +287,9 @@ actor CloudState {
     func userText() -> String {
         history.compactMap { $0["role"] as? String == "user" ? $0["content"] as? String : nil }
             .map(ToolChat.withoutFiles).joined(separator: "\n")
+    }
+    func userTextWithFiles() -> String {
+        history.compactMap { $0["role"] as? String == "user" ? $0["content"] as? String : nil }.joined(separator: "\n")
     }
     func dropLastUser() { if let i = history.lastIndex(where: { $0["role"] as? String == "user" }) { history.removeSubrange(i...) } }
 
