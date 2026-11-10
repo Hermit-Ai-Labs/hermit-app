@@ -12,7 +12,7 @@ enum ChatMode: String, CaseIterable, Identifiable {
     static let key = "hermit.chatMode"
     static var current: ChatMode { UserDefaults.standard.string(forKey: key).flatMap(ChatMode.init) ?? .device }
     var title: String { self == .device ? "On-device" : "Private Cloud" }
-    var detail: String { self == .device ? "Flight-mode private, runs on this phone" : "NEAR AI, in a verified enclave (TEE)" }
+    var detail: String { self == .device ? "Flight-mode private, runs on \(Device.here)" : "NEAR AI, in a verified enclave (TEE)" }
     var symbol: String { self == .device ? "iphone" : "lock.shield" }
 }
 
@@ -116,7 +116,7 @@ struct ModeMenu: View {
     private func pick(_ m: ChatMode) {
         guard m != current else { return }
         withAnimation(.snappy) { mode = m.rawValue }
-        model.toast(m == .cloud ? "Private Cloud: checked enclave on NEAR AI" : "On-device: nothing leaves this phone")
+        model.toast(m == .cloud ? "Private Cloud: checked enclave on NEAR AI" : "On-device: nothing leaves \(Device.here)")
     }
 }
 
@@ -166,7 +166,7 @@ struct CloudPrompt: View {
         case .done:
             guard let p = status.preflight else { return "" }
             if !p.passed { return "The enclave's evidence failed a check. Nothing will be sent." }
-            return status.hasKey ? "\(name) in an enclave this phone just verified" : "Enclave verified, no key needed for that. Chat needs a NEAR AI Cloud key."
+            return status.hasKey ? "\(name) in an enclave \(Device.here) just verified" : "Enclave verified, no key needed for that. Chat needs a NEAR AI Cloud key."
         }
     }
 }

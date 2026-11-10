@@ -266,7 +266,7 @@ struct FundSheet: View {
                     .id(addr).transition(.opacity)
                     .opacity(addr.isEmpty ? 0.15 : 1)
                 if addr.isEmpty {
-                    Text("This wallet has no NEAR account yet. Add it in Wallets (one Face ID).").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    Text("This wallet has no NEAR account yet. Add it in Wallets (one \(Device.bio)).").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                         .multilineTextAlignment(.center)
                 }
                 if family == .near && !addr.isEmpty {

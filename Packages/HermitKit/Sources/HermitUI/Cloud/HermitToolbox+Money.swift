@@ -18,7 +18,7 @@ extension HermitToolbox {
         if candidates.count == 1 { return .chain(candidates[0]) }
         let vm = WalletsViewModel.shared
         if !vm.loaded { await vm.refresh() }
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
+        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
         let held: [(Chain, Holding)] = candidates.compactMap { c in
             vm.holdings(wallet: w.id, chain: c).first { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame }.map { (c, $0) }
         }
@@ -63,7 +63,7 @@ extension HermitToolbox {
         }
         guard !rows.isEmpty else { throw ToolError("Needs at least one recipient with an address and an amount") }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
+        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
         let candidates = Chain.mainnets.filter { WalletService.batchSupported($0) && hasToken(symbol, on: $0) }
         let chain: Chain
         switch try await pickChain(a["chain"] as? String, symbol: symbol, candidates: candidates, doing: "batch send") {
@@ -124,7 +124,7 @@ extension HermitToolbox {
                          + Chain.mainnets.flatMap { c in AaveV3.tokens(on: c).map { "\($0.symbol) on \(c.name)" } }.joined(separator: ", ") + "."])
         }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
+        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
         if !vm.loaded { await vm.refresh() }
         let held = vm.holding(token.symbol, wallet: w.id, chain: chain)?.amount ?? 0
         guard held >= amount else {
@@ -151,7 +151,7 @@ extension HermitToolbox {
         guard let symbol = (a["symbol"] as? String)?.uppercased(), !symbol.isEmpty else { throw ToolError("Needs symbol") }
         let amount = (a["amount"] as? NSNumber)?.doubleValue ?? (a["amount"] as? String).flatMap(Double.init)
         let vm = WalletsViewModel.shared
-        guard !vm.wallets.isEmpty else { throw ToolError("No wallet on this phone yet") }
+        guard !vm.wallets.isEmpty else { throw ToolError("No wallet on \(Device.here) yet") }
         let given = (a["chain"] as? String).flatMap { $0.isEmpty ? nil : findChain($0) }
         let (all, failed) = await vm.service.aavePositions(wallets: vm.wallets.map(\.record))
         let mine = all.filter { $0.token.symbol.caseInsensitiveCompare(symbol) == .orderedSame && (given == nil || $0.chain == given) }

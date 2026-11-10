@@ -145,7 +145,7 @@ struct SpendPolicyCard: View {
                     SelectChip(title: "$\(v)", on: cap == v) { cap = v; policy.agentCapUSD = v }
                 }
             }
-            NoteBox(symbol: "checkmark.shield", text: "NEAR Intents swaps are priced with 1Click's live token prices and counted toward the daily limit; plain sends count stablecoins. The assistant can only prepare. You approve every move with Face ID.")
+            NoteBox(symbol: "checkmark.shield", text: "NEAR Intents swaps are priced with 1Click's live token prices and counted toward the daily limit; plain sends count stablecoins. The assistant can only prepare. You approve every move with \(Device.bio).")
         }
         .onAppear { cap = policy.agentCapUSD; limit = vm.service.spendLimit.dailyLimitUSD }
     }

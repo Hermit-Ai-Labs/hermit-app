@@ -15,7 +15,7 @@ struct CloudSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("For questions too big for the phone. Your prompt goes to an open model on NEAR AI Cloud, inside a hardware enclave (a TEE), and only after this phone has checked the enclave's attestation. On-device stays the default.")
+            Text("For questions too big for the on-device model. Your prompt goes to an open model on NEAR AI Cloud, inside a hardware enclave (a TEE), and only after \(Device.here) has checked the enclave's attestation. On-device stays the default.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 6)
 
@@ -38,7 +38,7 @@ struct CloudSettings: View {
             }
             Hairline()
             enclaveRow
-            NoteBox(symbol: "lock", text: "Hermit has no server. The chat stays on this phone; the prompt leaves it only to the attested enclave, over HTTPS. Money actions from the cloud model only prepare a review: you approve with Face ID, as always.")
+            NoteBox(symbol: "lock", text: "Hermit has no server. The chat stays on \(Device.here); the prompt leaves it only to the attested enclave, over HTTPS. Money actions from the cloud model only prepare a review: you approve with \(Device.bio), as always.")
                 .padding(.top, 18)
         }
         .task { await status.loadModels() }

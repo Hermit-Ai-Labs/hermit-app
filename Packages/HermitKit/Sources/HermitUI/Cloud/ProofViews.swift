@@ -91,8 +91,8 @@ struct ProofSheet: View {
 
     private var privacy: some View {
         NoteBox(symbol: "lock", text: proof.completions == 0
-                ? "Your message was not sent. Attestation needs no key, so this phone checked the enclave without sending anything about you."
-                : "Your prompt left this phone only after the enclave passed these checks, and only to that enclave over HTTPS. Hermit has no server and keeps this chat on your phone. NEAR's gateway keeps the signed hashes of this exchange so the signature could be fetched.")
+                ? "Your message was not sent. Attestation needs no key, so \(Device.here) checked the enclave without sending anything about you."
+                : "Your prompt left \(Device.here) only after the enclave passed these checks, and only to that enclave over HTTPS. Hermit has no server and keeps this chat on \(Device.here). NEAR's gateway keeps the signed hashes of this exchange so the signature could be fetched.")
     }
 
     private var facts: some View {

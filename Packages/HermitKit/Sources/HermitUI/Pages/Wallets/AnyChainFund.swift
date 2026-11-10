@@ -133,7 +133,7 @@ struct AnyChainFundView: View {
         ])
         IntentsProgress(swap: act.swaps.first { $0.depositAddress == addr }, state: state, external: true)
         if !(q.signatureValid) {
-            NoteBox(symbol: "exclamationmark.triangle", text: "This quote's 1Click signature didn't check out on this phone. It came straight from 1Click over HTTPS.", tint: Theme.amber)
+            NoteBox(symbol: "exclamationmark.triangle", text: "This quote's 1Click signature didn't check out on \(Device.here). It came straight from 1Click over HTTPS.", tint: Theme.amber)
         }
     }
 

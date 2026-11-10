@@ -143,6 +143,13 @@ final class DappBrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         webView.allowsBackForwardNavigationGestures = true
         #if DEBUG && os(macOS)
         webView.isInspectable = true
+        // The screenshot tour (MacTour) parks its window off-screen, and WebKit stops painting occluded windows: keep
+        // painting there so the page shows in the shot. Debug tour only; a normal launch never takes this path.
+        let occlusion = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        if UserDefaults.standard.string(forKey: "hermitTour") != nil, let m = class_getInstanceMethod(type(of: webView), occlusion) {
+            typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(method_getImplementation(m), to: SetBool.self)(webView, occlusion, false)
+        }
         #endif
         observe()
         self.url = url

@@ -235,7 +235,7 @@ struct SwapSheet: View {
             LogoMark("near", size: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Add a NEAR account").font(.system(size: 13.5, weight: .medium))
-                Text("Made from your recovery phrase. One Face ID.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("Made from your recovery phrase. One \(Device.bio).").font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
             Spacer()
             Button(addingNear ? "Adding" : "Add") { addNear() }.buttonStyle(OutlineButton()).disabled(addingNear)

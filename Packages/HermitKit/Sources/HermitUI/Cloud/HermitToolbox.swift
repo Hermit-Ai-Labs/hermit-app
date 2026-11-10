@@ -99,7 +99,7 @@ public struct HermitToolbox: AgentToolbox {
 
     @MainActor static func hlAccount() async throws -> [String: Any] {
         let hl = HyperliquidStore.shared
-        guard hl.hasWallet else { throw ToolError("No wallet on this phone yet") }
+        guard hl.hasWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         await hl.refresh()
         guard let a = hl.account else { throw ToolError("Couldn't read the Hyperliquid account") }
         return ["account_value": a.accountValue, "margin_used": a.marginUsed, "available_usdc": a.withdrawable,
@@ -165,7 +165,7 @@ public struct HermitToolbox: AgentToolbox {
             throw ToolError("Needs coin, side, size_usd and leverage")
         }
         let hl = HyperliquidStore.shared
-        guard hl.hasWallet, let trader = hl.trader() else { throw ToolError("No wallet on this phone to trade with") }
+        guard hl.hasWallet, let trader = hl.trader() else { throw ToolError("No wallet on \(Device.here) to trade with") }
         guard let asset = await hl.asset(coin) else { throw ToolError("\(coin) isn't tradable on Hyperliquid") }
         guard let mark = try await contexts().first(where: { $0.coin.uppercased() == coin })?.mark, mark > 0 else { throw ToolError("No price for \(coin)") }
         await hl.refresh()
@@ -202,7 +202,7 @@ public struct HermitToolbox: AgentToolbox {
         lines.append(["Asked for by", "\(label), from your message"])
         let spent = Decimal(margin)
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(coin)", lines: lines,
-                                checks: verdict.passed + ["Signed on this phone with your wallet's key", "Leveraged trades can lose all their margin"],
+                                checks: verdict.passed + ["Signed on \(Device.here) with your wallet's key", "Leveraged trades can lose all their margin"],
                                 success: "\(isBuy ? "Long" : "Short") \(coin) sent", warnings: verdict.warnings) {
             let summary = try await trader.place(order, leverage: lev).summary
             policy.limit.record(usd: spent)
@@ -221,7 +221,7 @@ public struct HermitToolbox: AgentToolbox {
         case .ask(let out): return out
         }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on this phone yet") }
+        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
         // The spending policy for an assistant-prepared send: daily limit, the per-move cap, priced tokens only.
         let sym = symbol.uppercased()
         let usd: Double? = try await sendValueUSD(symbol: sym, amount: Double(amount))
