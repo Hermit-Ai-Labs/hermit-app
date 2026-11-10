@@ -102,5 +102,8 @@ public final class DappPermissions {
 
     public func disconnectAll() { for s in sites { disconnect(s.origin) } }
 
+    /// A removed wallet takes its site connections with it, so Settings never lists a site for a wallet that's gone.
+    public func disconnect(walletID: UUID) { for s in sites where s.walletID == walletID { disconnect(s.origin) } }
+
     private func save() { defaults.set(try? JSONEncoder().encode(sites), forKey: key) }
 }

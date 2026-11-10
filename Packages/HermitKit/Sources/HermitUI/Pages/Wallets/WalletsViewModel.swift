@@ -215,6 +215,7 @@ final class WalletsViewModel {
     func deleteWallet(_ id: String) throws {
         guard let u = UUID(uuidString: id) else { return }
         try service.deleteWallet(u)
+        DappPermissions.shared.disconnect(walletID: u)
         withAnimation(.smooth) { reloadLocal() }
     }
 
