@@ -117,6 +117,12 @@ struct IntentsActiveList: View {
                             .padding(.vertical, 10).contentShape(Rectangle())
                         }
                         .buttonStyle(RowButtonStyle())
+                        .contextMenu {
+                            let pending = (act.state(s.depositAddress)?.status ?? s.status) == .pendingDeposit
+                            Button(pending ? "Cancel this swap" : "Remove from list", systemImage: pending ? "xmark.circle" : "trash", role: .destructive) {
+                                act.remove(s.depositAddress)
+                            }
+                        }
                         .task { act.track(s.depositAddress) }
                     }
                 }

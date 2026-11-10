@@ -100,21 +100,6 @@ struct TokenGroup: Identifiable, Hashable {
 }
 
 /// A send made from this device (the engine's send log).
-struct ActivityItem: Identifiable, Hashable, Sendable {
-    let entry: SendLog.Entry
-    let chain: Chain
-    var id: String { entry.hash }
-    var walletID: String { entry.walletID.uuidString }
-    var what: String { "Sent \(entry.amount) \(entry.symbol) to \(entry.label ?? shortAddr(entry.recipient))" }
-    var via: String { "\(entry.symbol) on \(chain.name)" }
-    var amountText: String { "−\(entry.amount) \(entry.symbol)" }
-    var when: String { entry.date.formatted(.dateTime.month(.abbreviated).day().hour().minute()) }
-    var tx: String { entry.hash }
-    var explorer: URL? { chain.explorerURL(tx: entry.hash) }
-
-    static func == (a: Self, b: Self) -> Bool { a.entry.hash == b.entry.hash }
-    func hash(into h: inout Hasher) { h.combine(entry.hash) }
-}
 
 /// Gas (the native coin) held on one chain, summed across the wallets in view.
 struct GasTank: Identifiable, Hashable, Sendable {

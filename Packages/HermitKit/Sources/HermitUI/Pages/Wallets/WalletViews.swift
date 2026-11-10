@@ -69,6 +69,9 @@ struct BalanceCard<Sub: View>: View {
             }
             .font(.system(size: 36, weight: .semibold)).tracking(-0.8).monospacedDigit()
             .padding(.top, 2)
+            if let line = vm.extrasLine(walletID) {
+                Text(line).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1).padding(.top, 3)
+            }
             Text(status).font(.system(size: 12.5)).foregroundStyle(vm.unreachable.contains { !$0.isTestnet } ? Theme.red : Theme.muted)
                 .lineLimit(2).padding(.top, 3)
             sub().padding(.top, 3)
@@ -415,18 +418,35 @@ struct ActivityList: View {
     let open: (WalletSheet) -> Void
     @State private var chain: Chain?
 
+    private var feed: ActivityFeed { .shared }
+
     var body: some View {
-        let items = vm.activity(wallet: walletID, chain: chain)
+        let items = feed.items.filter { (walletID == nil || $0.walletID == walletID) && (chain == nil || $0.chainID == chain?.id) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("\(items.count) send\(items.count == 1 ? "" : "s") from this device").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text(items.isEmpty ? (feed.loadedOnce ? "Nothing yet" : "") : "\(items.count) recent").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
+                Button { Task { await feed.refresh(force: true) } } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(Theme.muted).frame(width: 26, height: 26).contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle()).disabled(feed.loading).accessibilityLabel("Refresh activity")
                 ChainFilter(chain: $chain)
             }
-            if items.isEmpty { EmptyNote(text: "Nothing sent from Hermit\(chain.map { " on \($0.name)" } ?? "") yet.") }
+            if feed.loading && items.isEmpty {
+                MarketStatus(kind: .loading("Reading your history"))
+            } else if items.isEmpty && feed.loadedOnce {
+                EmptyNote(text: "Deposits, sends and swaps show here. Solana and NEAR come straight from the chain.")
+            }
             RowList(items: items) { a in ActivityRow(item: a, wallet: walletID == nil ? vm.wallet(a.walletID)?.name : nil) { open(.activity(a)) } }
-            ExplorerLinks(vm: vm, walletID: walletID, chain: chain)
+            if !feed.failed.isEmpty {
+                MarketStatus(kind: .failed("Couldn't read \(feed.failed.joined(separator: ", ")) history")) { Task { await feed.refresh(force: true) } }
+            }
+            if feed.loadedOnce {
+                MarketSource(text: feed.hasExplorerKey ? "Solana, NEAR and EVM history from the chain, plus what Hermit did on this device."
+                             : "Solana and NEAR from the chain. Base, Arbitrum and Ethereum show what Hermit did on this device.").padding(.top, 8)
+            }
         }
+        .task(id: vm.wallets.map(\.id)) { await feed.refresh() }
         .animation(.smooth(duration: 0.25), value: chain)
     }
 }
@@ -461,20 +481,27 @@ struct ActivityRow: View {
     var wallet: String? = nil
     let action: () -> Void
     var body: some View {
+        let recv = item.kind == .received
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.muted)
-                    .frame(width: 32, height: 32).background(Theme.hover, in: Circle())
+                Image(systemName: item.icon).font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(recv ? Theme.green : Theme.muted)
+                    .frame(width: 32, height: 32).background(recv ? Theme.green.opacity(0.12) : Theme.hover, in: Circle())
                     .overlay(alignment: .bottomTrailing) {
-                        LogoMark(item.chain.logo, size: 14).padding(1).background(Theme.bg, in: Circle()).offset(x: 3, y: 3)
+                        if let c = item.chain { LogoMark(c.logo, size: 14).padding(1).background(Theme.bg, in: Circle()).offset(x: 3, y: 3) }
                     }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.what).font(.system(size: 14)).lineLimit(1)
-                    Text([item.when, item.chain.name, wallet].compactMap { $0 }.joined(separator: ", ")).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text([item.when, item.detail, wallet].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Text(item.amountText).font(.system(size: 14)).monospacedDigit().lineLimit(1)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(item.amountText).font(.system(size: 14)).monospacedDigit().lineLimit(1).foregroundStyle(recv ? Theme.green : Theme.text)
+                    if item.status != "Confirmed" {
+                        Text(item.status).font(.system(size: 11.5)).foregroundStyle(item.status == "Failed" ? Theme.red : Theme.amber).lineLimit(1)
+                    }
+                }
             }
             .padding(.vertical, 10)
         }

@@ -27,7 +27,6 @@ final class WalletsViewModel {
     let service: WalletService
     private(set) var wallets: [WalletAccount] = []
     private(set) var holdings: [Holding] = []
-    private(set) var activity: [ActivityItem] = []
     private(set) var whitelist: [SavedAddress] = []
     private(set) var prices: [String: PriceQuote] = [:]
     private(set) var refreshing = false
@@ -76,7 +75,30 @@ final class WalletsViewModel {
         guard hasWallet, loaded, unreachable.allSatisfy(\.isTestnet) else { return nil }
         let main = holdings.filter { !$0.chain.isTestnet && $0.amount > 0 }
         guard main.allSatisfy(\.priced) else { return nil }
-        return main.reduce(0) { $0 + $1.usd }
+        return main.reduce(0) { $0 + $1.usd } + extrasUSD(nil)
+    }
+
+    // MARK: Money that isn't a coin sitting in the wallet
+
+    /// Aave deposits in dollars, by wallet id (read with the balances).
+    private(set) var aaveUSD: [String: Double] = [:]
+    /// The Hyperliquid account value, counted for the wallet Trade uses.
+    private func hyperliquidUSD(_ walletID: String?) -> Double {
+        let hl = HyperliquidStore.shared
+        guard let v = hl.account?.accountValue, v > 0, let w = hl.wallet?.id, walletID == nil || walletID == w else { return 0 }
+        return v
+    }
+    /// Hyperliquid plus Aave, for one wallet or all of them.
+    func extrasUSD(_ walletID: String?) -> Double {
+        hyperliquidUSD(walletID) + aaveUSD.filter { walletID == nil || $0.key == walletID }.values.reduce(0, +)
+    }
+    /// "Includes $6.00 on Hyperliquid and $1.00 in Aave", or nil when there's nothing beyond the coins.
+    func extrasLine(_ walletID: String?) -> String? {
+        var parts: [String] = []
+        let h = hyperliquidUSD(walletID), a = aaveUSD.filter { walletID == nil || $0.key == walletID }.values.reduce(0, +)
+        if h > 0 { parts.append("\(MoneyFmt.usd(h, digits: 2)) on Hyperliquid") }
+        if a > 0 { parts.append("\(MoneyFmt.usd(a, digits: 2)) in Aave") }
+        return parts.isEmpty ? nil : "Includes " + parts.joined(separator: " and ")
     }
 
     /// Reloads balances for every wallet on every network, plus prices. Safe to call often: runs one at a time.
@@ -94,6 +116,8 @@ final class WalletsViewModel {
         refreshing = true
         defer { refreshing = false }
         async let quotes = PriceFeed.shared.quotes()
+        async let aave = service.aavePositions(wallets: wallets.map(\.record))
+        async let hlDone: () = HyperliquidStore.shared.refresh()
         var hs: [Holding] = [], failed = Set<Chain>()
         for w in wallets {
             let r = await service.fetchBalances(for: w.record, chains: Chain.all)
@@ -103,7 +127,16 @@ final class WalletsViewModel {
             for c in r.failed { hs += holdings.filter { $0.walletID == w.id && $0.chain == c } }
         }
         let q = await quotes
+        let positions = await aave
+        _ = await hlDone
+        var byWallet: [String: Double] = [:]
+        for p in positions.positions {
+            let amount = Double(p.text) ?? 0
+            let price = q[p.token.symbol]?.usd ?? (["USDC", "USDT", "DAI", "USDC.e", "USDS"].contains(p.token.symbol) ? 1 : 0)
+            byWallet[p.walletID.uuidString, default: 0] += amount * price
+        }
         withAnimation(.smooth) {
+            aaveUSD = byWallet
             prices = q
             holdings = hs.map { h in var h = h; applyPrice(&h); return h }
             unreachable = Chain.all.filter { failed.contains($0) }
@@ -127,7 +160,6 @@ final class WalletsViewModel {
     func reloadLocal() {
         wallets = service.wallets.map(WalletAccount.init(record:))
         let ids = Set(wallets.map(\.id))
-        activity = service.sendLog.entries.compactMap { e in e.chain.map { ActivityItem(entry: e, chain: $0) } }.filter { ids.contains($0.walletID) }
         whitelist = service.addressBook.entries.compactMap { e in
             e.label.map { SavedAddress(label: $0, address: e.address, kind: e.chainKind, added: e.added, payments: e.payments) }
         }
@@ -141,7 +173,7 @@ final class WalletsViewModel {
 
     /// Mainnet dollars for one wallet or all of them.
     func total(_ walletID: String? = nil) -> Double {
-        holdings.filter { walletID == nil || $0.walletID == walletID }.reduce(0) { $0 + $1.usd }
+        holdings.filter { walletID == nil || $0.walletID == walletID }.reduce(0) { $0 + $1.usd } + extrasUSD(walletID)
     }
     func holdings(wallet: String?, chain: Chain?) -> [Holding] {
         holdings.filter { (wallet == nil || $0.walletID == wallet) && (chain == nil || $0.chain == chain) && $0.amount > 0 }
@@ -159,9 +191,6 @@ final class WalletsViewModel {
         holdings.first { $0.walletID == wallet && $0.chain == chain && $0.symbol == token }
     }
     func balance(of token: String, wallet: String, chain: Chain) -> Double { holding(token, wallet: wallet, chain: chain)?.amount ?? 0 }
-    func activity(wallet: String?, chain: Chain?) -> [ActivityItem] {
-        activity.filter { (wallet == nil || $0.walletID == wallet) && (chain == nil || $0.chain == chain) }
-    }
     /// Gas (native coin) per network for one wallet or all.
     func gas(wallet: String?) -> [GasTank] {
         Chain.all.map { c in

@@ -67,6 +67,17 @@ struct TradeTerminal: View {
     private var sl: Double? { parse(slText) }
     private var liq: Double { side == "long" ? px * (1 - 0.9 / lev) : px * (1 + 0.9 / lev) }
     private var size: Double { margin * lev }
+    /// The margin slider ends at what's on Hyperliquid, so it sits where your money is; $5,000 until that's known.
+    private var marginTop: Double { hl.account != nil && hl.available >= 5 ? max(10, hl.available.rounded(.down)) : 5000 }
+
+    /// When the account loads (or changes), bring the margin down to what you have, and keep the order above
+    /// Hyperliquid's $10 minimum by raising leverage if needed.
+    private func fitMargin() {
+        guard hl.account != nil, hl.available >= 5 else { return }
+        if margin > hl.available { margin = hl.available.rounded(.down) }
+        let need = (10 / max(margin, 1)).rounded(.up)
+        if margin * lev < 10, need <= Double(max(2, mkt?.maxLev ?? 10)) { lev = need }
+    }
     private func move(_ v: Double?) -> Double? { v.flatMap { px > 0 ? abs($0 - px) / px * size : nil } }
 
     var body: some View {
@@ -347,8 +358,12 @@ struct TradeTerminal: View {
                 field("Limit price", color: Theme.muted) { TradeField(placeholder: px > 0 ? px.tradePx : "", text: $limitText) }
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            slider("Margin", value: "$" + margin.tradeGrouped(), binding: $margin, range: 5...5000, step: 5)
-            slider("Leverage", value: "\(Int(lev))x", binding: $lev, range: 1...Double(max(2, mkt?.maxLev ?? 10)), step: 1)
+            slider("Margin", prefix: "$", binding: $margin, range: 5...marginTop, step: 1)
+            slider("Leverage", suffix: "x", binding: $lev, range: 1...Double(max(2, mkt?.maxLev ?? 10)), step: 1)
+            if hl.account != nil && size < 10 {
+                Text("Hyperliquid's smallest order is $10. With $\(margin.tradeGrouped()) of margin that needs \(Int((10 / max(margin, 1)).rounded(.up)))x.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.amber).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 12) {
                 field("Take profit", color: Theme.green) { TradeField(placeholder: "", text: $tpText) }
                 field("Stop loss", color: Theme.red) { TradeField(placeholder: "", text: $slText) }
@@ -423,7 +438,8 @@ struct TradeTerminal: View {
                     .transition(.opacity)
             }
         }
-        .task(id: hl.address) { await hl.refresh() }
+        .task(id: hl.address) { await hl.refresh(); fitMargin() }
+        .onChange(of: hl.available) { _, _ in fitMargin() }
     }
 
     /// Builds the exact order, shows it on the review sheet, and signs + sends it only after Approve (Face ID).
@@ -488,15 +504,15 @@ struct TradeTerminal: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func slider(_ label: String, value: String, binding: Binding<Double>, range: ClosedRange<Double>, step: Double) -> some View {
+    private func slider(_ label: String, prefix: String = "", suffix: String = "", binding: Binding<Double>, range: ClosedRange<Double>, step: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label).foregroundStyle(Theme.muted)
                 Spacer()
-                Text(value).fontWeight(.semibold).monospacedDigit().foregroundStyle(Theme.text).contentTransition(.numericText())
+                TradeTypedValue(prefix: prefix, suffix: suffix, value: binding, range: range, step: step)
             }
             .font(.system(size: 12.5))
-            // The Mac draws a tick per step: a few for leverage, but 999 for margin, which blurred into a black bar.
+            // The Mac draws a tick per step: a few for leverage, but thousands for margin, which blurred into a black bar.
             // Long ranges slide freely and snap to the step instead.
             if (range.upperBound - range.lowerBound) / step > 24 {
                 Slider(value: Binding(get: { binding.wrappedValue },
@@ -916,4 +932,53 @@ struct TradePredictions: View {
     }
 
     private func cents(_ p: Double) -> String { "\(Int((p * 100).rounded()))¢" }
+}
+
+
+/// The number beside a slider, typeable: click or tap it, type, then Return (or tab away). It's clamped to the
+/// slider's range and snapped to its step, so what you type is always a valid order.
+struct TradeTypedValue: View {
+    var prefix = ""
+    var suffix = ""
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    private var shown: String { step >= 1 ? value.tradeGrouped() : String(format: "%.2f", value) }
+    private var plain: String { step >= 1 ? String(Int(value.rounded())) : String(format: "%.2f", value) }
+
+    var body: some View {
+        HStack(spacing: 1) {
+            if !prefix.isEmpty { Text(prefix) }
+            TextField("", text: $text)
+                .textFieldStyle(.plain).multilineTextAlignment(.trailing)
+                .frame(width: CGFloat(max(2, text.count)) * 8.5 + 8)
+                .focused($focused)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+                .onSubmit { commit() }
+                .onChange(of: focused) { _, f in if f { text = plain } else { commit() } }
+            if !suffix.isEmpty { Text(suffix) }
+        }
+        .fontWeight(.semibold).monospacedDigit().foregroundStyle(Theme.text)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(focused ? Theme.bg : Theme.hover.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(focused ? Theme.text.opacity(0.3) : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .onAppear { text = shown }
+        .onChange(of: value) { _, _ in if !focused { text = shown } }
+        .help("Type a value")
+        .accessibilityLabel("\(prefix)\(shown)\(suffix). Editable.")
+    }
+
+    private func commit() {
+        let t = text.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "").replacingOccurrences(of: "x", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        if let v = Double(t) { value = min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step)) }
+        text = shown
+    }
 }

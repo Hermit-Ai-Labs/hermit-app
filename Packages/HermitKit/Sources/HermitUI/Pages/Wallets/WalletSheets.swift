@@ -13,14 +13,14 @@ struct HistorySheet: View {
         if let detail {
             ActivityDetailSheet(item: detail, vm: vm) { withAnimation(.smooth) { self.detail = nil } }
         } else {
-            let items = vm.activity(wallet: walletID, chain: chain)
+            let items = ActivityFeed.shared.items.filter { (walletID == nil || $0.walletID == walletID) && (chain == nil || $0.chainID == chain?.id) }
             SheetChrome(title: "History", subtitle: walletID.flatMap { vm.wallet($0)?.name } ?? "All wallets", width: 540) {
                 HStack {
-                    Text("Sends from this device").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    Text(items.isEmpty ? "" : "\(items.count) recent").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                     Spacer()
                     ChainFilter(chain: $chain)
                 }
-                if items.isEmpty { EmptyNote(text: "Nothing sent from Hermit yet.").frame(maxWidth: .infinity) }
+                if items.isEmpty { EmptyNote(text: "Deposits, sends and swaps show here once there are some.").frame(maxWidth: .infinity) }
                 RowList(items: items) { a in
                     ActivityRow(item: a, wallet: walletID == nil ? vm.wallet(a.walletID)?.name : nil) { withAnimation(.smooth) { detail = a } }
                 }
@@ -40,20 +40,21 @@ struct ActivityDetailSheet: View {
     var onBack: (() -> Void)? = nil
 
     var body: some View {
-        SheetChrome(title: item.what, onBack: onBack) {
+        SheetChrome(title: item.what, subtitle: item.detail.isEmpty ? nil : item.detail, onBack: onBack) {
             HStack(spacing: 12) {
-                Text(item.amountText).font(.system(size: 28, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+                Text(item.amountText.isEmpty ? item.symbol : item.amountText).font(.system(size: 28, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
                 Spacer()
-                PillTag(text: "Confirmed", color: Theme.green, dot: true)
+                PillTag(text: item.status, color: item.status == "Confirmed" ? Theme.green : item.status == "Failed" ? Theme.red : Theme.amber, dot: true)
             }
-            DetailLines(lines: [("Network", item.chain.name + (item.chain.isTestnet ? " (testnet)" : "")),
-                                ("Wallet", vm.wallet(item.walletID)?.name ?? ""), ("To", shortAddr(item.entry.recipient)),
-                                ("When", item.entry.date.formatted(date: .abbreviated, time: .shortened)), ("Tx", shortAddr(item.tx))],
-                        monoKeys: ["Tx", "To"])
+            DetailLines(lines: [("Network", item.chain?.name ?? item.chainID), ("Wallet", vm.wallet(item.walletID)?.name ?? ""),
+                                ("When", item.date.formatted(date: .abbreviated, time: .shortened))] + (item.tx.map { [("Tx", shortAddr($0))] } ?? []),
+                        monoKeys: ["Tx"])
         } foot: {
-            Button("Copy hash") { Clip.copy(item.tx); model.toast("Transaction hash copied") }.buttonStyle(WideButton(kind: .plain))
-            Button("View on explorer") { if let u = item.explorer { openURL(u) } }
-                .buttonStyle(WideButton()).disabled(item.explorer == nil)
+            if let tx = item.tx {
+                Button("Copy hash") { Clip.copy(tx); model.toast("Transaction hash copied") }.buttonStyle(WideButton(kind: .plain))
+            }
+            Button("View on explorer") { if let u = item.link { openURL(u) } }
+                .buttonStyle(WideButton()).disabled(item.link == nil)
         }
     }
 }

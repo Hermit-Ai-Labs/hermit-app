@@ -36,7 +36,16 @@ struct FundSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var ask
     @Environment(\.dismiss) private var dismiss
-    @State private var stage: Stage = .source
+    @State private var stage: Stage
+    @MainActor init(goal: FundGoal) {
+        self.goal = goal
+        // Decided before the sheet appears: a plain top-up opens straight on Receive, a deep link on From any chain.
+        // Switching after presentation made the macOS sheet resize mid-animation and draw its content clipped.
+        let start: Stage = Self.startAnyChain ? .anyChain : goal == .wallet ? .receive : .source
+        _stage = State(initialValue: start)
+        _anyBack = State(initialValue: Self.startAnyChain ? .receive : .source)
+        if Self.startAnyChain { Self.startAnyChain = false }
+    }
     @State private var source: Holding?
     @State private var amount = ""
     @State private var quote: Relay.Quote?
@@ -50,9 +59,6 @@ struct FundSheet: View {
     private var hl: HyperliquidStore { .shared }
 
     enum Stage { case source, amount, receive, anyChain }
-    /// Moving between steps: the new one slides in a little from the right as the old one fades.
-    static let step: AnyTransition = .asymmetric(insertion: .offset(x: 28).combined(with: .opacity),
-                                                 removal: .offset(x: -18).combined(with: .opacity))
     /// Set just before opening: start on "From any chain" (deep link `wallets/fund-any`).
     @MainActor static var startAnyChain = false
     @State private var anyBack: Stage = .source
@@ -64,25 +70,43 @@ struct FundSheet: View {
         vm.holdings(wallet: wallet?.id, chain: nil)
             .filter { !$0.chain.isTestnet && Relay.Place.chain($0.chain).relayID != nil && ($0.usd >= 1 || !$0.priced) }
             .filter { h in if case .token(let c, let s) = goal { return !(h.chain == c && h.symbol == s) }; return true }
-            .sorted { $0.usd > $1.usd }
+            .sorted { a, b in
+                // Funding Hyperliquid: the cheapest ways first (USDC on Arbitrum, then USDC on other EVM networks).
+                if goal == .hyperliquid, hlRank(a) != hlRank(b) { return hlRank(a) < hlRank(b) }
+                return a.usd > b.usd
+            }
+    }
+
+    /// For Hyperliquid: 0 = straight into the bridge, 1 = via Arbitrum, 2 = Relay's own route.
+    private func hlRank(_ h: Holding) -> Int {
+        guard h.symbol == "USDC", h.chain.kind == .evm else { return 2 }
+        return h.chain.id == "arbitrum" ? 0 : 1
+    }
+
+    /// What the row costs to move into Hyperliquid, so the choice is clear before tapping.
+    private func hlHint(_ h: Holding) -> (text: String, best: Bool)? {
+        guard goal == .hyperliquid else { return nil }
+        switch hlRank(h) {
+        case 0: return (h.amount >= HyperliquidRoute.minimum ? "Straight into Hyperliquid's bridge, about $0.01" : "Under 5 USDC: goes through Relay", h.amount >= HyperliquidRoute.minimum)
+        case 1: return (h.amount >= HyperliquidRoute.minimum + 0.1 ? "Two steps via Arbitrum, about $0.03" : "Under 5 USDC: goes through Relay", false)
+        default: return ("Through Relay; the first deposit to a new account costs about $1.20 extra", false)
+        }
     }
 
     var body: some View {
         Group {
             switch stage {
-            case .source: sourceView.transition(Self.step)
-            case .amount: amountView.transition(Self.step)
-            case .receive: receiveView.transition(Self.step)
-            case .anyChain: AnyChainFundView(goal: goal, onBack: { withAnimation(.smooth) { stage = anyBack } }).transition(Self.step)
+            case .source: sourceView
+            case .amount: amountView
+            case .receive: receiveView
+            case .anyChain: AnyChainFundView(goal: goal, onBack: { withAnimation(.smooth) { stage = anyBack } })
             }
         }
-        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: stage)
+        .animation(.smooth(duration: 0.25), value: stage)
         .task {
-            if vm.wallets.isEmpty { return }
-            if Self.startAnyChain { Self.startAnyChain = false; anyBack = .receive; stage = .anyChain; return }
+            if vm.wallets.isEmpty || stage != .source { return }
             if !vm.loaded { await vm.refresh() }
-            if sources.isEmpty && goal != .wallet { stage = .receive }
-            if goal == .wallet { stage = .receive }
+            if sources.isEmpty { withAnimation(.smooth(duration: 0.25)) { stage = .receive } }
         }
     }
 
@@ -156,8 +180,15 @@ struct FundSheet: View {
                 LogoMark(h.chain.logo, size: 15).padding(1.5).background(Theme.bg, in: Circle()).offset(x: 3, y: 3)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(h.symbol) on \(h.chain.name)").font(.system(size: 14, weight: .medium))
+                HStack(spacing: 6) {
+                    Text("\(h.symbol) on \(h.chain.name)").font(.system(size: 14, weight: .medium))
+                    if hlHint(h)?.best == true { PillTag(text: "Cheapest", color: Theme.green, dot: false) }
+                }
                 Text("\(MoneyFmt.amount(h.amount)) \(h.symbol)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).monospacedDigit()
+                if let hint = hlHint(h) {
+                    Text(hint.text).font(.system(size: 12)).foregroundStyle(hint.best ? Theme.green : Theme.faint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             Text(h.priced ? MoneyFmt.usd(h.usd, digits: 2) : "—").font(.system(size: 14, weight: .medium)).monospacedDigit()
@@ -269,6 +300,7 @@ struct FundSheet: View {
                      success: "On its way to \(dest)") {
             try await svc.execute(q, walletID: wid)
         }) {
+            ActivityLedger.shared.record(ActivityLedger.moved(amount: amount, symbol: h.symbol, from: h.chain, to: dest, route: "Relay", walletID: w.id))
             Task { try? await Task.sleep(for: .seconds(4)); await vm.refresh(); await hl.refresh() }
         }
     }
@@ -288,6 +320,7 @@ struct FundSheet: View {
                      success: "On its way to Hyperliquid") {
             try await svc.executeHyperliquid(r, amount: raw, walletID: wid)
         }) {
+            ActivityLedger.shared.record(ActivityLedger.moved(amount: amount, symbol: "USDC", from: h.chain, to: "Hyperliquid", route: r.routeName, walletID: w.id))
             Task { try? await Task.sleep(for: .seconds(4)); await vm.refresh(); await hl.refresh() }
         }
     }
@@ -381,6 +414,7 @@ struct FundSheet: View {
         guard let w = wallet, arrival == nil else { return }
         guard let a = await DepositWatcher.watch(wallet: w.record, family: family, service: vm.service), stage == .receive else { return }
         arrival = a
+        ActivityLedger.shared.record(ActivityLedger.received(a, walletID: w.id, address: w.record.address(on: a.chain)))
         Task { await vm.refresh() }
     }
 

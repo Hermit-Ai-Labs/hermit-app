@@ -29,6 +29,15 @@ final class IntentsActivity {
 
     func reload() { swaps = swaps.filter { debugIDs.contains($0.depositAddress) } + WalletService.intentsLedger.all }
 
+    /// Forgets a swap on this device: a deposit address nobody sent to (Cancel), or a settled one (Remove from list).
+    /// 1Click isn't told; an unused address simply expires, and a swap already under way still completes.
+    func remove(_ depositAddress: String) {
+        WalletService.intentsLedger.remove(depositAddress)
+        states[depositAddress] = nil; errors[depositAddress] = nil
+        if focus?.id == depositAddress { focus = nil }
+        withAnimation(.snappy) { reload() }
+    }
+
     /// Polls every 5 seconds (20 once settled-looking states repeat) until SUCCESS, REFUNDED or FAILED, or the deadline
     /// is an hour past.
     func track(_ depositAddress: String) {
@@ -39,6 +48,8 @@ final class IntentsActivity {
             defer { self?.polling.remove(depositAddress) }
             var same = 0
             while true {
+                // Cancelled or removed meanwhile: stop asking.
+                guard WalletService.intentsLedger.swap(depositAddress) != nil || self?.debugIDs.contains(depositAddress) == true else { return }
                 do {
                     let s = try await svc.refreshIntentsStatus(depositAddress)
                     guard let self else { return }
@@ -182,6 +193,8 @@ enum IntentsFmt {
 /// Where a NEAR Intents swap is, live: deposit, seen, swapping, delivered, or refunded / failed.
 struct IntentsStatusSheet: View {
     let depositAddress: String
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     private var act: IntentsActivity { .shared }
     private var swap: TrackedSwap? { act.swaps.first { $0.depositAddress == depositAddress } }
 
@@ -196,6 +209,19 @@ struct IntentsStatusSheet: View {
                 Link(destination: u) { Label("Open in NEAR Intents Explorer", systemImage: "safari") }
                     .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
             }
+            if status == .pendingDeposit {
+                Text("Nothing has been sent to this address yet. Cancel forgets it; it expires on its own. If you did already send, the swap still completes and the money still arrives.")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        } foot: {
+            if status == .pendingDeposit {
+                Button("Cancel this swap") { act.remove(depositAddress); dismiss(); model.toast("Swap cancelled") }
+                    .buttonStyle(WideButton(kind: .plain))
+            } else if status.isFinal {
+                Button("Remove from list") { act.remove(depositAddress); dismiss(); model.toast("Removed") }
+                    .buttonStyle(WideButton(kind: .plain))
+            }
+            Button(status == .pendingDeposit ? "Keep waiting" : "Done") { dismiss() }.buttonStyle(WideButton())
         }
         .task { act.track(depositAddress) }
     }
