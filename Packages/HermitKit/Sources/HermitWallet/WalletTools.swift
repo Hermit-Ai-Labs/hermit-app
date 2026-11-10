@@ -131,6 +131,8 @@ public final class WalletTools {
         ]
         if let u = q.amountInUSD { out["amount_in_usd"] = (u * 100).rounded() / 100 }
         if let u = q.amountOutUSD { out["amount_out_usd"] = (u * 100).rounded() / 100 }
+        // What the swap costs all in (fees and spread), so it isn't read as gas.
+        if let i = q.amountInUSD, let o = q.amountOutUSD { out["total_cost_usd"] = (max(0, i - o) * 100).rounded() / 100 }
         guard prepare else { return Self.json(out) }
 
         let verdict = service.policy.evaluate(usd: q.amountInUSD, payee: own == nil ? (recipient ?? "", .evm) : nil, origin: .agent)

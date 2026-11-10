@@ -37,10 +37,11 @@ public enum ChainWords {
 }
 
 extension ToolGuard {
-    /// Arguments as the toolbox should get them. For sends, a `chain` the user never named in this chat is dropped,
-    /// so the toolbox picks the network the user holds the token on, or asks which one, instead of the model's guess.
+    /// Arguments as the toolbox should get them. For sends, deposits and withdrawals, a `chain` the user never named in
+    /// this chat is dropped, so the toolbox picks the network the user holds the token (or the deposit) on, or asks
+    /// which one, instead of the model's guess.
     public static func adjusted(_ name: String, argumentsJSON: String, userText: String) -> String {
-        guard ["prepare_send", "prepare_multisend"].contains(name), let v = JSONValue.parse(argumentsJSON), case .object(var kv) = v,
+        guard ["prepare_send", "prepare_multisend", "prepare_deposit", "prepare_withdraw"].contains(name), let v = JSONValue.parse(argumentsJSON), case .object(var kv) = v,
               let i = kv.firstIndex(where: { $0.0 == "chain" }) else { return argumentsJSON }
         let given = kv[i].1.string ?? ""
         if let id = ChainWords.id(given), ChainWords.mentions(id, in: userText) { return argumentsJSON }

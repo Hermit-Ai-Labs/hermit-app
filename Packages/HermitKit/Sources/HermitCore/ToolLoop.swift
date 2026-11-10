@@ -107,6 +107,7 @@ public actor ToolChat {
         var results: [String: String] = [:], repeatTurns = 0
         var quoteArgs: String?  // the last successful get_quote, for the swap follow-through below
         var triedMoney = false  // the model called a money tool (even one that answered "blocked" or asked a question)
+        var blockedReason: String?  // why a money tool refused, for the honesty check
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -200,7 +201,10 @@ public actor ToolChat {
                 if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
                 if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
-                if ToolGuard.moneyTools.contains(call.name) { triedMoney = true }
+                if ToolGuard.moneyTools.contains(call.name) {
+                    triedMoney = true
+                    if let v = JSONValue.parse(out.content), case .array(let r)? = v["reasons"], let first = r.first?.string { blockedReason = first }
+                }
                 let cleaned = ToolResult.clean(out.content)
                 results[key] = cleaned
                 history.append(.tool(cleaned))
@@ -249,7 +253,7 @@ public actor ToolChat {
                 if out.action != nil || Self.opened(out.content) { prepared = true }
                 history.append(.tool(ToolResult.clean(out.content)))
                 // The model didn't prepare it, so its text may not say why nothing opened: say what the app did.
-                if let note = Self.routeNote(out) {
+                if let note = Self.routeNote(out, tool: name, arguments: parsed) {
                     if !shownAny { cont.yield(.steps(steps)) }
                     cont.yield(.text((shownAny ? "\n\n" : "") + note)); shownAny = true
                 }
@@ -257,7 +261,7 @@ public actor ToolChat {
         }
         // A model can say "prepared for review" without calling the tool. Nothing is waiting then, so say so.
         if !prepared, Self.claimsPrepared(said) {
-            cont.yield(.text("\n\n" + Self.notPrepared))
+            cont.yield(.text("\n\n" + (blockedReason.map { "Nothing was prepared: \($0)" } ?? Self.notPrepared)))
         }
         cont.yield(.steps(steps))
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
@@ -280,8 +284,14 @@ public actor ToolChat {
     }
 
     /// One plain line about an app-routed tool's result: ready for review, or why not (its error or block reason).
-    static func routeNote(_ out: ToolOutcome) -> String? {
-        if out.action != nil || opened(out.content) { return "It's ready for your review below. Nothing moves until you approve it with Face ID." }
+    static func routeNote(_ out: ToolOutcome, tool: String = "", arguments: [String: Any] = [:]) -> String? {
+        if out.action != nil || opened(out.content) {
+            if tool == "prepare_withdraw", arguments["amount"] == nil {
+                let sym = (arguments["symbol"] as? String).map { " \($0)" } ?? ""
+                return "I opened the withdrawal for all of your\(sym) in Aave below. Tell me an amount if you want less. Nothing moves until you approve it with Face ID."
+            }
+            return "It's ready for your review below. Nothing moves until you approve it with Face ID."
+        }
         guard let v = JSONValue.parse(out.content) else { return nil }
         if let e = v["error"]?.string { return e }
         if let q = v["question"]?.string { return q }
@@ -300,7 +310,8 @@ public actor ToolChat {
         let t = text.lowercased()
         let patterns = [#"\b(is|been|now|trade|order|swap|send|transfer|it|position)\s+(prepared|ready for (your )?(review|approval))"#,
                         #"\bprepared for (your )?(review|approval)"#, #"\bwaiting for (your )?(face id|approval)"#,
-                        #"\b(review|approval) (sheet|screen) (is )?open"#]
+                        #"\b(review|approval) (sheet|screen) (is )?open"#, #"\bi(['’]ve| have) prepared\b"#,
+                        #"\bon the review (sheet|screen)\b"#]
         return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
     }
 }

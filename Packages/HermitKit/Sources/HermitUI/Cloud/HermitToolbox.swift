@@ -232,7 +232,11 @@ public struct HermitToolbox: AgentToolbox {
         let p = try await vm.prepareSend(from: w.record.id.uuidString, chain: chain, to: to, amount: amount, token: sym)
         var approval = try vm.approval(for: p)
         approval.warnings += verdict.warnings
-        return ToolOutcome(content: prepared("send"), action: Action("Review send", approval: approval))
+        // The network goes back to the model: it may have been picked here, not named by the user.
+        var out = json(["status": "review_opened", "kind": "send", "executed": false, "network": chain.name, "amount": "\(p.amountText) \(p.symbol)",
+                        "note": "Waiting for the user to approve with Face ID."])
+        out.action = Action("Review send", approval: approval)
+        return out
     }
 
     /// Dollar value of a send for the policy: stablecoins at $1, everything else at the Hyperliquid mark price.
