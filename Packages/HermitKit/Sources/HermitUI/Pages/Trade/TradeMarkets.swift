@@ -415,8 +415,12 @@ struct TradeTerminal: View {
             } else if hl.available < margin {
                 Button { hl.openDeposit(model, amount: margin - hl.available) } label: { Text("Deposit USDC to trade") }
                     .buttonStyle(TradeBlockButton(color: Theme.text))
-                Text(hl.available > 0 ? "You have $\(hl.available.tradeGrouped(2)) on Hyperliquid. Move more from any network, or add it with a QR code."
-                                      : "Move USDC or any coin you hold on any network, or add some with a QR code. It lands in about a minute.")
+                Text(hl.account.map { a in
+                    a.accountValue - hl.available > 0.5
+                        ? "You have $\(a.accountValue.tradeGrouped(2)) on Hyperliquid, $\(hl.available.tradeGrouped(2)) of it free; the rest is backing your open position. Close it to trade with the full balance, or deposit more."
+                        : hl.available > 0 ? "You have $\(hl.available.tradeGrouped(2)) on Hyperliquid. Move more from any network, or add it with a QR code."
+                        : "Move USDC or any coin you hold on any network, or add some with a QR code. It lands in about a minute."
+                } ?? "Move USDC or any coin you hold on any network, or add some with a QR code. It lands in about a minute.")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             } else {
                 Button { Task { await review() } } label: {

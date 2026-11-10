@@ -12,7 +12,12 @@ struct ThinScrollView<Content: View>: View {
     struct ScrollNumbers: Equatable { var offset, content, view: CGFloat }
 
     var body: some View {
-        ScrollView { content() }
+        ScrollView {
+            content()
+                #if os(macOS)
+                .background(ScrollerRemover())
+                #endif
+        }
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: ScrollNumbers.self) { g in
                 ScrollNumbers(offset: g.contentOffset.y + g.contentInsets.top, content: g.contentSize.height, view: g.containerSize.height)
@@ -55,3 +60,25 @@ struct ThinScrollView<Content: View>: View {
         }
     }
 }
+
+#if os(macOS)
+import AppKit
+
+/// Finds the NSScrollView this sits in and takes its scroller away. SwiftUI's `scrollIndicators(.hidden)` isn't enough
+/// when System Settings has "Show scroll bars: Always": AppKit keeps drawing the old wide bar. The thin line above is
+/// the only indicator we want.
+private struct ScrollerRemover: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { let v = NSView(); v.isHidden = true; return v }
+    func updateNSView(_ v: NSView, context: Context) {
+        DispatchQueue.main.async {
+            var p = v.superview
+            while let s = p, !(s is NSScrollView) { p = s.superview }
+            guard let scroll = p as? NSScrollView else { return }
+            scroll.hasVerticalScroller = false
+            scroll.hasHorizontalScroller = false
+            scroll.scrollerStyle = .overlay
+            scroll.autohidesScrollers = true
+        }
+    }
+}
+#endif

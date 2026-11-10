@@ -30,7 +30,7 @@ struct ApprovalSheet: View {
             VStack(spacing: 9) {
                 ForEach(approval.lines, id: \.self) { l in
                     // Top-aligned, so a label sits beside the first line of a long value (a sign-in message), not its middle.
-                    HStack(alignment: .firstTextBaseline) { Text(l[0]).foregroundStyle(Theme.muted).fixedSize(); Spacer(); Text(l[1]).monospacedDigit() }
+                    HStack(alignment: .firstTextBaseline) { Text(l[0]).foregroundStyle(Theme.muted).fixedSize(); Spacer(); AddressText(value: l[1]) }
                         .font(.system(size: 13.5))
                 }
             }

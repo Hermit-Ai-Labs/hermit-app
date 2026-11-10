@@ -154,3 +154,36 @@ enum MoneyFmt {
 enum WalletSeed {
     static func checks(_ extra: [String] = []) -> [String] { Approval.checks(extra) }
 }
+
+/// A value in a review or detail line. Addresses and account ids are shown the way people read them, "0x82bcc829…b22dbd",
+/// so they never run off the sheet; tap one to see it in full (and tap again to fold it). Anything else is shown as is.
+struct AddressText: View {
+    let value: String
+    var font: Font = .system(size: 13.5)
+    @State private var full = false
+
+    static func looksLikeAddress(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("0x"), t.count == 42, t.dropFirst(2).allSatisfy(\.isHexDigit) { return true }   // EVM
+        if t.count == 64, t.allSatisfy(\.isHexDigit) { return true }                                     // NEAR implicit
+        if t.hasSuffix(".near") || t.hasSuffix(".tg"), !t.contains(" "), t.count > 24 { return true }     // long named NEAR
+        if (32...44).contains(t.count), !t.contains(" "), t.allSatisfy({ $0.isLetter || $0.isNumber }), !t.contains("0"), !t.contains("O"), !t.contains("I"), !t.contains("l") { return true } // Solana base58
+        return false
+    }
+
+    var body: some View {
+        if Self.looksLikeAddress(value) {
+            Text(full ? value : shortAddr(value, keep: 10))
+                .font(.system(size: full ? 12 : 12.5, design: .monospaced))
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(.snappy(duration: 0.18)) { full.toggle() } }
+                .help(value)
+                .accessibilityLabel(value)
+                .accessibilityHint("Tap to show in full")
+        } else {
+            Text(value).font(font).monospacedDigit().multilineTextAlignment(.trailing)
+        }
+    }
+}

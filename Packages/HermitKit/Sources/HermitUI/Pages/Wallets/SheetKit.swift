@@ -338,8 +338,7 @@ struct DetailLines: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(l.0).foregroundStyle(Theme.muted)
                     Spacer(minLength: 8)
-                    Text(l.1).multilineTextAlignment(.trailing).monospacedDigit()
-                        .font(monoKeys.contains(l.0) ? .system(size: 12.5, design: .monospaced) : .system(size: 13.5))
+                    AddressText(value: l.1, font: monoKeys.contains(l.0) ? .system(size: 12.5, design: .monospaced) : .system(size: 13.5))
                 }
                 .font(.system(size: 13.5)).padding(.vertical, 9)
                 if i < lines.count - 1 { Rectangle().fill(Theme.border).frame(height: 1) }
