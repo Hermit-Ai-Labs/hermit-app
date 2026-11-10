@@ -14,6 +14,9 @@ public enum ModelSource: String, CaseIterable, Sendable, Codable {
     case mirror, modelscope, huggingface
 
     public static let mirrorHost = "https://models.hermit.my"
+    /// The sources actually tried. ModelScope is kept in the enum for old caches but not used: the models were never
+    /// published there (2026-11-10), so it only cost a failed probe. China reaches the mirror.
+    public static let live: [ModelSource] = [.mirror, .huggingface]
     /// The ModelScope namespace the models are published under (scripts/publish-modelscope.py).
     public static let modelscopeOwner = "HermitAiLabs"
 
@@ -48,7 +51,7 @@ public enum ModelSource: String, CaseIterable, Sendable, Codable {
 
     /// The order to try when probes give no answer: ModelScope first in mainland China, else the mirror.
     static var regionalOrder: [ModelSource] {
-        isMainlandChina ? [.modelscope, .mirror, .huggingface] : [.mirror, .huggingface, .modelscope]
+        [.mirror, .huggingface]
     }
 
     /// A guess from the phone's region and time zone, used only to order sources the probes couldn't tell apart.

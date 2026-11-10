@@ -15,6 +15,10 @@ compares its SHA-256 with the manifest on models.hermit.my. The app verifies eve
 """
 import argparse, hashlib, json, os, sys, urllib.request
 
+# Cloudflare's bot check refuses Python's default User-Agent on models.hermit.my
+urllib.request.install_opener(urllib.request.build_opener())
+urllib.request._opener.addheaders = [('User-Agent', 'hermit-publish/1.0')]
+
 OWNER = 'HermitAiLabs'
 MIRROR = 'https://models.hermit.my'
 REVISIONS = {  # must match ModelCatalog

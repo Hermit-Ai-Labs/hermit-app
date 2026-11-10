@@ -371,14 +371,14 @@ public final class ModelStore {
 
     /// The release to download: built in (pinned), else the mirror's manifest, else the Hugging Face tree listing.
     private func manifest(_ spec: ModelSpec, _ dir: URL) async throws -> (ModelPin, [ModelSource]) {
-        if let pin = spec.pin { return (pin, ModelSource.allCases) }
+        if let pin = spec.pin { return (pin, ModelSource.live) }
         let cache = dir.appending(path: Self.filesCache)
         if let data = try? Data(contentsOf: cache), let m = try? JSONDecoder().decode(CachedManifest.self, from: data) {
             return (m.pin, m.sources)
         }
         let found: CachedManifest
         if let m = await Self.mirrorManifest(spec) {
-            found = CachedManifest(pin: m, sources: ModelSource.allCases)
+            found = CachedManifest(pin: m, sources: ModelSource.live)
         } else {
             let files = try await Self.listFiles(spec.id, revision: spec.revision)
             let pin = ModelPin(revision: spec.revision, pieceSize: Self.pieceSize,
