@@ -8,6 +8,14 @@ enum EarnData {
     /// DefiLlama chain names we keep, and how we show them.
     static let chains: [(llama: String, name: String)] = [("Ethereum", "Ethereum"), ("Base", "Base"), ("Arbitrum", "Arbitrum"), ("BSC", "BNB Chain"), ("Solana", "Solana")]
     static func chainName(_ llama: String) -> String { chains.first { $0.llama == llama }?.name ?? llama }
+    /// Mixed-case token symbols, keyed by the capitals DefiLlama uses.
+    static let symbolCase: [String: String] = [
+        "STETH": "stETH", "WSTETH": "wstETH", "WEETH": "weETH", "EETH": "eETH", "WBETH": "wBETH", "CBETH": "cbETH", "RETH": "rETH",
+        "METH": "mETH", "EZETH": "ezETH", "RSETH": "rsETH", "OSETH": "osETH", "SFRXETH": "sfrxETH", "FRXETH": "frxETH", "LSETH": "LsETH",
+        "ETHX": "ETHx", "CBBTC": "cbBTC", "TBTC": "tBTC", "SOLVBTC": "SolvBTC", "JITOSOL": "JitoSOL", "MSOL": "mSOL", "JUPSOL": "jupSOL",
+        "BBSOL": "bbSOL", "INF": "INF", "SUSDE": "sUSDe", "USDE": "USDe", "SUSDS": "sUSDS", "SDAI": "sDAI", "SYRUPUSDC": "syrupUSDC",
+        "SYRUPUSDT": "syrupUSDT", "SLISBNB": "slisBNB", "ASBNB": "asBNB", "USDC.E": "USDC.e", "SAVUSD": "savUSD", "SUSDA": "sUSDa",
+    ]
     /// Non-stablecoin pools are kept when the symbol holds one of these.
     static let majors = ["ETH", "BTC", "SOL", "BNB"]
 
@@ -42,8 +50,10 @@ enum EarnData {
                 ?? project.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
         }
         var logo: String? { EarnData.projects[project]?.logo }
+        /// The token as people write it: DefiLlama sends symbols in capitals ("STETH"), we show "stETH".
+        var shownSymbol: String { EarnData.symbolCase[symbol.uppercased()] ?? symbol }
         /// "Aave V3 USDC"; "Binance wBETH" rather than "Binance wBETH WBETH" when the name already says the token.
-        var title: String { name.lowercased().contains(symbol.lowercased()) ? name : "\(name) \(symbol)" }
+        var title: String { name.lowercased().contains(symbol.lowercased()) ? name : "\(name) \(shownSymbol)" }
         var chainName: String { EarnData.chainName(chain) }
     }
 

@@ -52,7 +52,7 @@ final class EarnFlow {
             guard let p = await pool(chain: chain, symbol: symbol) else { model.toast("Couldn't load the Aave pool on \(chain.name)"); model.open(.earn); return }
             shared.amount = amount.isEmpty ? nil : amount
             shared.deposit = p
-            model.open(.earn, tab: "defi")
+            model.open(.earn, tab: "save")
         }
     }
 }

@@ -1,26 +1,23 @@
 import SwiftUI
 import HermitCore
 
-/// Earn: what you have earning (Aave v3 supplies with their live APY, and Hyperliquid), real DeFi yields, live funding-rate carry,
-/// airdrops, and Reverse (Hermit explains any vault in chat).
+/// Earn, simple first: Savings (Aave pools you can deposit into, Deposit on the row), Your deposits (what's earning, with
+/// Withdraw), and Explore (every big yield, funding carry and the vault explainer) for people who want more.
 struct EarnPage: View {
     @Environment(AppModel.self) private var model
-    @State private var tab = "defi"
+    @State private var tab = "save"
     @Bindable private var flow = EarnFlow.shared
-    static let tabs = [("positions", "Positions"), ("defi", "DeFi"), ("arb", "Funding"), ("reverse", "Reverse")]
+    static let tabs = [("save", "Savings"), ("positions", "Your deposits"), ("explore", "Explore")]
+    /// Tab ids from before Explore held them all, still asked for by links and the Mac tour.
+    static let aliases = ["defi": "explore", "arb": "explore", "reverse": "explore"]
 
     var body: some View {
         Page(title: "Earn", tabs: Self.tabs, tab: $tab) { t in
             VStack(alignment: .leading, spacing: 0) {
                 switch t {
                 case "positions": EarnPositions()
-                case "arb": EarnArbitrage()
-                case "airdrops": EarnAirdrops()
-                case "reverse": EarnReverse()
-                default: EarnDeFi()
-                }
-                if ["defi", "arb", "airdrops"].contains(t) {
-                    TradeExploreMore(label: "opportunities", items: EarnData.catalog)
+                case "explore": EarnExplore()
+                default: EarnSavings()
                 }
             }
         }
@@ -36,7 +33,7 @@ struct EarnPage: View {
         }
         #endif
         .onAppear {
-            if let r = model.tabRequest, Self.tabs.contains(where: { $0.0 == r }) { tab = r; model.tabRequest = nil }
+            if let r = model.tabRequest.map({ Self.aliases[$0] ?? $0 }), Self.tabs.contains(where: { $0.0 == r }) { tab = r; model.tabRequest = nil }
         }
     }
 }

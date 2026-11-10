@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Explore: search, then New, Trending and All. All has category chips and a list. TVL comes live from DefiLlama;
+/// Explore: search (or type any site's address to open it), Your sites (ones you added), then New, Trending and All. All has category chips and a list. TVL comes live from DefiLlama;
 /// Trending is the biggest 7-day TVL growth. Open shows the app in Hermit's browser (Pages/Browser), which takes the
 /// page's place until it's closed.
 struct ExplorePage: View {
@@ -10,6 +10,8 @@ struct ExplorePage: View {
     @State private var cat = "All"
     @State private var width: CGFloat = 1000
     @FocusState private var searching: Bool
+    @State private var adding = false
+    @State private var newSite = ""
     private var store: ExploreStore { .shared }
 
     enum Tab: String, Hashable { case new, trending, all }
@@ -25,6 +27,7 @@ struct ExplorePage: View {
         } content: { t in
             VStack(alignment: .leading, spacing: 0) {
                 if compact { search.padding(.bottom, 16) }
+                SavedSitesRow { newSite = ""; adding = true }
                 switch t {
                 case .new: grid(ExploreData.dapps.filter(\.isNew), compact)
                 case .trending: trending(compact)
@@ -33,6 +36,17 @@ struct ExplorePage: View {
             }
         }
         .payWidth($width)
+        .alert("Add a site", isPresented: $adding) {
+            TextField("app.uniswap.org", text: $newSite)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never).keyboardType(.URL)
+                #endif
+            Button("Add") { addSite(newSite) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Type the site's address. It shows in Your sites and opens in Hermit's browser.")
+        }
         .marketPoll(every: 900) { await store.refresh() }
         .onChange(of: q) { _, v in if !v.isEmpty && tab != .all { tab = .all } }
         .onAppear {
@@ -46,7 +60,11 @@ struct ExplorePage: View {
     private var search: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Theme.faint)
-            TextField("Search", text: $q).textFieldStyle(.plain).focused($searching).autocorrectionDisabled()
+            TextField("Search or type a site", text: $q).textFieldStyle(.plain).focused($searching).autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never).submitLabel(.go)
+                #endif
+                .onSubmit(submit)
             if !q.isEmpty {
                 Button { q = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }
                     .buttonStyle(.plain).accessibilityLabel("Clear search")
@@ -57,6 +75,36 @@ struct ExplorePage: View {
         .background(Theme.hover, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(searching ? Theme.text.opacity(0.25) : .clear))
         .animation(.snappy(duration: 0.15), value: searching)
+    }
+
+    /// What's typed, as a site, when it looks like an address ("uniswap.org", "https://…") rather than a search.
+    private var typedSite: URL? {
+        let t = q.trimmingCharacters(in: .whitespaces)
+        guard t.contains("."), !t.hasSuffix(".") else { return nil }
+        return DappBrowserSession.normalize(t)
+    }
+
+    /// Enter: a typed address opens; a search with no app matching opens the closest app, else a web search.
+    private func submit() {
+        let t = q.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        if let u = typedSite { DappBrowser.shared.open(u, model: model); q = ""; return }
+        if !matches(t).isEmpty { return }
+        if let d = ExploreData.fuzzy(t, in: ExploreData.dapps).first, let u = d.url {
+            DappBrowser.shared.open(u, dapp: d, model: model); q = ""
+        } else if let u = ExploreData.webSearch(t) {
+            DappBrowser.shared.open(u, model: model); q = ""
+        }
+    }
+
+    private func matches(_ text: String) -> [ExploreDapp] {
+        ExploreData.dapps.filter { "\($0.name) \($0.desc) \($0.cat)".localizedCaseInsensitiveContains(text) }
+    }
+
+    private func addSite(_ text: String) {
+        guard let u = DappBrowserSession.normalize(text) else { model.toast("That isn't a web address"); return }
+        withAnimation(.snappy) { SavedSites.shared.add(u) }
+        model.toast("Added \(u.host() ?? "")")
     }
 
     private func grid(_ list: [ExploreDapp], _ compact: Bool) -> some View {
@@ -87,6 +135,20 @@ struct ExplorePage: View {
                 && (q.isEmpty || "\(d.name) \(d.desc) \(d.cat)".localizedCaseInsensitiveContains(q))
         }
         return VStack(alignment: .leading, spacing: 0) {
+            if let u = typedSite {
+                HStack(spacing: 10) {
+                    Image(systemName: "globe").font(.system(size: 15)).foregroundStyle(Theme.muted)
+                    Text(u.host() ?? "").font(.system(size: 14, weight: .medium)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    if !SavedSites.shared.contains(u) {
+                        Button("Add to Your sites") { addSite(q) }.buttonStyle(PayPillButton(kind: .outline))
+                    }
+                    Button("Open") { DappBrowser.shared.open(u, model: model); q = "" }.buttonStyle(PayPillButton(kind: .black))
+                }
+                .padding(12)
+                .background(Theme.hover, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.bottom, 14)
+            }
             PayFlow(spacing: 6) {
                 ForEach(ExploreData.categories, id: \.self) { c in
                     PayChip(c, on: c == cat) { cat = c }
@@ -99,15 +161,27 @@ struct ExplorePage: View {
                 }
             }
             .animation(.snappy(duration: 0.25), value: cat)
-            if list.isEmpty {
-                VStack(spacing: 10) {
-                    Text("No results").foregroundStyle(Theme.muted)
-                    if !q.isEmpty {
-                        Button("Ask Hermit about \"\(q)\"") { model.send("Find DApps for \(q)") }
-                            .buttonStyle(OutlineButton())
+            if list.isEmpty && !q.isEmpty {
+                let close = ExploreData.fuzzy(q, in: ExploreData.dapps)
+                if !close.isEmpty {
+                    Text("Did you mean").font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.top, 6).padding(.bottom, 4)
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(close.enumerated()), id: \.element.id) { i, d in
+                            ExploreRow(dapp: d, compact: compact).payLine(i > 0)
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity).padding(.vertical, 32)
+                VStack(spacing: 10) {
+                    if close.isEmpty && typedSite == nil { Text("No apps match").foregroundStyle(Theme.muted) }
+                    HStack(spacing: 8) {
+                        if let u = ExploreData.webSearch(q) {
+                            Button("Search the web for \"\(q)\"") { DappBrowser.shared.open(u, model: model); q = "" }
+                                .buttonStyle(OutlineButton())
+                        }
+                        Button("Ask Hermit") { model.send("Find DApps for \(q)") }.buttonStyle(OutlineButton())
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 24)
             }
         }
     }

@@ -19,13 +19,13 @@ struct EarnPositions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TradeSection(title: "DeFi", top: 0) {
+            TradeSection(title: "Aave", top: 0) {
                 if !vm.hasWallet {
-                    TradeEmpty(icon: "leaf", title: "No wallet yet", note: "Create a wallet, then deposit into a pool from DeFi.")
+                    TradeEmpty(icon: "leaf", title: "No wallet yet", note: "Create a wallet, then deposit from Savings.")
                 } else if !loaded {
                     MarketStatus(kind: .loading("Reading your deposits"))
                 } else if rows.isEmpty && failed.isEmpty {
-                    TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Open an Aave pool in DeFi and tap Deposit, or ask Hermit to deposit. It shows here, earning.")
+                    TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Tap Deposit on a pool in Savings, or ask Hermit to deposit. It shows here, earning.")
                 }
                 ForEach(rows) { r in
                     HStack(spacing: 12) {
@@ -98,11 +98,12 @@ struct EarnDeFi: View {
 
     var body: some View {
         let f: (EarnData.Pool) -> Bool = EarnData.filters.first { $0.0 == filter }?.1 ?? { _ in true }
-        let list = feed.pools.filter { f($0) && (chain == "All" || $0.chain == chain) }.prefix(40)
+        let list = feed.pools.filter { f($0) && (chain == "All" || $0.chain == chain) }.prefix(30)
         VStack(alignment: .leading, spacing: 0) {
-            TradeFlow(spacing: 10) {
+            HStack(spacing: 10) {
                 Segmented(options: EarnData.filters.map { ($0.0, $0.0) }, selection: $filter)
-                Segmented(options: [("All", "All chains")] + EarnData.chains.map { ($0.llama, $0.name) }, selection: $chain)
+                Spacer(minLength: 0)
+                NetworkMenu(selection: $chain)
             }
             .padding(.bottom, 12)
             if feed.pools.isEmpty {
@@ -121,6 +122,29 @@ struct EarnDeFi: View {
             }
         }
         .marketPoll(every: 600) { await feed.refresh() }
+    }
+}
+
+/// One "All networks" button that opens a menu of networks, instead of a second row of pills.
+struct NetworkMenu: View {
+    @Binding var selection: String
+    var body: some View {
+        Menu {
+            Picker("Network", selection: $selection) {
+                Text("All networks").tag("All")
+                ForEach(EarnData.chains, id: \.llama) { Text($0.name).tag($0.llama) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 5) {
+                Text(selection == "All" ? "All networks" : EarnData.chainName(selection))
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+            }
+            .font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(Theme.hover, in: RoundedRectangle(cornerRadius: 9))
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 }
 

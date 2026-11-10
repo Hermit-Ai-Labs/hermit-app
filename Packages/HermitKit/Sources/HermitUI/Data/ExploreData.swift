@@ -169,3 +169,63 @@ final class ExploreStore {
         } catch { if tvl.isEmpty { state = .failed } }
     }
 }
+
+// MARK: Search
+
+extension ExploreData {
+    /// Apps whose name is close to `query` even when it's misspelled ("uniswp", "morfo", "aave app"), best first.
+    /// The query (and each word of it) is compared with the name and each word of the name by edit distance, allowing
+    /// about one typo per three letters; a name that starts with the query counts as a match too.
+    static func fuzzy(_ query: String, in list: [ExploreDapp], limit: Int = 6) -> [ExploreDapp] {
+        let q = fold(query)
+        let queries = ([q.replacingOccurrences(of: " ", with: "")] + q.split(separator: " ").map(String.init).filter { $0.count >= 3 })
+            .filter { $0.count >= 2 }
+        guard !queries.isEmpty else { return [] }
+        let scored: [(ExploreDapp, Int)] = list.compactMap { d in
+            let name = fold(d.name)
+            let words = [name.replacingOccurrences(of: " ", with: "")] + name.split(separator: " ").map(String.init)
+            let best = queries.compactMap { score($0, words) }.min()
+            return best.map { (d, $0) }
+        }
+        return scored.sorted { $0.1 < $1.1 }.prefix(limit).map(\.0)
+    }
+
+    /// The closest any word comes to `q`, or nil when it's further than the typo allowance.
+    private static func score(_ q: String, _ words: [String]) -> Int? {
+        var best = Int.max
+        for w in words {
+            if w.hasPrefix(q) { return 0 }
+            // Also against the start of the word as long as the query, so "hyperliqu" ~ "hyperliquid".
+            best = min(best, distance(q, w), distance(q, String(w.prefix(q.count + 1))))
+        }
+        return best <= max(1, (q.count + 1) / 3) ? best : nil
+    }
+
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .filter { $0.isLetter || $0.isNumber || $0 == " " }
+    }
+
+    /// Levenshtein distance.
+    static func distance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count), cur = [Int](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            cur[0] = i
+            for j in 1...b.count {
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            swap(&prev, &cur)
+        }
+        return prev[b.count]
+    }
+
+    /// A private web search for anything the directory doesn't have, opened in Hermit's browser.
+    static func webSearch(_ query: String) -> URL? {
+        var c = URLComponents(string: "https://duckduckgo.com/")
+        c?.queryItems = [URLQueryItem(name: "q", value: query)]
+        return c?.url
+    }
+}

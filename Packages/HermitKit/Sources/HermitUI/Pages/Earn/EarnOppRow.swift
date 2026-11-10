@@ -74,7 +74,7 @@ struct EarnPoolDetail: View {
             .frame(height: 80)
             TradeKV(pairs: [("Base APY", EarnPoolRow.pct(pool.apyBase)), ("Rewards APY", EarnPoolRow.pct(pool.apyReward)),
                             ("30-day mean", EarnPoolRow.pct(pool.apyMean30d)), ("TVL", pool.tvlUsd.tradeCompactUSD),
-                            ("Chain", pool.chainName), ("Asset", pool.stablecoin ? "Stablecoin" : pool.symbol)])
+                            ("Chain", pool.chainName), ("Asset", pool.stablecoin ? "Stablecoin" : pool.shownSymbol)])
                 .padding(.top, 14)
             HStack(spacing: 8) {
                 if EarnRoute.aave(pool) != nil {

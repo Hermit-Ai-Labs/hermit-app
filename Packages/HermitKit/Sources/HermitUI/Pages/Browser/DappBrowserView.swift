@@ -143,6 +143,11 @@ struct DappBrowserView: View {
                 Button(session.loading ? "Stop" : "Reload", systemImage: "arrow.clockwise") { session.reload() }
             }
             if let u = session.url {
+                if SavedSites.shared.contains(u) {
+                    Button("Remove from Your sites", systemImage: "star.slash") { SavedSites.shared.remove(u); model.toast("Removed from Your sites") }
+                } else {
+                    Button("Add to Your sites", systemImage: "star") { SavedSites.shared.add(u, title: session.title); model.toast("Added to Your sites") }
+                }
                 Button("Open in Safari", systemImage: "safari") { openURL(u) }
                 Button("Copy link", systemImage: "doc.on.doc") { PayClipboard.copy(u.absoluteString); model.toast("Copied") }
             }
