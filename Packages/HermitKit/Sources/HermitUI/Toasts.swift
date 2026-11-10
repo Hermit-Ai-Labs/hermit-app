@@ -45,18 +45,16 @@ struct ToastHost: View {
     var bottom: CGFloat = 28
     private var center: ToastCenter { .shared }
 
+    /// Sized to the toast alone (no frame that grows), so hosting it never changes the size of a sheet's window.
+    /// Hosts use `.overlay(alignment: .bottom) { ToastHost(...) }`.
     var body: some View {
-        ZStack(alignment: .bottom) {
-            if let t = center.current, place == .sheet || center.sheetsOpen == 0 {
-                ToastView(toast: t).id(t.id)
-                    .padding(.bottom, bottom).padding(.horizontal, 16)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .scale(scale: 0.8, anchor: .bottom)).combined(with: .opacity),
-                        removal: .scale(scale: 0.92).combined(with: .opacity)))
-            }
+        if let t = center.current, place == .sheet || center.sheetsOpen == 0 {
+            ToastView(toast: t).id(t.id)
+                .padding(.bottom, bottom).padding(.horizontal, 16)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .scale(scale: 0.8, anchor: .bottom)).combined(with: .opacity),
+                    removal: .scale(scale: 0.92).combined(with: .opacity)))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .allowsHitTesting(center.current != nil)
     }
 }
 

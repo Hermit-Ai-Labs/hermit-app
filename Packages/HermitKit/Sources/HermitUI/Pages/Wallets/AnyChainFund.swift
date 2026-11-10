@@ -4,7 +4,8 @@ import HermitWallet
 
 /// Add funds from any chain NEAR Intents supports: the user picks what they'll send (BTC, ETH, SOL, USDT on Tron, …),
 /// Hermit asks 1Click for a real quote with a one-time deposit address, shows it as a QR code, and follows the deposit
-/// until it lands as USDC in the wallet (on Base) or in Hyperliquid perps. Sent from an exchange or any other wallet;
+/// until it lands in the wallet as whatever you pick under "You get" (NEAR, USDC, ETH or SOL, on the network you
+/// choose; USDC on Base by default) or as USDC in Hyperliquid perps. A deposit address nobody sent to can be cancelled. Sent from an exchange or any other wallet;
 /// nothing is signed in Hermit.
 struct AnyChainFundView: View {
     let goal: FundGoal
@@ -17,6 +18,16 @@ struct AnyChainFundView: View {
     @State private var quote: IntentsQuote?
     @State private var busy = false
     @State private var error: String?
+    @State private var target = Target(chain: .base, symbol: "USDC")
+    @Environment(\.dismiss) private var dismiss
+
+    /// What a plain top-up can arrive as.
+    struct Target: Hashable { let chain: Chain; let symbol: String }
+    static let targets: [Target] = [
+        Target(chain: .near, symbol: "NEAR"), Target(chain: .base, symbol: "USDC"), Target(chain: .arbitrum, symbol: "USDC"),
+        Target(chain: .solana, symbol: "USDC"), Target(chain: .base, symbol: "ETH"), Target(chain: .arbitrum, symbol: "ETH"),
+        Target(chain: .ethereum, symbol: "ETH"), Target(chain: .solana, symbol: "SOL"),
+    ]
     private var vm: WalletsViewModel { .shared }
     private var act: IntentsActivity { .shared }
 
@@ -26,7 +37,7 @@ struct AnyChainFundView: View {
         switch goal {
         case .hyperliquid: (.hyperliquid, "USDC")
         case .token(let c, let s): (.chain(c), s)
-        case .wallet: (.chain(.base), "USDC")
+        case .wallet: (.chain(target.chain), target.symbol)
         }
     }
     /// Hermit's own address on the source chain, where refunds go when it has one.
@@ -71,6 +82,13 @@ struct AnyChainFundView: View {
                     subtitle: "Arrives as \(dest.symbol) on \(dest.place.name)", onBack: quote == nil ? onBack : { withAnimation(.smooth) { quote = nil } }) {
             if let q = quote, let addr = q.depositAddress { depositView(q, addr) } else { form }
         } foot: {
+            if let q = quote, let addr = q.depositAddress {
+                let waiting = (act.state(addr)?.status ?? .pendingDeposit) == .pendingDeposit
+                if waiting {
+                    Button("Cancel") { cancel(addr) }.buttonStyle(WideButton(kind: .plain))
+                }
+                Button(waiting ? "I've sent it" : "Done") { dismiss() }.buttonStyle(WideButton())
+            }
             if quote == nil {
                 Button { getAddress() } label: {
                     HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text(busy ? "Asking NEAR Intents" : "Get deposit address") }
@@ -89,6 +107,11 @@ struct AnyChainFundView: View {
                 MenuField(selection: $source, options: options.map(\.assetId), title: { id in tokens.first { $0.assetId == id }.map(label) ?? id },
                           logo: { id in tokens.first { $0.assetId == id }.map { $0.assetId == IntentsAssets.wrappedNear ? "near" : $0.symbol } })
             }
+            if goal == .wallet {
+                FormField(label: "You get") {
+                    MenuField(selection: $target, options: Self.targets, title: { "\($0.symbol) on \($0.chain.name)" }, logo: { $0.symbol })
+                }
+            }
             FormField(label: "About how much", trailing: src?.price.map { p in value > 0 ? "≈ \(MoneyFmt.usd(value * p, digits: 2))" : "1 = \(MoneyFmt.usdSmart(p))" }) {
                 AmountTextField(text: $amount)
             }
@@ -100,6 +123,14 @@ struct AnyChainFundView: View {
                 DetailLines(lines: [("Refunds go to", "This wallet, \(shortAddr(r))")])
             }
             NoteBox(symbol: "info.circle", text: "NEAR Intents gives you a one-time address on that chain. Send from any exchange or wallet; solvers swap it and pay out to your own \(dest.place.name) address.")
+            if !vm.holdings(wallet: wallet?.id, chain: nil).isEmpty {
+                HStack(spacing: 10) {
+                    Text("Coins already in Hermit? Swap them instead, no deposit address needed.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Button("Open Swap") { openSwap() }.buttonStyle(OutlineButton())
+                }
+            }
         }
         if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
     }
@@ -135,6 +166,20 @@ struct AnyChainFundView: View {
         if !(q.signatureValid) {
             NoteBox(symbol: "exclamationmark.triangle", text: "This quote's 1Click signature didn't check out on \(Device.here). It came straight from 1Click over HTTPS.", tint: Theme.amber)
         }
+    }
+
+    /// Nothing was sent yet: forget the address (it expires by itself on 1Click's side) and go back to the form.
+    private func cancel(_ addr: String) {
+        WalletService.intentsLedger.remove(addr)
+        act.reload()
+        withAnimation(.smooth) { quote = nil }
+        model.toast("Deposit address cancelled")
+    }
+
+    private func openSwap() {
+        dismiss()
+        model.fundGoal = nil
+        Task { @MainActor in try? await Task.sleep(for: .milliseconds(400)); model.open(.wallets, tab: "swap") }
     }
 
     private func getAddress() {

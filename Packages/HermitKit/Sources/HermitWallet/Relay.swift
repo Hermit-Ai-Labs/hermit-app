@@ -46,6 +46,9 @@ public enum Relay {
         public let feeUSD: Double
         public let seconds: Int
         public let requestID: String?
+        /// Part of `feeUSD` that is a one-time setup cost on the destination, not the transfer itself: Hyperliquid
+        /// charges a brand-new account about 1 USDC to activate it (Relay's "relayerGas" on its first deposit). 0 otherwise.
+        public var setupUSD: Double = 0
     }
 
     public static func quote(from: Place, fromToken: Token?, to: Place, toToken: Token?, amount: UInt128,
@@ -95,9 +98,12 @@ public enum Relay {
         let out = det?["currencyOut"] as? [String: Any]
         let fees = (j["fees"] as? [String: [String: Any]] ?? [:]).filter { ["gas", "relayer", "app"].contains($0.key) }
             .reduce(0.0) { $0 + (Double($1.value["amountUsd"] as? String ?? "") ?? 0) }
-        return Quote(steps: steps, amountOut: out?["amountFormatted"] as? String ?? "?",
-                     amountOutUSD: Double(out?["amountUsd"] as? String ?? ""), feeUSD: fees,
-                     seconds: det?["timeEstimate"] as? Int ?? 30, requestID: requestID)
+        let relayerGas = Double((j["fees"] as? [String: [String: Any]])?["relayerGas"]?["amountUsd"] as? String ?? "") ?? 0
+        var q = Quote(steps: steps, amountOut: out?["amountFormatted"] as? String ?? "?",
+                      amountOutUSD: Double(out?["amountUsd"] as? String ?? ""), feeUSD: fees,
+                      seconds: det?["timeEstimate"] as? Int ?? 30, requestID: requestID)
+        if case .hyperliquid = to, relayerGas >= 0.5 { q.setupUSD = relayerGas }
+        return q
     }
 
     static func solanaInstruction(_ i: [String: Any]) throws -> SolanaInstruction {

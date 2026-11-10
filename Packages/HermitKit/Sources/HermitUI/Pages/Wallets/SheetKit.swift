@@ -86,7 +86,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
         #endif
         .presentationCornerRadius(20)
         .glassSheetBackground()
-        .overlay { ToastHost(place: .sheet, bottom: hasFoot ? 84 : 22) }
+        .overlay(alignment: .bottom) { ToastHost(place: .sheet, bottom: hasFoot ? 84 : 22) }
         .onAppear { ToastCenter.shared.sheetsOpen += 1 }
         .onDisappear { ToastCenter.shared.sheetsOpen = max(0, ToastCenter.shared.sheetsOpen - 1) }
     }

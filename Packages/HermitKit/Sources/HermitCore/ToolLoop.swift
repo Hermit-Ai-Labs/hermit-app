@@ -55,10 +55,13 @@ public actor ToolChat {
         if let s = nextSystem { system = s; nextSystem = nil }
     }
 
-    /// The full prompt for the next assistant turn.
-    public func prompt() -> String {
-        HermitPrompt.render(messages, tools: config.tools, family: config.family, addGenerationPrompt: true)
+    /// The full prompt for the next assistant turn. `tools: false` renders it with no tools offered (the last-chance
+    /// plain answer below).
+    public func prompt(tools: Bool = true) -> String {
+        HermitPrompt.render(messages, tools: tools ? config.tools : [], family: config.family, addGenerationPrompt: true)
     }
+
+    static let answerNowNote = #"{"note": "No more tools for this message. Answer the user now, in a few plain sentences, from what you know and any results above. If a tool couldn't help, say so in one short clause and answer anyway."}"#
 
     /// What the user typed in this chat, without attached files (an address inside a file doesn't count as typed).
     public func userText() -> String {
@@ -215,6 +218,22 @@ public actor ToolChat {
         }
         if Task.isCancelled { return }
 
+        // Tools got nowhere (a failed lookup, a repeated call, an unreadable one) and nothing was said yet: one more turn
+        // with no tools offered, so the model answers from what it knows instead of the user getting a dead end.
+        if !finalAnswer && actions.isEmpty && !shownAny && !Task.isCancelled {
+            history.append(.tool(Self.answerNowNote))
+            var parser = ToolCallStream(known: toolNames)
+            var last = OutputFilter()
+            var plain = ""
+            do {
+                for try await chunk in generator.generate(self.prompt(tools: false)) {
+                    for p in parser.push(chunk) { if case .text(let t) = p { let v = last.push(t); if !v.isEmpty { if !shownAny { cont.yield(.steps(steps)) }; cont.yield(.text(v)); plain += v; said += v; shownAny = true } } }
+                    if last.finished { break }
+                }
+            } catch {}
+            let content = plain.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty { history.append(.assistant(content, calls: [])); finalAnswer = true }
+        }
         if !finalAnswer {
             // The model ran out of rounds, or couldn't write a readable call: a plain line instead of anything raw.
             let text = !actions.isEmpty ? "It's ready for your review below. Nothing moves until you approve it with Face ID."

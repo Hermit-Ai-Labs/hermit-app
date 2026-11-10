@@ -49,6 +49,14 @@ public final class IntentsLedger: @unchecked Sendable {
         }
     }
     public func swap(_ depositAddress: String) -> TrackedSwap? { all.first { $0.depositAddress == depositAddress } }
+    /// Forgets a deposit address nobody sent to (the user cancelled it). It simply expires on 1Click's side.
+    public func remove(_ depositAddress: String) {
+        lock.withLock {
+            var l = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([TrackedSwap].self, from: $0) } ?? []
+            l.removeAll { $0.depositAddress == depositAddress }
+            defaults.set(try? JSONEncoder().encode(l), forKey: key)
+        }
+    }
 }
 
 extension WalletService {

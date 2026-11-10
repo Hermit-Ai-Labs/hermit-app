@@ -48,6 +48,9 @@ struct FundSheet: View {
     private var hl: HyperliquidStore { .shared }
 
     enum Stage { case source, amount, receive, anyChain }
+    /// Moving between steps: the new one slides in a little from the right as the old one fades.
+    static let step: AnyTransition = .asymmetric(insertion: .offset(x: 28).combined(with: .opacity),
+                                                 removal: .offset(x: -18).combined(with: .opacity))
     /// Set just before opening: start on "From any chain" (deep link `wallets/fund-any`).
     @MainActor static var startAnyChain = false
     @State private var anyBack: Stage = .source
@@ -65,13 +68,13 @@ struct FundSheet: View {
     var body: some View {
         Group {
             switch stage {
-            case .source: sourceView
-            case .amount: amountView
-            case .receive: receiveView
-            case .anyChain: AnyChainFundView(goal: goal, onBack: { withAnimation(.smooth) { stage = anyBack } })
+            case .source: sourceView.transition(Self.step)
+            case .amount: amountView.transition(Self.step)
+            case .receive: receiveView.transition(Self.step)
+            case .anyChain: AnyChainFundView(goal: goal, onBack: { withAnimation(.smooth) { stage = anyBack } }).transition(Self.step)
             }
         }
-        .animation(.smooth(duration: 0.25), value: stage)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: stage)
         .task {
             if vm.wallets.isEmpty { return }
             if Self.startAnyChain { Self.startAnyChain = false; anyBack = .receive; stage = .anyChain; return }
@@ -197,7 +200,10 @@ struct FundSheet: View {
                 }
                 .padding(12).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 14))
                 if let q = quote {
-                    DetailLines(lines: [("Fee", MoneyFmt.usd(q.feeUSD, digits: 2)), ("Arrives", q.seconds <= 60 ? "In under a minute" : "In about \(q.seconds / 60) min"),
+                    DetailLines(lines: (q.setupUSD > 0
+                        ? [("Transfer fee", MoneyFmt.usd(max(0, q.feeUSD - q.setupUSD), digits: 2)),
+                           ("Hyperliquid account setup", MoneyFmt.usd(q.setupUSD, digits: 2) + ", first deposit only")]
+                        : [("Fee", MoneyFmt.usd(q.feeUSD, digits: 2))]) + [ ("Arrives", q.seconds <= 60 ? "In under a minute" : "In about \(q.seconds / 60) min"),
                                         ("Route", "Relay")])
                 }
                 if value > h.amount { Text("Only \(h.exact) \(h.symbol) available.").font(.system(size: 12.5)).foregroundStyle(Theme.red) }

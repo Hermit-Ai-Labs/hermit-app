@@ -59,11 +59,12 @@ public struct HermitToolbox: AgentToolbox {
 
     struct Ctx { let coin: String; let mark: Double; let prev: Double; let funding: Double; let volume: Double; let maxLev: Int }
 
-    static func contexts() async throws -> [Ctx] {
+    /// `dex` "xyz" is trade.xyz on Hyperliquid: stocks and indexes (xyz:NVDA, xyz:TSLA…).
+    static func contexts(dex: String? = nil) async throws -> [Ctx] {
         var req = URLRequest(url: Hyperliquid.api.appending(path: "info"), timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = Data(#"{"type":"metaAndAssetCtxs"}"#.utf8)
+        req.httpBody = Data((dex.map { #"{"type":"metaAndAssetCtxs","dex":"\#($0)"}"# } ?? #"{"type":"metaAndAssetCtxs"}"#).utf8)
         let (d, _) = try await URLSession.shared.data(for: req)
         guard let arr = try JSONSerialization.jsonObject(with: d) as? [Any], arr.count == 2,
               let uni = (arr[0] as? [String: Any])?["universe"] as? [[String: Any]], let ctxs = arr[1] as? [[String: Any]] else {
@@ -78,12 +79,17 @@ public struct HermitToolbox: AgentToolbox {
     }
 
     static func price(_ symbol: String) async throws -> [String: Any] {
-        let sym = symbol.uppercased().trimmingCharacters(in: .whitespaces)
-        guard let c = try await contexts().first(where: { $0.coin.uppercased() == sym }), c.mark > 0 else {
-            throw ToolError("No Hyperliquid market for \(sym)")
+        let sym = symbol.uppercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "XYZ:", with: "")
+        // Crypto first, then stocks and indexes on trade.xyz (NVDA, TSLA, SPX…).
+        var hit = try await contexts().first(where: { $0.coin.uppercased() == sym })
+        if hit == nil { hit = try? await contexts(dex: "xyz").first(where: { $0.coin.uppercased() == "XYZ:" + sym }) }
+        guard let c = hit, c.mark > 0 else {
+            throw ToolError("No Hyperliquid market for \(sym). Answer from what you know instead, and say there's no live price here.")
         }
         let change: Any = c.prev > 0 ? (((c.mark / c.prev - 1) * 100) * 100).rounded() / 100 : NSNull()
-        return ["symbol": c.coin, "price": c.mark, "change_24h_pct": change, "source": "Hyperliquid mark price"]
+        let stock = c.coin.hasPrefix("xyz:")
+        return ["symbol": stock ? String(c.coin.dropFirst(4)) : c.coin, "price": c.mark, "change_24h_pct": change,
+                "source": stock ? "trade.xyz perp on Hyperliquid (tracks the stock)" : "Hyperliquid mark price"]
     }
 
     static func searchMarkets(_ query: String) async throws -> [[String: Any]] {
