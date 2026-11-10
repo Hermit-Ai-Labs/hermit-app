@@ -128,14 +128,14 @@ struct DappBrowserView: View {
     private var menu: some View {
         Menu {
             if let s = session.connected {
-                Section("Connected: \(DappDecoder.short(s.address))") {
-                    Menu("Network") {
+                Section("Connected: \(s.address.isEmpty ? SolanaDecoder.short(s.solana ?? "") : DappDecoder.short(s.address))") {
+                    if session.evmConnected { Menu("Network") {
                         ForEach(DappProvider.evmChains.filter { !$0.isTestnet || WalletsViewModel.shared.service.showTestnets }) { c in
                             Button { session.switchChain(c) } label: {
                                 if c == session.chain { Label(c.name, systemImage: "checkmark") } else { Text(c.name) }
                             }
                         }
-                    }
+                    } }
                     Button("Disconnect this site", systemImage: "xmark.circle") { session.disconnect() }
                 }
             }
@@ -159,8 +159,7 @@ struct DappBrowserView: View {
 
     @ViewBuilder private var notices: some View {
         let warnings = session.warnings
-        let solanaOnly = session.dapp?.chain == "Solana"
-        if !warnings.isEmpty || !session.secure || solanaOnly {
+        if !warnings.isEmpty || !session.secure {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(warnings, id: \.self) { w in
                     Label(w, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.amber)
@@ -168,11 +167,6 @@ struct DappBrowserView: View {
                 if !session.secure && session.url != nil {
                     Label("This page isn't encrypted (http). Hermit's wallet stays off here.", systemImage: "lock.slash")
                         .foregroundStyle(Theme.amber)
-                }
-                if solanaOnly {
-                    Label("This is a Solana app. Hermit's browser wallet connects EVM apps only for now, so this site can't see your Solana wallet.",
-                          systemImage: "info.circle")
-                        .foregroundStyle(Theme.muted)
                 }
             }
             .font(.system(size: 12.5))

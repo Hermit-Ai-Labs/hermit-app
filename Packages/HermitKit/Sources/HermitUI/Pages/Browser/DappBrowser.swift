@@ -40,24 +40,38 @@ final class DappBrowser: DappPresenter {
 
     #if DEBUG
     /// Simulator screenshots (scripts/phone-shots.sh): `-hermitDapp <url>` opens the browser once on launch, and
-    /// `-hermitDappAsk connect|sign` makes the page ask for a connection or a signature, so the real approval sheet
+    /// `-hermitDappAsk connect|sign|sol-connect|sol-tx` makes the page ask for a connection or a signature, so the real approval sheet
     /// shows over it. Nobody taps Approve in a screenshot run. Never compiled into Release.
     private static var debugUsed = false
     func debugLaunch(_ model: AppModel) {
         guard !Self.debugUsed, let s = UserDefaults.standard.string(forKey: "hermitDapp"), let u = URL(string: s) else { return }
         Self.debugUsed = true
         open(u, dapp: ExploreData.dapps.first { $0.url?.host() == u.host() }, model: model)
-        guard let ask = UserDefaults.standard.string(forKey: "hermitDappAsk"), let session, let o = session.origin else { return }
-        if ask == "sign", let w = WalletsViewModel.shared.service.selected {
-            DappPermissions.shared.connect(o, walletID: w.id, address: w.evmAddress, chainID: 1)
-        }
-        let script = ask == "sign"
-            ? "window.ethereum.request({ method: 'eth_accounts' }).then(a => window.ethereum.request({ method: 'personal_sign', params: ['0x' + Array.from(new TextEncoder().encode(location.host + ' wants you to sign in with your Ethereum account:\\n' + a[0] + '\\n\\nURI: https://' + location.host + '\\nVersion: 1\\nChain ID: 1\\nNonce: hermitdemo1\\nIssued At: 2026-11-10T09:00:00Z')).map(b => b.toString(16).padStart(2, '0')).join(''), a[0]] }))"
-            : "window.ethereum.request({ method: 'eth_requestAccounts' })"
-        // Pages with long-running analytics may never report "finished": ask after a fixed wait instead.
+        guard let ask = UserDefaults.standard.string(forKey: "hermitDappAsk"), let session, let o = session.origin,
+              let w = WalletsViewModel.shared.service.selected else { return }
+        if ask == "sign" { DappPermissions.shared.connect(o, walletID: w.id, address: w.evmAddress, chainID: 1) }
+        if ask == "sol-tx" { DappPermissions.shared.connectSolana(o, walletID: w.id, address: w.solanaAddress) }
         Task { @MainActor [weak session] in
+            // Pages with long-running analytics may never report "finished": ask after a fixed wait instead.
             try? await Task.sleep(for: .seconds(9))
-            session?.webView.evaluateJavaScript(script, in: nil, in: .page) { _ in }
+            guard let session else { return }
+            var script: String
+            switch ask {
+            case "sign":
+                script = "window.ethereum.request({ method: 'eth_accounts' }).then(a => window.ethereum.request({ method: 'personal_sign', params: ['0x' + Array.from(new TextEncoder().encode(location.host + ' wants you to sign in with your Ethereum account:\\n' + a[0] + '\\n\\nURI: https://' + location.host + '\\nVersion: 1\\nChain ID: 1\\nNonce: hermitdemo1\\nIssued At: 2026-11-10T09:00:00Z')).map(b => b.toString(16).padStart(2, '0')).join(''), a[0]] }))"
+            case "sol-connect":
+                script = "window.hermit.connect()"
+            case "sol-tx":
+                // A real mainnet transfer of 0.01 SOL to a public address, shown for review only: nobody approves in a screenshot run.
+                guard let me = SolanaPublicKey(w.solanaAddress), let to = SolanaPublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"),
+                      let latest = try? await SolanaClient(url: Chain.solana.rpc).latestBlockhash() else { return }
+                let tx = SolanaTransaction(message: SolanaMessage(payer: me, instructions: [.setComputeUnitLimit(1_000), .setComputeUnitPrice(100_000),
+                                                                                           .transfer(from: me, to: to, lamports: 10_000_000)], recentBlockhash: latest.hash))
+                script = "window.hermit.signAndSendTransaction(Uint8Array.from(atob('\(tx.base64)'), c => c.charCodeAt(0)))"
+            default:
+                script = "window.ethereum.request({ method: 'eth_requestAccounts' })"
+            }
+            session.webView.evaluateJavaScript(script, in: nil, in: .page) { _ in }
         }
     }
     #endif
@@ -145,10 +159,15 @@ final class DappBrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     var listed: Bool { !host.isEmpty && DappSiteCheck.isListed(host, known: DappBrowser.knownHosts) }
     /// The wallet connected to this page's origin, if any (reads the shared list, so Settings changes show at once).
     var connected: DappPermissions.Site? {
-        guard let o = origin, provider.account(for: o) != nil else { return nil }
+        guard let o = origin, provider.account(for: o) != nil || provider.solanaAccount(for: o) != nil else { return nil }
         return DappPermissions.shared.site(o)
     }
-    var chain: Chain? { origin.map { provider.chain(for: $0) } }
+    /// The EVM network, when an EVM wallet is connected; Solana when only Solana is.
+    var chain: Chain? {
+        guard let o = origin else { return nil }
+        return provider.account(for: o) != nil ? provider.chain(for: o) : provider.solanaAccount(for: o) != nil ? .solana : nil
+    }
+    var evmConnected: Bool { origin.map { provider.account(for: $0) != nil } ?? false }
 
     func load(_ text: String) {
         guard let u = Self.normalize(text) else { DappBrowser.shared.notice("That isn't a web address"); return }

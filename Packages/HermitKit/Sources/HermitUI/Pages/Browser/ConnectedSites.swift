@@ -40,7 +40,9 @@ struct ConnectedSitesSettings: View {
 
     private func sub(_ s: DappPermissions.Site) -> String {
         let wallet = WalletsViewModel.shared.service.wallets.first { $0.id == s.walletID }?.name ?? "Deleted wallet"
-        let chain = Chain.with(chainId: s.chainID)?.name ?? "Chain \(s.chainID)"
-        return "\(wallet), \(DappDecoder.short(s.address)) on \(chain). Last used \(s.lastUsed.formatted(.relative(presentation: .named)))"
+        var parts: [String] = []
+        if !s.address.isEmpty { parts.append("\(DappDecoder.short(s.address)) on \(Chain.with(chainId: s.chainID)?.name ?? "chain \(s.chainID)")") }
+        if let sol = s.solana { parts.append("\(SolanaDecoder.short(sol)) on Solana") }
+        return "\(wallet), \(parts.joined(separator: " and ")). Last used \(s.lastUsed.formatted(.relative(presentation: .named)))"
     }
 }

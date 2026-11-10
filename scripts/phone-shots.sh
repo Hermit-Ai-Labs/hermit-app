@@ -4,7 +4,7 @@
 #   SIM="Hermit NEAR" DD=~/hermit/dd-near OUT=~/hermit/shots-near NOBUILD=1 zsh scripts/phone-shots.sh wallets-w
 # Launch arguments (DEBUG only, AppModel / DebugLaunch.swift; -hermitSteps YES opens a reply's tool steps):
 #   -hermitRoute <page> -hermitTab <tab or wallets flow> -hermitDrawer YES -hermitSheet <sheet> -hermitScroll bottom|<y>
-#   -hermitDapp <url> -hermitDappAsk connect|sign (Explore's in-app browser, Pages/Browser/DappBrowser.swift)
+#   -hermitDapp <url> -hermitDappAsk connect|sign|sol-connect|sol-tx (Explore's in-app browser, Pages/Browser/DappBrowser.swift)
 #   -hermitTestWallet YES (memory-only vault with the public "abandon … about" phrase) -hermitMode cloud -hermitAsk <text>
 # Per shot, @dark shoots in dark appearance and @xl at a larger Dynamic Type size; @w adds the test wallet.
 set -uo pipefail
@@ -83,6 +83,8 @@ SHOTS=(
   "browser|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap"
   "browser-connect|@w -hermitRoute explore -hermitDapp https://app.uniswap.org/swap -hermitDappAsk connect"
   "browser-sign|@w -hermitRoute explore -hermitDapp https://app.aave.com -hermitDappAsk sign"
+  "browser-sol-connect|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-connect"
+  "browser-sol-tx|@w -hermitRoute explore -hermitDapp https://jup.ag -hermitDappAsk sol-tx"
   "settings-sites|-hermitRoute settings -hermitTab sites"
   "connectors|-hermitRoute connectors"
   "sheet-mcp|-hermitRoute connectors -hermitSheet mcp"
