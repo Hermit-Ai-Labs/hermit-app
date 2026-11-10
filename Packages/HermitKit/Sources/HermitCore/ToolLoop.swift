@@ -115,6 +115,7 @@ public actor ToolChat {
         var triedMoney = false  // the model called a money tool (even one that answered "blocked" or asked a question)
         var blockedReason: String?  // why a money tool refused, for the honesty check
         var executed = false        // a tool result said money actually moved
+        var listSent = false        // the attached list of payees already went out as one batch
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -181,8 +182,15 @@ public actor ToolChat {
             history.append(.assistant(content, calls: run))
             let typed = userText()
             var fresh = 0
-            for call in run {
+            for original in run {
                 if Task.isCancelled { return }
+                var call = original
+                // A spreadsheet of payees is one batch send, whatever the model did with it: it tends to split the list
+                // into single sends (and invent a network). The app builds the batch from the user's own rows instead.
+                if call.name == "prepare_send", let (n, a) = Self.appRoute(prompt), n == "prepare_multisend", Self.recipientCount(a) >= 2 {
+                    if listSent { continue }
+                    call = ToolCall(name: n, arguments: JSONValue.parse(a) ?? .object([])); listSent = true
+                }
                 // The same call again in this message: answer from the first run (a repeated prepare_ never opens a
                 // second review).
                 let key = call.name + " " + call.argumentsJSON
@@ -304,6 +312,11 @@ public actor ToolChat {
     }
 
     /// The tool the app runs for a plain request the model didn't act on, with its arguments.
+    static func recipientCount(_ argumentsJSON: String) -> Int {
+        guard let v = JSONValue.parse(argumentsJSON), case .array(let r)? = v["recipients"] else { return 0 }
+        return r.count
+    }
+
     public static func appRoute(_ prompt: String) -> (String, String)? {
         if let a = MoneyIntent.multisendArguments(prompt) { return ("prepare_multisend", a) }
         if let a = MoneyIntent.depositArguments(prompt) { return ("prepare_deposit", a) }
