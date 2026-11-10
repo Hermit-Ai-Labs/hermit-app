@@ -43,7 +43,7 @@ struct FundSheet: View {
     @State private var quoting = false
     @State private var error: String?
     @State private var family: Family = .evm
-    @State private var baseline: Set<String> = []
+    @State private var arrival: DepositArrival?
     private var vm: WalletsViewModel { .shared }
     private var hl: HyperliquidStore { .shared }
 
@@ -254,8 +254,12 @@ struct FundSheet: View {
         let evm = wallet?.record.evmAddress ?? "", sol = wallet?.record.solanaAddress ?? "", near = wallet?.record.nearAccount ?? ""
         let addr = family == .evm ? evm : family == .solana ? sol : near
         return SheetChrome(title: goal == .wallet ? "Add funds" : "Add money to your wallet",
-                           subtitle: "Send crypto to this address",
+                           subtitle: arrival == nil ? "Send crypto to this address" : "Deposit received",
                            onBack: goal == .wallet || sources.isEmpty ? nil : { withAnimation(.smooth) { stage = .source } }) {
+            if let arrival {
+                DepositArrivedView(arrival: arrival, primary: goal == .wallet ? "Done" : "Continue") { finish(arrival) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else {
             Segmented(options: Family.allCases.map { ($0, $0.rawValue) }, selection: $family).frame(maxWidth: .infinity)
             VStack(spacing: 12) {
                 AddressQR(text: addr)
@@ -290,11 +294,8 @@ struct FundSheet: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Watching for incoming funds. This moves on by itself when they land.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            DepositWaitingRow(network: family == .evm ? "Base, Arbitrum and every EVM network" : family.rawValue)
+                .padding(.vertical, 4)
             anyChainRow(back: .receive)
             NoteBox(symbol: "lightbulb", text: tip)
             DisclosureGroup("From an exchange, step by step") {
@@ -309,8 +310,10 @@ struct FundSheet: View {
                 .padding(.top, 8)
             }
             .font(.system(size: 13.5, weight: .medium)).tint(Theme.text)
+            }
         }
-        .task(id: "watch") { await watch() }
+        .animation(.smooth(duration: 0.35), value: arrival)
+        .task(id: family) { await watch() }
     }
 
     private var tip: String {
@@ -328,21 +331,21 @@ struct FundSheet: View {
          "Withdraw, then come back here. It usually lands in 1–3 minutes."]
     }
 
-    /// Re-reads balances every 8 seconds; when a holding appears or grows, picks it and moves to Amount
-    /// (or, for a plain wallet top-up, says it arrived).
+    /// Watches the networks on screen every 2 seconds (DepositWatcher) and shows the arrival right here, then refreshes
+    /// the whole wallet in the background so every page has the new balance.
     private func watch() async {
-        baseline = Set(sources.map { "\($0.id)|\($0.exact)" })
-        while !Task.isCancelled && stage == .receive {
-            try? await Task.sleep(for: .seconds(8))
+        guard let w = wallet, arrival == nil else { return }
+        guard let a = await DepositWatcher.watch(wallet: w.record, family: family, service: vm.service), stage == .receive else { return }
+        arrival = a
+        Task { await vm.refresh() }
+    }
+
+    /// Done closes a plain top-up; for a goal (Hyperliquid, a pool) Continue picks the money that landed and moves to Amount.
+    private func finish(_ a: DepositArrival) {
+        if goal == .wallet { dismiss(); return }
+        Task {
             await vm.refresh()
-            if let new = sources.first(where: { !baseline.contains("\($0.id)|\($0.exact)") }) {
-                #if os(iOS)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                #endif
-                model.toast("\(MoneyFmt.amount(new.amount)) \(new.symbol) arrived on \(new.chain.name)")
-                if goal == .wallet { dismiss(); return }
-                pick(new); return
-            }
+            if let h = vm.holdings(wallet: wallet?.id, chain: a.chain).first(where: { $0.symbol == a.symbol }) { arrival = nil; pick(h) } else { dismiss() }
         }
     }
 }

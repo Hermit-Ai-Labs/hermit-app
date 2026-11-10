@@ -48,12 +48,7 @@ public struct RootView: View {
         .environment(\.colorScheme, .light)
         .tint(Theme.accent)
         .focusedSceneValue(\.hermitModel, model)
-        .overlay(alignment: .bottom) {
-            if let t = model.toastText {
-                ToastView(text: t).padding(.bottom, compact ? 96 : 28)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .overlay { ToastHost(place: .page, bottom: compact ? 96 : 28) }
         .sheet(item: $model.approval) { a in
             ApprovalSheet(approval: a) { model.approved(a) }
                 .environment(model)

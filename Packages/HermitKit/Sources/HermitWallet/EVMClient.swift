@@ -36,18 +36,19 @@ public final class EVMClient: Sendable {
         try u64(try await rpc.call("eth_getTransactionCount", [.string(a.checksummed), "pending"]), "nonce")
     }
 
-    public func balance(_ a: EVMAddress) async throws -> UInt128 {
-        try quantity(try await rpc.call("eth_getBalance", [.string(a.checksummed), "latest"]), "balance")
+    /// `block` "pending" reads Base's Flashblocks preconfirmations (about 200 ms after a transfer) on its preconf RPC.
+    public func balance(_ a: EVMAddress, block: String = "latest") async throws -> UInt128 {
+        try quantity(try await rpc.call("eth_getBalance", [.string(a.checksummed), .string(block)]), "balance")
     }
 
-    public func call(to: EVMAddress, data: [UInt8], from: EVMAddress? = nil, value: UInt128 = 0) async throws -> [UInt8] {
-        let r = try await rpc.call("eth_call", [callObject(to: to, data: data, from: from, value: value), "latest"])
+    public func call(to: EVMAddress, data: [UInt8], from: EVMAddress? = nil, value: UInt128 = 0, block: String = "latest") async throws -> [UInt8] {
+        let r = try await rpc.call("eth_call", [callObject(to: to, data: data, from: from, value: value), .string(block)])
         guard let s = r.string, let b = [UInt8](hex: s) else { throw WalletError.badResponse("eth_call") }
         return b
     }
 
-    public func tokenBalance(token: EVMAddress, owner: EVMAddress) async throws -> UInt128 {
-        let out = try await call(to: token, data: ERC20.balanceOf(owner))
+    public func tokenBalance(token: EVMAddress, owner: EVMAddress, block: String = "latest") async throws -> UInt128 {
+        let out = try await call(to: token, data: ERC20.balanceOf(owner), block: block)
         guard out.count == 32, let v = UInt128(bigEndian: out) else { throw WalletError.badResponse("balanceOf") }
         return v
     }

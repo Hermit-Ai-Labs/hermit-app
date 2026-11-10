@@ -167,10 +167,8 @@ public final class AppModel {
 
     public var inChat: Bool { !messages.isEmpty }
 
-    public func toast(_ text: String) {
-        withAnimation(.snappy) { toastText = text }
-        Task { try? await Task.sleep(for: .seconds(2.4)); if toastText == text { withAnimation(.smooth) { toastText = nil } } }
-    }
+    /// Shows a toast over whatever is in front (page or sheet). See ToastCenter.
+    public func toast(_ text: String) { ToastCenter.shared.show(text) }
 
     /// Open a page, optionally on a tab (pages read `tabRequest` once on appear).
     public var tabRequest: String?

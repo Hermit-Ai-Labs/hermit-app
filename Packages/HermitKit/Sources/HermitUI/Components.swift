@@ -238,21 +238,6 @@ struct ListRow<Trailing: View>: View {
     }
 }
 
-/// A short confirmation that slides in at the bottom and leaves by itself.
-struct ToastView: View {
-    let text: String
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
-            Text(text).font(.system(size: 13.5, weight: .medium))
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.border))
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
-    }
-}
-
 /// Plain white secondary button with a border.
 struct OutlineButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

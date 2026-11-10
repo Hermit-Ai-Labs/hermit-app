@@ -20,6 +20,7 @@ public struct Balance: Equatable, Sendable, Identifiable {
     public var decimals: Int { token?.decimals ?? chain.nativeDecimals }
     public var logo: String { token?.logo ?? chain.logo }
     public var formatted: String { Units.format(amount, decimals: decimals, maxFraction: 6) }
+    public init(chain: Chain, token: Token?, amount: UInt128) { self.chain = chain; self.token = token; self.amount = amount }
 }
 
 /// Everything the approval sheet needs before money moves, plus what `execute` needs to send it.
