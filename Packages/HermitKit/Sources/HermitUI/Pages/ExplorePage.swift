@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Explore: search, then New, Trending and All. All has category chips and a list. TVL comes live from DefiLlama;
-/// Trending is the biggest 7-day TVL growth. Connecting apps isn't wired up yet, so Connect is greyed.
+/// Trending is the biggest 7-day TVL growth. Open shows the app in Hermit's browser (Pages/Browser), which takes the
+/// page's place until it's closed.
 struct ExplorePage: View {
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = .new
@@ -14,6 +15,10 @@ struct ExplorePage: View {
     enum Tab: String, Hashable { case new, trending, all }
 
     var body: some View {
+        if let s = DappBrowser.shared.session { DappBrowserView(session: s) } else { directory }
+    }
+
+    @ViewBuilder private var directory: some View {
         let compact = width < 640
         Page(title: "Explore", tabs: [(.new, "New"), (.trending, "Trending"), (.all, "All")], tab: $tab) {
             if !compact { search.frame(width: 240) }
@@ -32,6 +37,9 @@ struct ExplorePage: View {
         .onChange(of: q) { _, v in if !v.isEmpty && tab != .all { tab = .all } }
         .onAppear {
             if let r = model.tabRequest, let v = Tab(rawValue: r) { tab = v; model.tabRequest = nil }
+            #if DEBUG
+            DappBrowser.shared.debugLaunch(model)
+            #endif
         }
     }
 

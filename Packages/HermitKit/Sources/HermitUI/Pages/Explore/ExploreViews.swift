@@ -1,26 +1,37 @@
 import SwiftUI
 
-/// Opens the app's own site in Safari.
+/// Open shows the app in Hermit's browser, where it can connect to your wallet; the small button beside it opens Safari.
 struct ExploreConnectButton: View {
+    @Environment(AppModel.self) private var model
     let dapp: ExploreDapp
     var block = false
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         if let url = dapp.url {
-            Button { openURL(url) } label: {
-                HStack(spacing: 5) {
+            HStack(spacing: 6) {
+                Button { DappBrowser.shared.open(url, dapp: dapp, model: model) } label: {
                     Text("Open")
-                    Image(systemName: "arrow.up.right").font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
+                        .frame(maxWidth: block ? .infinity : nil).frame(minWidth: block ? nil : 64).frame(height: PayMetrics.chip + 2)
+                        .padding(.horizontal, block ? 0 : 10)
+                        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
-                .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
-                .frame(maxWidth: block ? .infinity : nil).frame(minWidth: 104).frame(height: PayMetrics.chip + 2)
-                .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
-                .contentShape(RoundedRectangle(cornerRadius: 9))
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("Open \(dapp.name) in Hermit")
+                Button { openURL(url) } label: {
+                    Image(systemName: "safari").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.muted)
+                        .frame(width: PayMetrics.chip + 2, height: PayMetrics.chip + 2)
+                        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(PressStyle())
+                .help("Open in Safari")
+                .accessibilityLabel("Open \(dapp.name) in Safari")
             }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("Open \(dapp.name) in Safari")
         }
     }
 }
@@ -112,8 +123,13 @@ struct ExploreRow: View {
 
 struct ExploreMenu: View {
     @Environment(AppModel.self) var model
+    @Environment(\.openURL) private var openURL
     let dapp: ExploreDapp
     var body: some View {
+        if let url = dapp.url {
+            Button("Open in Hermit", systemImage: "globe") { DappBrowser.shared.open(url, dapp: dapp, model: model) }
+            Button("Open in Safari", systemImage: "safari") { openURL(url) }
+        }
         Button("Ask Hermit about \(dapp.name)", systemImage: "sparkles") { model.send("Tell me about \(dapp.name)") }
         Button("Copy name", systemImage: "doc.on.doc") { PayClipboard.copy(dapp.name); model.toast("Copied") }
     }
