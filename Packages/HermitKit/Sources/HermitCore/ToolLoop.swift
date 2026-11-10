@@ -312,6 +312,10 @@ public actor ToolChat {
                         #"\bprepared for (your )?(review|approval)"#, #"\bwaiting for (your )?(face id|approval)"#,
                         #"\b(review|approval) (sheet|screen) (is )?open"#, #"\bi(['’]ve| have) prepared\b"#,
                         #"\bon the review (sheet|screen)\b"#]
-        return patterns.contains { t.range(of: $0, options: .regularExpression) != nil }
+        // Sentence by sentence, skipping denials ("nothing is prepared for review", "it isn't ready for approval").
+        let sentences = t.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).filter {
+            $0.range(of: #"\b(nothing|not|no|never)\b|n['’]t\b"#, options: .regularExpression) == nil
+        }
+        return sentences.contains { s in patterns.contains { s.range(of: $0, options: .regularExpression) != nil } }
     }
 }

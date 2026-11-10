@@ -145,6 +145,9 @@ final class MoneyFeatureTests: XCTestCase {
         for await e in stream { if case .text(let s) = e { text += s } }
         XCTAssertTrue(text.hasSuffix("Nothing was prepared: The assistant can't send tokens without a price. Open Send yourself."), text)
         XCTAssertTrue(ToolChat.claimsPrepared("I’ve prepared a deposit of 50 USDC."))
+        XCTAssertFalse(ToolChat.claimsPrepared("About 5.524 NEAR ($19.99). That's just the quote; nothing is prepared for review."))
+        XCTAssertFalse(ToolChat.claimsPrepared("It isn't ready for approval until you pick a network."))
+        XCTAssertTrue(ToolChat.claimsPrepared("That's the quote. The swap is prepared for review."))
         XCTAssertEqual(ToolGuard.adjusted("prepare_withdraw", argumentsJSON: #"{"symbol": "USDC", "chain": "ethereum"}"#, userText: "withdraw my USDC from Aave"),
                        #"{"symbol": "USDC"}"#)
     }
