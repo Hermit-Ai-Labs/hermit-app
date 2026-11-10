@@ -127,7 +127,7 @@ struct SolanaSwapScreen: View {
                 MarketLogo(key: TradeData.logo(r.symbol), name: r.symbol, size: 32, remote: r.icon.flatMap(URL.init))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(r.symbol).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
-                    Text("\(r.name) · \(r.liquidity.tradeCompactUSD) liquidity").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text("\(r.name), \(r.liquidity.tradeCompactUSD) liquidity").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 2) {
@@ -190,8 +190,8 @@ struct SolanaSwapScreen: View {
                             .foregroundStyle(quote == nil ? Theme.faint : Theme.text).contentTransition(.numericText())
                     }
                     if let q = quote {
-                        Text("Price impact \(String(format: "%.2f", q.priceImpactPct))% · slippage up to \(Double(q.slippageBps) / 100)%"
-                             + (q.route.isEmpty ? "" : " · via \(q.route.prefix(2).joined(separator: ", "))"))
+                        Text("Price impact \(String(format: "%.2f", q.priceImpactPct))%, slippage up to \(Double(q.slippageBps) / 100)%"
+                             + (q.route.isEmpty ? "" : ", via \(q.route.prefix(2).joined(separator: ", "))"))
                             .font(.system(size: 12)).foregroundStyle(q.priceImpactPct > 2 ? Theme.amber : Theme.faint).fixedSize(horizontal: false, vertical: true)
                     }
                 }

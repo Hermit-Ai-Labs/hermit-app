@@ -68,7 +68,7 @@ struct EarnSavings: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(p.symbol) on \(p.chainName)").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                 Text([h > 0 ? "\(p.name), you have \(h.tradeGrouped(2))" : p.name, "\(p.tvlUsd.tradeCompactUSD) deposited",
-                      p.apyMean30d.map { "\(EarnPoolRow.pct($0)) 30-day avg" }].compactMap { $0 }.joined(separator: " · "))
+                      p.apyMean30d.map { "\(EarnPoolRow.pct($0)) 30-day avg" }].compactMap { $0 }.joined(separator: ", "))
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 8)

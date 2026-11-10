@@ -146,7 +146,7 @@ struct DepositArrivedView: View {
                 Text("+\(MoneyFmt.amount(shown)) \(arrival.symbol)")
                     .font(.system(size: 30, weight: .semibold)).monospacedDigit()
                     .contentTransition(.numericText(value: shown))
-                Text(([arrival.usd.map { "≈ " + MoneyFmt.usdSmart($0) }, "on \(arrival.chain.name)"].compactMap { $0 }).joined(separator: " · "))
+                Text(([arrival.usd.map { "≈ " + MoneyFmt.usdSmart($0) }, "on \(arrival.chain.name)"].compactMap { $0 }).joined(separator: ", "))
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted)
             }
             .opacity(details || shown > 0 ? 1 : 0)

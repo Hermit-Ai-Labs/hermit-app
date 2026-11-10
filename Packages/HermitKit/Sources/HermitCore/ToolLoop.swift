@@ -58,7 +58,8 @@ public actor ToolChat {
     /// The full prompt for the next assistant turn. `tools: false` renders it with no tools offered (the last-chance
     /// plain answer below).
     public func prompt(tools: Bool = true) -> String {
-        HermitPrompt.render(messages, tools: tools ? config.tools : [], family: config.family, addGenerationPrompt: true)
+        let text = HermitPrompt.render(messages, tools: tools ? config.tools : [], family: config.family, addGenerationPrompt: true)
+        return Self.bioWord == "Face ID" ? text : text.replacingOccurrences(of: "Face ID", with: Self.bioWord)
     }
 
     static let answerNowNote = #"{"note": "No more tools for this message. Answer the user now, in a few plain sentences, from what you know and any results above. If a tool couldn't help, say so in one short clause and answer anyway."}"#
