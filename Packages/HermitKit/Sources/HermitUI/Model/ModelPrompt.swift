@@ -50,12 +50,15 @@ struct ModelPrompt: View {
         case .downloading: "In flight"
         case .verifying: "Landing"
         case .failed: "Download stopped"
+        case .notDownloaded where model.models.waitingForWiFi == spec.id: "Waiting for Wi-Fi"
         default: "Fly offline"
         }
     }
 
     private func subtitle(_ store: ModelStore, _ spec: ModelSpec) -> String {
         switch store.selectedState {
+        case .notDownloaded where store.waitingForWiFi == spec.id:
+            "\(spec.name), \(store.sizeLine(spec)). Starts on Wi-Fi, or tap to download now."
         case .notDownloaded where (store.received[spec.id] ?? 0) == 0:
             "\(spec.name), \(store.sizeLine(spec))"
         case .failed(let why): why

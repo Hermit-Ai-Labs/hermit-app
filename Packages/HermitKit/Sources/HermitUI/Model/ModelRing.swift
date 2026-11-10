@@ -60,6 +60,13 @@ extension ModelStore {
         }
     }
 
+    /// The selected model's size for the mobile-data question: "2.3 GB".
+    var cellularSize: String {
+        let spec = ModelCatalog.spec(cellularAsk ?? selectedID)
+        return ByteCountFormatter.string(fromByteCount: totals[spec.id] ?? spec.pin.map { $0.files.reduce(0) { $0 + $1.size } } ?? spec.approxBytes,
+                                         countStyle: .file)
+    }
+
     /// The ring's tap: start, pause or retry.
     func toggle(_ id: String) {
         switch state(id) {

@@ -36,7 +36,7 @@ iOS 26. An iPhone 15 Pro or later gets the full on-device model; older iPhones g
 | 4 | In the chat box, tap the model name next to Send and choose **Private Cloud**. | The Home card checks NEAR AI's enclave live and shows **"Enclave verified, no key needed for that."** (or "*model* in an enclave this phone just verified"). Tap the shield to see every check: Intel TDX quote, nonce, signer, MRCONFIGID, RTMR3, GPU, TLS. |
 | 5 | Ask: **"swap 20 USDC on Base to NEAR"**. | A step line, "Getting a NEAR Intents quote for 20 USDC to NEAR", then the answer. In Private Cloud mode each reply gets a **Verified in a TEE** chip: tap it to see the response signature check. If the assistant prepares the swap, the Swap review opens prefilled and waits for your Face ID. With an empty wallet, Review stops at the balance check. |
 | 6 | Ask: **"swap 500 USDC on Base to NEAR"**. | Blocked before any review opens: "The assistant can prepare up to $100 per move. Open Swap yourself for more." |
-| 7 | Turn on Airplane mode. Switch back to **On-device** and ask a question. | The on-device model (Hermit 1.1) still answers. Nothing leaves the phone. The first run needs the model download (about 2.3 GB, or 1 GB for Lite). |
+| 7 | Turn on Airplane mode. Switch back to **On-device** and ask a question. | The on-device model (Hermit 1.1) still answers. Nothing leaves the phone. The model download starts by itself on first launch (about 2.3 GB, or 1 GB for Lite). |
 
 Private Cloud chat needs a NEAR AI Cloud key: add one in **Settings > Private Cloud**. You can get one at https://cloud.near.ai,
 or claim $10 of credit through NEAR Builders. TestFlight builds may carry Hermit's shared key with 30 free messages per
@@ -321,7 +321,7 @@ Hermit has no server. Chat history stays in memory on the device until New chat.
 | The answer came from the attested model, unmodified | **Phone** | EIP-191 signature over `model:sha256(request):sha256(response)`. The signer must equal the attested model key. |
 | Gateway-to-model hop for this request | **Not provable today** | NEAR's TLS binding covers the gateway only, and a matching model signer doesn't prove it was the same instance. |
 | Container image provenance | **Not checked** | The compose hash is bound to the quote. Who built each image is not checked. |
-| The on-device model is the published one | **Partly** | Each weight file is checked against the SHA-256 that Hugging Face's tree API lists at download time. The hashes are not pinned in the app, so a changed repo would be accepted. |
+| The on-device model is the published one | **Yes** | The release's files, sizes and SHA-256 hashes (per file and per 128 MiB piece) are pinned in the app (`ModelPins.swift`, from the Hugging Face commit). Bytes from any source (models.hermit.my, ModelScope, Hugging Face) are only kept if they match, so a changed repo or mirror is rejected. |
 
 ---
 

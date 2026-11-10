@@ -13,7 +13,7 @@ Before recording:
 - Use a wallet with about $25 of USDC on Base, so the swap can actually go through. If you'd rather not move funds,
   stop at the approval sheet in shot 4 and say so in a caption.
 - Use a NEAR AI key, or a build with the shared key.
-- Download the on-device model.
+- Let the on-device model finish downloading (it starts by itself on first launch).
 - Clear notifications and turn on Do Not Disturb. Hide balances you don't want to show.
 - Use iOS Screen Recording with the microphone off. Captions are added in the edit.
 

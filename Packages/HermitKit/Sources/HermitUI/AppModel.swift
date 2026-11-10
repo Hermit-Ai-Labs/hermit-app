@@ -135,6 +135,9 @@ public final class AppModel {
         applyLaunchArguments()
         #endif
         pushContext()
+        // First launch: Hermit's model starts downloading by itself (on Wi-Fi; mobile data asks first). Not in
+        // snapshots, the Debug tour or tests.
+        if persist && NSClassFromString("XCTestCase") == nil { models.autoStart() }
     }
 
     #if DEBUG

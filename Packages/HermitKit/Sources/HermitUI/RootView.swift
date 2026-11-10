@@ -74,6 +74,17 @@ public struct RootView: View {
         .sheet(item: Bindable(IntentsActivity.shared).focus) { f in
             IntentsStatusSheet(depositAddress: f.id).environment(model).tint(Theme.text)
         }
+        #if os(iOS)
+        // First launch on mobile data: one question before 2.3 GB goes over it. Shown once the name is in.
+        .alert("Download Hermit's AI now?", isPresented: Binding(
+            get: { model.models.cellularAsk != nil && !model.user.isEmpty },
+            set: { if !$0, model.models.cellularAsk != nil { model.models.answerCellular(downloadNow: false) } })) {
+            Button("Download now") { model.models.answerCellular(downloadNow: true) }
+            Button("Wait for Wi-Fi", role: .cancel) { model.models.answerCellular(downloadNow: false) }
+        } message: {
+            Text("\(model.models.cellularSize) over mobile data. Or wait, and it starts by itself on Wi-Fi.")
+        }
+        #endif
         // A batch send's review (from chat): every recipient, one Face ID, then each transfer's status.
         .sheet(item: Bindable(BatchStore.shared).reviewing) { r in
             BatchSendSheet(id: r.id).environment(model).tint(Theme.text)
