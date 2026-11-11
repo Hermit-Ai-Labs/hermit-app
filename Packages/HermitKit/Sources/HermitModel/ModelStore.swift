@@ -80,7 +80,7 @@ public final class ModelStore {
     /// The model waiting for Wi-Fi, kept across launches.
     private static let wifiKey = "hermit.model.waitForWiFi"
     /// The upgrade card's answers (the newer model's id), and the old model whose files go once the new one is in use.
-    private static let upgradeAcceptedKey = "hermit.model.upgrade.accepted"
+    static let upgradeAcceptedKey = "hermit.model.upgrade.accepted"
     private static let upgradeDismissedKey = "hermit.model.upgrade.dismissed"
     static let upgradeRemoveKey = "hermit.model.upgrade.remove"
     /// Written last, after every file passed its check: a folder with it holds a complete, verified model.
@@ -140,6 +140,7 @@ public final class ModelStore {
         // before a quit, takes over now: at launch no chat is using the old model.
         removeReplaced()
         applyLandedUpgrade()
+        adoptUpgradeIfInUseIsGone()
         if fetcher == nil { BackgroundDownloads.shared.root = root }
         let testing = NSClassFromString("XCTestCase") != nil
         if let w = defaults.string(forKey: Self.wifiKey), known.contains(w), states[w] != .ready, !testing { waitForWiFi(w) }
@@ -419,6 +420,8 @@ public final class ModelStore {
         try? FileManager.default.removeItem(at: directory(id))
         received[id] = nil
         states[id] = .notDownloaded
+        // The model in use was removed while its upgrade downloads: the upgrade takes its place now.
+        if id == selectedID { adoptUpgradeIfInUseIsGone() }
     }
 
     /// Called before a model's files are removed, so a loaded copy can be let go.
@@ -498,6 +501,18 @@ public final class ModelStore {
         defaults.removeObject(forKey: Self.upgradeRemoveKey)
         guard old != selectedID, states[old] != nil, state(selectedID) == .ready, isComplete(selectedID) else { return }
         delete(old)
+    }
+
+    /// The model in use has no files any more (removed by hand while its upgrade was downloading): the upgrade becomes
+    /// the model in use and keeps downloading, instead of the old model being downloaded all over again beside it.
+    private func adoptUpgradeIfInUseIsGone() {
+        guard let target = upgradeAccepted, target != selectedID, !isComplete(selectedID),
+              lineup.successor(of: selected)?.id == target else { return }
+        let old = selectedID
+        select(target)
+        setAccepted(nil)
+        delete(old)
+        if state(target) != .ready { download(target) }
     }
 
     private func setAccepted(_ id: String?) {

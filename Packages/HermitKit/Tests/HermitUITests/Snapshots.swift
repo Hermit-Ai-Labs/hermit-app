@@ -41,7 +41,7 @@ final class Snapshots: XCTestCase {
     }
 
     func testHome() throws {
-        try shoot(RootView(), "mac-home", CGSize(width: 1320, height: 822))
+        try shoot(RootView(model: AppModel()), "mac-home", CGSize(width: 1320, height: 822))
     }
 
     func testChat() throws {

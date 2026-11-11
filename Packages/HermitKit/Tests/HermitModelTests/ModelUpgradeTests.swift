@@ -313,6 +313,59 @@ final class ModelUpgradeTests: XCTestCase {
         XCTAssertEqual(again.listed.map(\.id), [newFull.id, newLite.id])
     }
 
+    func testRemovingTheModelInUseDuringItsUpgradeHandsOverToTheUpgrade() async throws {
+        let d = device()
+        try install(old, on: d)
+        let fake = FakeDownload(root: d.root)
+        let s = open(d, fetcher: { id in try await fake.run(id) })
+        s.acceptUpgrade()
+        await eventually("the download starts") { fake.started == [newFull.id] }
+
+        // Removed by hand from the model sheet while the newer model downloads (2026-11-12, a Mac with 1.2 and 1.3).
+        s.delete(old.id)
+        XCTAssertEqual(s.selectedID, newFull.id, "the upgrade becomes the model in use")
+        XCTAssertNil(s.upgradeAccepted)
+        XCTAssertTrue(isDownloading(s, newFull), "its download carries on")
+        XCTAssertFalse(has(old, on: d))
+        XCTAssertEqual(fake.started, [newFull.id], "the removed model is not downloaded again")
+
+        fake.finish = true
+        await eventually("the new model is ready") { s.readyModel?.spec.id == newFull.id }
+    }
+
+    func testAtLaunchAMissingModelInUseHandsOverToItsUpgrade() async throws {
+        let d = device()
+        try install(old, on: d)
+        let first = open(d, fetcher: { _ in try await Task.sleep(for: .seconds(60)) })
+        first.acceptUpgrade()
+        first.cancel(newFull.id)
+        // The old model's files are gone (an empty folder is left), the upgrade half downloaded, and the app relaunches.
+        try FileManager.default.removeItem(at: d.root.appending(path: old.id, directoryHint: .isDirectory))
+        try FileManager.default.createDirectory(at: d.root.appending(path: old.id, directoryHint: .isDirectory), withIntermediateDirectories: true)
+        try Self.write(newFull.id, in: d.root, complete: false)
+        // As on the Mac that hit this: the old model was in use and was being downloaded again, the upgrade still accepted.
+        d.defaults.set(old.id, forKey: ModelStore.selectedKey)
+        d.defaults.set(old.id, forKey: ModelStore.downloadingKey)
+        d.defaults.set(newFull.id, forKey: ModelStore.upgradeAcceptedKey)
+
+        let fake = FakeDownload(root: d.root)
+        let again = open(d, fetcher: { id in try await fake.run(id) })
+        XCTAssertEqual(again.selectedID, newFull.id)
+        await eventually("only the upgrade downloads") { fake.started == [newFull.id] }
+        XCTAssertFalse(has(old, on: d))
+        fake.finish = true
+        await eventually("the new model is ready") { again.readyModel?.spec.id == newFull.id }
+    }
+
+    func testTheAppHasOneEngineHoweverManyAgents() {
+        // SwiftUI rebuilt the app model on every scene update and each one loaded its own copy of the model:
+        // 8 copies, 20 GB on an 8 GB Mac (2026-11-12). Every agent must share the one engine.
+        let s = open(device())
+        let agents = (0..<5).map { _ in LocalAgent(store: s) }
+        XCTAssertEqual(agents.count, 5)
+        XCTAssertEqual(LocalEngine.made, 1, "one engine, so at most one model in memory")
+    }
+
     func testAnInterruptedDownloadLeavesTheOldModelWorking() async throws {
         let d = device()
         try install(old, on: d)

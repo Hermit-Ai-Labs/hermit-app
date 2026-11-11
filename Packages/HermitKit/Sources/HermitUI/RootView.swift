@@ -11,8 +11,10 @@ public struct RootView: View {
     #endif
 
     /// `phone: true` renders the iPhone layout anywhere (snapshot tests).
-    public init(model: AppModel? = nil, phone: Bool = false) {
-        _model = State(initialValue: model ?? AppModel())
+    /// The model is made once by the caller (HermitApp keeps it in a static). SwiftUI calls this init on every scene
+    /// update, so making one here would build a new app model, and load another copy of the AI model, each time.
+    public init(model: AppModel, phone: Bool = false) {
+        _model = State(initialValue: model)
         forcePhone = phone
     }
 

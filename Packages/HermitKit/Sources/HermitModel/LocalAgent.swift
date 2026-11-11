@@ -41,7 +41,9 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     }
 
     private let store: ModelStore
-    private let engine = LocalEngine()
+    /// The app's one engine. However many agents get made (SwiftUI can rebuild the app model), only one model is ever
+    /// loaded in memory: a second agent finds it already loaded instead of loading another 2-3 GB copy.
+    private let engine = LocalEngine.shared
     private let chat = ToolChat(config: .init(family: .instruct))
     private let onStats: (@Sendable (GenerationStats) -> Void)?
     /// Runs the model's tool calls. nil answers in plain text only (the tool block is still in the prompt so the
@@ -60,18 +62,19 @@ public final class LocalAgent: Agent, @unchecked Sendable {
         self.toolbox = toolbox
         self.onStats = onStats
         let engine = self.engine
-        store.onDelete { id in Task { await engine.unload(ifID: id) } }
+        // Weak: the store is shared for the whole app, so a strong capture would keep every engine (and its loaded model) alive.
+        store.onDelete { [weak engine] id in Task { await engine?.unload(ifID: id) } }
         #if os(iOS)
         // iOS doesn't let an app that has left the screen use the GPU, and it ends apps that hold on to memory when the
         // system runs short. Stop the reply when Hermit leaves the screen; on a memory warning also free the model
         // (it wakes again on the next question).
         let center = NotificationCenter.default
         observers = [
-            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-                Task { await engine.interrupt(.background) }
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak engine] _ in
+                Task { await engine?.interrupt(.background) }
             },
-            center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
-                Task { await engine.interrupt(.memory) }
+            center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { [weak engine] _ in
+                Task { await engine?.interrupt(.memory) }
             },
         ]
         #endif
@@ -251,6 +254,11 @@ enum Interruption: Sendable, Equatable {
 
 /// Owns the loaded model and the KV cache. One generation at a time, so it is an actor.
 actor LocalEngine {
+    /// The only engine in the app (`LocalAgent` uses it). Its init counts, so a test can prove no second one appears.
+    static let shared = LocalEngine()
+    nonisolated(unsafe) private(set) static var made = 0
+    private init() { Self.made += 1 }
+
     private var container: ModelContainer?
     private var loadedID: String?
     private var parameters = GenerateParameters()

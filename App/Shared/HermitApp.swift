@@ -20,11 +20,15 @@ final class HermitAppDelegate: NSObject, UIApplicationDelegate {
 
 @main
 struct HermitApp: App {
+    /// The app's one model, made once. SwiftUI rebuilds RootView whenever the scene updates, and `RootView()` used to
+    /// create a fresh AppModel (and a fresh on-device engine that loaded the AI model) on every rebuild.
+    @MainActor private static let appModel = AppModel()
+
     private var rootView: RootView {
         #if DEBUG && os(macOS)
         RootView(model: MacTour.model)
         #else
-        RootView()
+        RootView(model: Self.appModel)
         #endif
     }
     #if os(iOS)
