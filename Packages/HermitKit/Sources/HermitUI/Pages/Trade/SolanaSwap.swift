@@ -243,6 +243,8 @@ struct SolanaSwapScreen: View {
                     }
                     HStack(spacing: 8) {
                         TextField("0", text: $amtText).textFieldStyle(.plain).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                            // Tall enough for the 24 pt digits: the Mac sized the field for its default font and cut them in half.
+                            .lineLimit(1).frame(height: 34)
                             #if os(iOS)
                             .keyboardType(.decimalPad)
                             #endif

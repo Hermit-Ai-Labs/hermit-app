@@ -528,10 +528,19 @@ struct MarketLogo: View {
     }
 
     /// ipfs.io rate-limits hard, so an IPFS icon is also tried on two other public gateways before the letter shows.
+    /// Every way to fetch a remote logo, best first. Each source goes through wsrv.nl first (it turns SVG, WebP, GIF and
+    /// arweave redirects into a small PNG, cached on Cloudflare), then the file itself. IPFS links start at Filebase's
+    /// gateway: ipfs.io, dweb.link and nftstorage.link answer 429 to app traffic, which left many meme logos blank.
     static func withFallbacks(_ u: URL) -> [URL] {
-        guard u.host == "ipfs.io", u.path.hasPrefix("/ipfs/") else { return [u] }
-        let rest = String(u.path.dropFirst("/ipfs/".count))
-        return [u] + ["https://gateway.pinata.cloud/ipfs/", "https://dweb.link/ipfs/"].compactMap { URL(string: $0 + rest) }
+        var sources = [u]
+        if let r = u.path.range(of: "/ipfs/") {
+            let rest = String(u.path[r.upperBound...])
+            sources = ["https://ipfs.filebase.io/ipfs/", "https://gateway.pinata.cloud/ipfs/"].compactMap { URL(string: $0 + rest) } + [u]
+        }
+        return sources.flatMap { s -> [URL] in
+            let target = s.absoluteString.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s.absoluteString
+            return [URL(string: "https://wsrv.nl/?url=\(target)&w=96&h=96&fit=cover&output=png"), s].compactMap { $0 }
+        }
     }
 
     /// DefiLlama's icon for a protocol slug, e.g. "rocket-pool".
