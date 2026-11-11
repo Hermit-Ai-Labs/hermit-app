@@ -1,5 +1,6 @@
 import SwiftUI
 import HermitWallet
+import HermitCore
 
 /// How a coin on the Spot or Memes list can actually be bought from Hermit, with the wallet you have:
 ///   intents  Hermit's own swap through NEAR Intents, paid in USDC from your wallet, delivered to your own address.
@@ -111,7 +112,7 @@ enum TradeBuy {
     @MainActor static func buyOnSolana(token: Jupiter.Token, payUSDC: Bool, amount: Double, exact: String? = nil, model: AppModel) {
         let vm = WalletsViewModel.shared
         guard let w = vm.wallets.first, !w.record.solanaAddress.isEmpty else { model.fundGoal = .wallet; return }
-        let pay: Jupiter.Token = payUSDC ? .usdc : .sol
+        let pay: Jupiter.Token = payUSDC ? Jupiter.usdc : Jupiter.sol
         let parsed: UInt64?
         if let exact { parsed = TradeAmount.baseUnits(text: exact, decimals: pay.decimals) } else { parsed = TradeAmount.baseUnits(amount, decimals: pay.decimals) }
         guard let base = parsed else {

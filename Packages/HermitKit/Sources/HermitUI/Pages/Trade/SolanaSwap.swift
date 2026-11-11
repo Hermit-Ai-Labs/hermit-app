@@ -307,7 +307,7 @@ struct SolanaSwapScreen: View {
     private func requote() async {
         quote = nil; quoteError = nil
         guard let t = sel, amt > 0 else { return }
-        let pay: Jupiter.Token = payUSDC ? .usdc : .sol
+        let pay: Jupiter.Token = payUSDC ? Jupiter.usdc : Jupiter.sol
         // Exact base units from the text; junk, too many decimals or an absurd size never reach Jupiter (or a UInt64 trap).
         guard let base = TradeAmount.baseUnits(text: amtText, decimals: pay.decimals) else {
             quoteError = "Check the amount: up to \(pay.decimals) decimals for \(pay.symbol)."; return

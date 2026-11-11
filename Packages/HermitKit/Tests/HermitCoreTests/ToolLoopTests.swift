@@ -52,7 +52,7 @@ struct Transcript {
 final class ToolLoopTests: XCTestCase {
     func call(_ name: String, _ args: String) -> String { "<tool_call>\n{\"name\": \"\(name)\", \"arguments\": \(args)}\n</tool_call>" }
 
-    func ask(_ chat: ToolChat, _ prompt: String, _ model: ScriptedModel, _ tools: FakeToolbox) async -> Transcript {
+    func ask(_ chat: ToolChat, _ prompt: String, _ model: ScriptedModel, _ tools: any AgentToolbox) async -> Transcript {
         let stream = AsyncStream<AgentEvent> { cont in
             Task { await chat.reply(to: prompt, generator: model, toolbox: tools, cont: cont); cont.finish() }
         }
