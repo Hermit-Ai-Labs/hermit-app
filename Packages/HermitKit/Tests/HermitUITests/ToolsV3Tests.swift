@@ -279,6 +279,81 @@ final class ToolsV3Tests: XCTestCase {
         XCTAssertEqual(options.first?["amount"] as? String, "120")
     }
 
+    /// prepare_sell and dollars: USDC is never "sold", and a stablecoin sold for SOL is held to the assistant's cap.
+    func testSellingDollarsKeepsTheAssistantCap() {
+        // USDC and SOL stay with the swap tool, by ticker or by mint, however they are written.
+        for t in ["USDC", "usdc", "$USDC", " usdc ", Jupiter.usdcMint] {
+            XCTAssertEqual(ToolsV3.sellRefusal(t), "USDC isn't sold here. Swap it instead.", t)
+        }
+        for t in ["SOL", "$sol", Jupiter.solMint] { XCTAssertEqual(ToolsV3.sellRefusal(t), "SOL isn't sold here. Swap it instead.", t) }
+        for t in ["WIF", "USDT", "$PUMP", wifMint] { XCTAssertNil(ToolsV3.sellRefusal(t), t) }
+
+        // A sale pays out USDC unless SOL was asked for.
+        XCTAssertEqual(ToolsV3.sellOutput(mint: wifMint, receive: ""), Jupiter.usdc)
+        XCTAssertEqual(ToolsV3.sellOutput(mint: wifMint, receive: "USDC"), Jupiter.usdc)
+        XCTAssertEqual(ToolsV3.sellOutput(mint: wifMint, receive: "SOL"), Jupiter.sol)
+        XCTAssertEqual(ToolsV3.sellOutput(mint: Jupiter.usdcMint, receive: ""), Jupiter.sol, "USDC itself could only go to SOL")
+
+        // Who the policy checks it as: only a stablecoin going to SOL is the assistant's move.
+        XCTAssertEqual(ToolsV3.sellOrigin(outMint: Jupiter.solMint, soldIsStable: true), .agent)
+        XCTAssertEqual(ToolsV3.sellOrigin(outMint: Jupiter.usdcMint, soldIsStable: true), .user)
+        XCTAssertEqual(ToolsV3.sellOrigin(outMint: Jupiter.solMint, soldIsStable: false), .user)
+        XCTAssertEqual(ToolsV3.sellOrigin(outMint: Jupiter.usdcMint, soldIsStable: false), .user)
+
+        // And what that does at the policy: $150 of USDT for SOL is over the $100 cap and never reaches a review;
+        // $150 of a memecoin sold is a sale, checked against the daily limit only.
+        let d = UserDefaults(suiteName: "hermit.ui.tests.\(UUID().uuidString)")!
+        let policy = SpendPolicy(limit: SpendLimit(defaults: d), book: AddressBook(defaults: d), defaults: d)
+        XCTAssertEqual(policy.agentCapUSD, 100)
+        let stableOut = ToolsV3.sellOrigin(outMint: Jupiter.solMint, soldIsStable: true)
+        let capped = policy.evaluate(usd: 150, payee: nil, origin: stableOut)
+        XCTAssertEqual(capped.decision, .block)
+        XCTAssertEqual(capped.blocks, ["The assistant can prepare up to $100 per move. Open Swap yourself for more."])
+        let within = policy.evaluate(usd: 100, payee: nil, origin: stableOut)
+        XCTAssertNotEqual(within.decision, .block)
+        XCTAssertTrue(within.passed.contains("Under the assistant's $100 per-move cap"))
+        let sale = policy.evaluate(usd: 150, payee: nil, origin: ToolsV3.sellOrigin(outMint: Jupiter.solMint, soldIsStable: false))
+        XCTAssertNotEqual(sale.decision, .block)
+        XCTAssertEqual(sale.blocks, [])
+        XCTAssertFalse(sale.passed.contains { $0.contains("per-move cap") }, "no cap on a sale that lowers risk")
+        XCTAssertEqual(policy.evaluate(usd: 600, payee: nil, origin: .user).decision, .block, "the daily limit still holds for every sale")
+    }
+
+    // MARK: Batch send on Solana
+
+    func testBatchFamilyAndToken() {
+        let sol1 = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV", sol2 = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+        // The addresses say which batch a list goes to.
+        XCTAssertEqual(ToolsV3.batchFamily([sol1, " \(sol2) "]), .solana)
+        XCTAssertEqual(ToolsV3.batchFamily([alice, other]), .evm)
+        XCTAssertEqual(ToolsV3.batchFamily([sol1, "not an address"]), .solana, "a bad row doesn't change the family; the review flags it")
+        XCTAssertEqual(ToolsV3.batchFamily(["bob.sol", sol1]), .solana)
+        XCTAssertNil(ToolsV3.batchFamily([alice, sol1]), "a mixed list picks no network")
+        XCTAssertNil(ToolsV3.batchFamily(["hello", ""]))
+        XCTAssertTrue(WalletService.batchSupported(.solana))
+        XCTAssertTrue(HermitToolbox.hasToken("sol", on: .solana) && HermitToolbox.hasToken("USDC", on: .solana))
+        XCTAssertFalse(HermitToolbox.hasToken("SOL", on: .base), "SOL only ever means the Solana batch")
+
+        // SOL and the listed stablecoins are themselves, whatever the wallet holds under that name.
+        let wif = holding(wifMint, "WIF", units: 6_020_000)
+        XCTAssertEqual(ToolsV3.batchToken("SOL", holdings: [wif]), .listed)
+        XCTAssertEqual(ToolsV3.batchToken("usdc", holdings: []), .listed)
+        XCTAssertEqual(ToolsV3.batchToken("$USDT", holdings: []), .listed)
+        XCTAssertEqual(ToolsV3.batchToken("USDC", holdings: [holding(pumpA, "USDC", units: 5)]), .listed, "a look-alike never stands in for USDC")
+        // Any other SPL token has to be held: by ticker or by mint, with its own mint, decimals and price.
+        let held = SolanaBatch.Token(mint: wifMint, symbol: "WIF", decimals: 6, usd: Decimal(1.82), verified: true)
+        XCTAssertEqual(ToolsV3.batchToken("$wif", holdings: [wif]), .held(held))
+        XCTAssertEqual(ToolsV3.batchToken(wifMint, holdings: [wif]), .held(held))
+        XCTAssertEqual(ToolsV3.batchToken("WIF", holdings: [holding(wifMint, "WIF", units: 5, price: nil)]),
+                       .held(SolanaBatch.Token(mint: wifMint, symbol: "WIF", decimals: 6, usd: nil, verified: true)), "no price is no price, not zero")
+        XCTAssertEqual(ToolsV3.batchToken("BONK", holdings: [wif]), .notHeld("BONK"))
+        XCTAssertEqual(ToolsV3.batchToken("WIF", holdings: [holding(wifMint, "WIF", units: 0)]), .notHeld("WIF"))
+        XCTAssertEqual(ToolsV3.batchToken("PUMP", holdings: [holding(pumpA, "PUMP", units: 9, frozen: true)]), .frozen(holding(pumpA, "PUMP", units: 9, frozen: true)))
+        let two = [holding(pumpA, "PUMP", units: 120_000_000), holding(pumpB, "PUMP", units: 4_000_000)]
+        XCTAssertEqual(ToolsV3.batchToken("PUMP", holdings: two), .choose(two), "two tokens under one ticker is a question, never a guess")
+        XCTAssertEqual(ToolsV3.batchToken(pumpB, holdings: two), .held(SolanaBatch.Token(mint: pumpB, symbol: "PUMP", decimals: 6, usd: Decimal(1.82), verified: true)))
+    }
+
     // MARK: get_positions
 
     func testSpotRows() {
@@ -447,6 +522,82 @@ final class ToolsV3Tests: XCTestCase {
                        "stop loss at $128 and take profit at $170")
         XCTAssertNil(ToolsV3.replacedText(ToolsV3.replaced(coin: "ETH", takeProfit: true, stopLoss: true, orders: account.orders)), "a limit order is never replaced")
         XCTAssertEqual(ToolsV3.positionText(solLong), "SOL long, 10 SOL")
+    }
+
+    /// set_tp_sl: the price on the review is the rounded price that is placed (HyperliquidProtectionTests checks the
+    /// signed order carries that same text).
+    func testTriggerPriceShownIsThePricePlaced() {
+        // SOL (2 size decimals): 5 significant figures.
+        XCTAssertEqual(ToolsV3.triggerPrice(128.123456, szDecimals: 2), 128.12)
+        XCTAssertEqual(ToolsV3.triggerText(ToolsV3.triggerPrice(128.123456, szDecimals: 2)), "$128.12")
+        XCTAssertEqual(ToolsV3.triggerText(ToolsV3.triggerPrice(170, szDecimals: 2)), "$170")
+        XCTAssertEqual(ToolsV3.triggerText(ToolsV3.triggerPrice(99.99999, szDecimals: 2)), "$100")
+        // ETH (4 size decimals): 5 significant figures and at most 2 decimals; a price of six digits is a whole number.
+        XCTAssertEqual(ToolsV3.triggerText(ToolsV3.triggerPrice(3456.789, szDecimals: 4)), "$3456.8")
+        XCTAssertEqual(ToolsV3.triggerText(ToolsV3.triggerPrice(123456.7, szDecimals: 4)), "$123457")
+        let cases: [(Double, Int)] = [(128.123456, 2), (170, 2), (99.99999, 2), (3456.789, 4), (123456.7, 4), (0.0123456789, 2), (0.000012345678, 0), (62123.7, 5)]
+        for (asked, sz) in cases {
+            let placed = ToolsV3.triggerPrice(asked, szDecimals: sz)
+            // The same rounding the order's own wire form applies.
+            XCTAssertEqual(placed, Hyperliquid.roundPrice(asked, szDecimals: sz), "\(asked)")
+            // Rounding it again changes nothing: the order built from the shown price carries the shown price.
+            XCTAssertEqual(Hyperliquid.roundPrice(placed, szDecimals: sz), placed, "\(asked)")
+            XCTAssertEqual(ToolsV3.triggerText(placed), "$" + Hyperliquid.wire(Hyperliquid.roundPrice(placed, szDecimals: sz)), "\(asked)")
+            XCTAssertFalse(ToolsV3.triggerText(placed).contains("e"), "never an exponent on the sheet")
+        }
+        // A price of zero or below isn't rounded into something else: the side check refuses it as it is.
+        XCTAssertEqual(ToolsV3.triggerPrice(0, szDecimals: 2), 0)
+        XCTAssertEqual(ToolsV3.triggerPrice(-5, szDecimals: 2), -5)
+        XCTAssertNotNil(ToolsV3.wrongSide(long: true, takeProfit: nil, stopLoss: ToolsV3.triggerPrice(0, szDecimals: 2), mark: 142.37))
+        // The side check runs on the placed price: 142.374 asked as a long's stop is placed at 142.37, not below a mark of 142.37.
+        XCTAssertNotNil(ToolsV3.wrongSide(long: true, takeProfit: nil, stopLoss: ToolsV3.triggerPrice(142.374, szDecimals: 2), mark: 142.37))
+    }
+
+    // MARK: open_app
+
+    /// A web address opens by itself only when the user typed that domain in this chat.
+    func testOpenAppOpensOnlyTypedDomains() async throws {
+        XCTAssertEqual(ToolsV3.typedHosts(["open uniswap.org please", "and https://App.Aave.com/markets?x=evil.org#y.", "mail bob@evil.io, see (www.jup.ag)."]),
+                       ["uniswap.org", "app.aave.com", "jup.ag"])
+        XCTAssertEqual(ToolsV3.typedHosts(["example.com:8443/path and HTTP://Sub.Example.co.uk."]), ["example.com", "sub.example.co.uk"])
+        // Not links Hermit opens, and not domains: other schemes, versions, abbreviations, a userinfo trick.
+        XCTAssertEqual(ToolsV3.typedHosts(["ftp://files.example.com javascript:alert(1) v1.2 e.g. hello https://uniswap.org@evil.io/x"]), [])
+        XCTAssertEqual(ToolsV3.bareHost("WWW.Jup.AG."), "jup.ag")
+
+        func direct(_ host: String?, _ typed: [String], explore: Bool = false) -> Bool { ToolsV3.opensDirectly(fromExplore: explore, host: host, typed: typed) }
+        XCTAssertTrue(direct("app.aave.com", ["open https://app.aave.com/markets"]))
+        XCTAssertTrue(direct("www.uniswap.org", ["take me to uniswap.org"]))
+        XCTAssertTrue(direct("Jup.AG", ["go to JUP.ag"]))
+        XCTAssertTrue(direct("uniswap.org", ["first message", "open uniswap.org"]), "any of the user's messages in this chat")
+        // A link the user never typed: a page, a file or a tool result gave it to the model.
+        XCTAssertFalse(direct("evil-airdrop.example", ["summarise this page for me"]))
+        XCTAssertFalse(direct("uniswap.org.evil.io", ["open uniswap.org"]), "a look-alike that starts the same")
+        XCTAssertFalse(direct("app.uniswap.org", ["open uniswap.org"]), "another host of the same site still takes one tap")
+        XCTAssertFalse(direct("evil.io", ["mail bob@evil.io"]), "an email address names no site")
+        XCTAssertFalse(direct("evil.org", ["open https://app.aave.com/?next=evil.org"]), "a domain inside a query isn't typed as a site")
+        XCTAssertFalse(direct(nil, ["open uniswap.org"]))
+        XCTAssertFalse(direct("", ["open uniswap.org"]))
+        // Apps from Explore's own list open as before.
+        XCTAssertTrue(direct("app.uniswap.org", [], explore: true))
+
+        // Through the toolbox: a planted link gets a button that names its domain, and nothing opens.
+        let was = SnapshotMode.active
+        SnapshotMode.active = true
+        defer { SnapshotMode.active = was }
+        let box = HermitToolbox.onDevice
+        let planted = await box.run("open_app", arguments: #"{"url": "https://evil-airdrop.example/claim"}"#)
+        let v = try object(planted)
+        XCTAssertEqual(keys(v), ["note", "status", "url"])
+        XCTAssertEqual(v["status"] as? String, "button_shown")
+        XCTAssertNil(v["opened"], "it never says opened")
+        XCTAssertTrue((v["note"] as? String ?? "").hasPrefix("Not opened: the user didn't type evil-airdrop.example in this chat"), "\(v)")
+        XCTAssertEqual(planted.action?.title, "Open evil-airdrop.example")
+        XCTAssertTrue(planted.action?.open?.hasPrefix("app:https://evil-airdrop.example") ?? false)
+        XCTAssertNil(planted.action?.approval, "a button, never a review")
+        // An app named from Explore's list isn't held back by that rule.
+        let app = await box.run("open_app", arguments: #"{"name": "Uniswap"}"#)
+        XCTAssertFalse((try object(app)["note"] as? String ?? "").contains("didn't type"))
+        XCTAssertNotNil(app.action)
     }
 
     // MARK: create_automation

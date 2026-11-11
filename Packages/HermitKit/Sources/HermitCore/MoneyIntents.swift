@@ -291,6 +291,51 @@ public enum MoneyIntent {
         return JSONValue.object(kv).pythonText
     }
 
+    /// The token a batch request names when it isn't one of the fixed list `parts` knows: a ticker right after an
+    /// amount ("0.1 SOL", "500 BONK", "5 $WIF"), a "$TICKER", or "send SOL …". Only the request itself is read, up to
+    /// the first address: rows can hold names and memos next to their numbers. nil when it names none, or two
+    /// different ones with amounts; which token a ticker really is (and whether the wallet holds it) is the toolbox's
+    /// check, not this one's.
+    public static func batchTicker(_ text: String) -> (symbol: String, amount: String?)? {
+        var head = ""
+        scan: for line in ToolChat.withoutFiles(text).components(separatedBy: .newlines) {
+            var kept: [String] = []
+            for w in line.components(separatedBy: .whitespaces) {
+                // "0xabc…,25" is one word here: an address anywhere in it ends the request ("1,000 BONK" stays whole).
+                let pieces = w.components(separatedBy: CharacterSet(charactersIn: ",;|"))
+                if pieces.contains(where: { RecipientTable.looksLikeAddress($0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`:()[]."))) }) {
+                    head += kept.joined(separator: " ")
+                    break scan
+                }
+                kept.append(w)
+            }
+            head += kept.joined(separator: " ") + "\n"
+        }
+        let t = head.lowercased()
+        // Words that follow a number without being a token.
+        let notTickers: Set<String> = ["to", "each", "every", "per", "of", "on", "in", "for", "and", "or", "the", "these", "those", "this", "from",
+                                       "wallets", "wallet", "addresses", "address", "rows", "row", "people", "recipients", "recipient", "friends",
+                                       "accounts", "account", "users", "user", "members", "holders", "winners", "guys", "times", "x", "k", "m",
+                                       "usd", "dollars", "dollar", "bucks", "tokens", "token", "coins", "coin", "am", "pm", "st", "nd", "rd", "th",
+                                       "percent", "days", "day", "hours", "hour", "minutes", "min"]
+        let re = try! NSRegularExpression(pattern: #"(?<![a-z0-9.])([0-9][0-9,]*(?:\.[0-9]+)?)[ \t]*\$?([a-z][a-z0-9]{1,9})\b"#)
+        var found: (symbol: String, amount: String?)?
+        for m in re.matches(in: t, range: NSRange(t.startIndex..., in: t)) {
+            guard let nr = Range(m.range(at: 1), in: t), let sr = Range(m.range(at: 2), in: t) else { continue }
+            let sym = String(t[sr]).uppercased()
+            guard !notTickers.contains(sym.lowercased()) else { continue }
+            var n = String(t[nr])
+            while n.hasSuffix(",") { n.removeLast() }
+            // Two different tokens with amounts ("100 BONK … 0.5 SOL for fees"): which one is meant is not a guess to make.
+            if let first = found, first.symbol != sym { return nil }
+            if found == nil { found = (symbol: sym, amount: RecipientTable.ungrouped(n)) }
+        }
+        if let found { return found }
+        if let r = t.range(of: #"\$[a-z][a-z0-9]{1,9}\b"#, options: .regularExpression) { return (String(t[r].dropFirst()).uppercased(), nil) }
+        if t.range(of: #"\b(send|pay|airdrop|distribute|multisend|transfer)[ \t]+(some[ \t]+)?sol\b"#, options: .regularExpression) != nil { return ("SOL", nil) }
+        return nil
+    }
+
     /// prepare_multisend arguments from typed rows ("0xabc… 10" per line), with the token and chain from the text.
     /// nil without rows or a token.
     public static func multisendArguments(_ text: String) -> String? {
@@ -299,9 +344,13 @@ public enum MoneyIntent {
         let rows = RecipientTable.parse(typed)
         guard rows.count >= 2 else { return nil }
         let p = parts(typed.components(separatedBy: .newlines).first ?? typed)
-        guard let sym = p.symbol ?? parts(typed).symbol else { return nil }
-        // "10 USDC to each of these": rows without their own amount get that one.
-        let each = typed.lowercased().range(of: #"\b(each|every|per)\b"#, options: .regularExpression) != nil ? p.amount : nil
+        // Beyond the fixed list: SOL, or a ticker written with its amount ("0.1 SOL", "500 BONK"), for a Solana batch.
+        let ticker = p.symbol == nil && parts(typed).symbol == nil ? batchTicker(typed) : nil
+        guard let sym = p.symbol ?? parts(typed).symbol ?? ticker?.symbol else { return nil }
+        // "10 USDC to each of these": rows without their own amount get that one. With a ticker it is the amount
+        // written next to it, never another number of the sentence ("pay these 3 wallets 5 BONK each" is 5).
+        let said = typed.lowercased().range(of: #"\b(each|every|per)\b"#, options: .regularExpression) != nil
+        let each = said ? (ticker != nil ? ticker?.amount : p.amount) : nil
         var kv: [(String, JSONValue)] = [("symbol", .string(sym))]
         if let c = ChainWords.mentioned(in: typed).first { kv.append(("chain", .string(c))) }
         kv.append(("recipients", .array(rows.prefix(RecipientTable.maxRows).map { r in

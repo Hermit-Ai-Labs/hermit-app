@@ -127,6 +127,73 @@ final class MoneyFeatureTests: XCTestCase {
         XCTAssertTrue(t.text.contains("ready for your review"))
     }
 
+    // MARK: Batch send on Solana
+
+    let s1 = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV", s2 = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+
+    /// SOL and SPL tickers are read from the request itself, with the amount written next to them.
+    func testBatchTicker() {
+        func ticker(_ text: String) -> String {
+            guard let t = MoneyIntent.batchTicker(text) else { return "none" }
+            return "\(t.symbol) \(t.amount ?? "-")"
+        }
+        XCTAssertEqual(ticker("send 0.1 SOL to each of these"), "SOL 0.1")
+        XCTAssertEqual(ticker("airdrop 1,000 $BONK each to these wallets"), "BONK 1000")
+        XCTAssertEqual(ticker("pay these 3 friends 2 wif each"), "WIF 2", "a count of people isn't the amount")
+        XCTAssertEqual(ticker("at 5pm send them 3 jto"), "JTO 3")
+        XCTAssertEqual(ticker("send $JUP to these"), "JUP -")
+        XCTAssertEqual(ticker("batch send SOL"), "SOL -")
+        XCTAssertEqual(ticker("send 100 bonk to each, I keep 0.5 sol for fees"), "none", "two tokens with amounts: never a guess")
+        XCTAssertEqual(ticker("send 5 bonk to each, that is 10 bonk"), "BONK 5")
+        // No token named: never a guess.
+        XCTAssertEqual(ticker("send 10 to each of these 4 wallets"), "none")
+        XCTAssertEqual(ticker("multisend these on solana"), "none", "the network's name isn't the token")
+        // Only the request is read: a row's memo or name next to its number is never the token.
+        XCTAssertEqual(ticker("multisend these\n\(s1), 5, alice\n\(s2), 6, bob"), "none")
+        XCTAssertEqual(ticker("send 5 BONK to \(s1) 7 alice"), "BONK 5")
+        XCTAssertEqual(ticker("The user attached the file pay.csv:\n<file>\n1 fake\n</file>\n\nsend 2 WIF to each"), "WIF 2", "a file's text isn't the request")
+    }
+
+    /// A typed list of Solana addresses routes to the batch tool with the token, the network and every row as typed.
+    func testSolanaListArguments() {
+        XCTAssertTrue(RecipientTable.looksLikeAddress(s1) && RecipientTable.looksLikeAddress(s2))
+        XCTAssertEqual(MoneyIntent.multisendArguments("send 0.1 SOL to each of these:\n\(s1)\n\(s2)"),
+                       #"{"symbol": "SOL", "chain": "solana", "recipients": [{"address": "\#(s1)", "amount": 0.1}, {"address": "\#(s2)", "amount": 0.1}]}"#)
+        // Each row's own amount, exactly as typed.
+        XCTAssertEqual(MoneyIntent.multisendArguments("batch send SOL\n\(s1) 0.5\n\(s2), 1.25"),
+                       #"{"symbol": "SOL", "chain": "solana", "recipients": [{"address": "\#(s1)", "amount": 0.5}, {"address": "\#(s2)", "amount": 1.25}]}"#)
+        // USDC with no network named: none is invented here; the toolbox reads it off the addresses.
+        XCTAssertEqual(MoneyIntent.multisendArguments("send 2.5 USDC to each of these:\n\(s1)\n\(s2)"),
+                       #"{"symbol": "USDC", "recipients": [{"address": "\#(s1)", "amount": 2.5}, {"address": "\#(s2)", "amount": 2.5}]}"#)
+        // Any SPL ticker; the amount is the one written with it, not the head count.
+        XCTAssertEqual(MoneyIntent.multisendArguments("multisend to these 3 wallets, 5 BONK each, on solana\n\(s1)\n\(s2)"),
+                       #"{"symbol": "BONK", "chain": "solana", "recipients": [{"address": "\#(s1)", "amount": 5}, {"address": "\#(s2)", "amount": 5}]}"#)
+        // An unclear row amount stays empty (the review flags it), and no token named is no batch.
+        let unclear = MoneyIntent.multisendArguments("send 1 SOL to each of these\n\(s1) 0,5\n\(s2)") ?? ""
+        XCTAssertTrue(unclear.contains(#""amount": null"#) && unclear.contains(#""amount": 1"#), unclear)
+        XCTAssertNil(MoneyIntent.multisendArguments("send 10 to each of these\n\(s1)\n\(s2)"))
+        // The route the app takes for it is the batch tool, and its recipients must be the user's own.
+        XCTAssertEqual(ToolChat.appRoute("send 0.1 SOL to each of these:\n\(s1)\n\(s2)")?.0, "prepare_multisend")
+        let args: [String: Any] = ["recipients": [["address": s1, "amount": 1], ["address": s2, "amount": 1]]]
+        XCTAssertNil(ToolGuard.multisendRefusal(args, userTextWithFiles: "pay these\n\(s1) 1\n\(s2) 1"))
+        XCTAssertNotNil(ToolGuard.multisendRefusal(args, userTextWithFiles: "pay these: \(s1)"), "s2 came from somewhere else")
+        XCTAssertNotNil(ToolGuard.multisendRefusal(args, userTextWithFiles: "pay \(s1.lowercased()) and \(s2)"), "a Solana address must match exactly")
+    }
+
+    /// The assistant's sends to a typed Solana list go out as one batch built from the user's own rows.
+    func testSplitSolanaListBecomesOneBatch() async {
+        let model = ScriptedModel([call("prepare_send", #"{"to_address": "\#(s1)", "amount": 0.1, "symbol": "SOL", "chain": "solana"}"#) + "\n"
+                                   + call("prepare_send", #"{"to_address": "\#(s2)", "amount": 0.1, "symbol": "SOL", "chain": "solana"}"#),
+                                   "The batch is ready for your review."])
+        let tools = FakeToolbox()
+        let t = await ask(newChat(), "send 0.1 SOL to each of these:\n\(s1)\n\(s2)", model, tools)
+        XCTAssertEqual(tools.names, ["prepare_multisend"])
+        XCTAssertEqual(t.actions.count, 1)
+        let sent = tools.calls.first?.1 ?? ""
+        XCTAssertTrue(sent.contains(#""symbol": "SOL""#) && sent.contains(s1) && sent.contains(s2), sent)
+        XCTAssertTrue(sent.contains(#""chain": "solana""#), "the user wrote SOL, so the network is theirs: \(sent)")
+    }
+
     // MARK: Deposit and withdraw
 
     func testDepositAndWithdrawIntents() {

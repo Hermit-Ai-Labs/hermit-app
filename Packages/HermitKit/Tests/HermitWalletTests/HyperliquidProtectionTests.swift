@@ -43,6 +43,24 @@ final class HyperliquidProtectionTests: XCTestCase {
         XCTAssertEqual((action.json as? [String: Any])?["grouping"] as? String, "positionTpsl")
     }
 
+    /// set_tp_sl's review prints wire(roundPrice(asked)) and hands roundPrice(asked) to this action. The trigger that is
+    /// signed is that same text, from the rounded price and from the raw one alike: the price shown is the price signed.
+    func testTriggerSignedIsTheTriggerShown() {
+        let eth = Hyperliquid.Asset(coin: "ETH", id: 1, szDecimals: 4, maxLeverage: 25, onlyIsolated: false)
+        let cases: [(Hyperliquid.Asset, Double)] = [(sol, 128.123456), (sol, 170.0), (sol, 99.99999), (sol, 0.0123456789), (eth, 3456.789), (eth, 123456.7)]
+        for (asset, asked) in cases {
+            let rounded = Hyperliquid.roundPrice(asked, szDecimals: asset.szDecimals)
+            let shown = Hyperliquid.wire(rounded)
+            let fromShown = orders(Hyperliquid.protectionAction(asset: asset, isLong: true, takeProfit: rounded, stopLoss: nil))
+            XCTAssertEqual(trigger(fromShown[0])["triggerPx"] as? String, shown, "\(asked)")
+            let fromRaw = orders(Hyperliquid.protectionAction(asset: asset, isLong: false, takeProfit: nil, stopLoss: asked))
+            XCTAssertEqual(trigger(fromRaw[0])["triggerPx"] as? String, shown, "\(asked)")
+        }
+        let signed = orders(Hyperliquid.protectionAction(asset: sol, isLong: true, takeProfit: 128.123456, stopLoss: 3456.789))
+        XCTAssertEqual(trigger(signed[0])["triggerPx"] as? String, "128.12")
+        XCTAssertEqual(trigger(signed[1])["triggerPx"] as? String, "3456.8")
+    }
+
     func testCancelSeveral() {
         let action = Hyperliquid.cancelAction([(assetID: 1, oid: 8123), (assetID: 0, oid: 8200)])
         let json = action.json as? [String: Any]

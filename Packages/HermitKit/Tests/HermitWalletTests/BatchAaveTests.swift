@@ -101,12 +101,13 @@ final class BatchAaveTests: XCTestCase {
         XCTAssertNil(q["ETH"]?.change24h)
     }
 
+    /// Batches run on EVM networks and Solana (SolanaBatchTests); NEAR has none.
     @MainActor func testBatchRejectsNonEVM() async {
         let svc = WalletService(vault: KeyVault(store: HermitWallet.MemoryStore()))
         _ = try? svc.importWallet(phrase: Array(repeating: "abandon", count: 11).joined(separator: " ") + " about", name: "T")
         do {
-            _ = try await svc.planBatch(walletID: nil, chain: .solana, symbol: "USDC", recipients: [("x", "1")], origin: .agent)
-            XCTFail("Solana batches aren't supported")
+            _ = try await svc.planBatch(walletID: nil, chain: .near, symbol: "USDC", recipients: [("x", "1")], origin: .agent)
+            XCTFail("NEAR batches aren't supported")
         } catch { XCTAssertTrue("\(error)".contains("EVM networks")) }
         do {
             _ = try await svc.planBatch(walletID: nil, chain: .base, symbol: "USDC",

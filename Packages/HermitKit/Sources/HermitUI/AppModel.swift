@@ -454,8 +454,11 @@ public final class AppModel {
                 defer { cont.finish() }
                 cont.yield(.status("Reading \(rows.count) row\(rows.count == 1 ? "" : "s") from \(file)…"))
                 let p = MoneyIntent.parts(text)
-                let each = text.lowercased().range(of: #"\b(each|every|per)\b"#, options: .regularExpression) != nil ? p.amount : nil
-                guard let symbol = p.symbol ?? (text.lowercased().contains("eth") ? "ETH" : nil) else {
+                // Beyond the fixed list: SOL or a ticker written with its amount ("0.1 SOL each", "500 BONK"), for Solana.
+                let ticker = p.symbol == nil ? MoneyIntent.batchTicker(text) : nil
+                let said = text.lowercased().range(of: #"\b(each|every|per)\b"#, options: .regularExpression) != nil
+                let each = said ? (ticker != nil ? ticker?.amount : p.amount) : nil
+                guard let symbol = p.symbol ?? ticker?.symbol ?? (text.lowercased().contains("eth") ? "ETH" : nil) else {
                     cont.yield(.steps(1))
                     cont.yield(.text("I found \(rows.count) address\(rows.count == 1 ? "" : "es") in \(file). Which token should go out, and on which network? For example: send USDC on Base to everyone in this file."))
                     return
@@ -492,6 +495,8 @@ public final class AppModel {
             let more = (v["left_out_count"].flatMap { if case .number(let x) = $0 { return Int(x) }; return nil } ?? left.count) - left.count
             s += " Left out: " + left.joined(separator: "; ") + (more > 0 ? ", and \(more) more" : "") + "."
         }
+        // Solana: recipients without a token account for this token get one, and the sender pays its rent.
+        if let rent = v["account_rent"]?.string, !s.isEmpty { s += " Account rent: \(rent)." }
         if !reasons.isEmpty { return (s.isEmpty ? "" : s + " ") + "It can't go out yet: " + reasons.joined(separator: " ") }
         return s + " Review the list below. One \(Device.bio) approval sends them one after another, and you can follow each transfer here."
     }

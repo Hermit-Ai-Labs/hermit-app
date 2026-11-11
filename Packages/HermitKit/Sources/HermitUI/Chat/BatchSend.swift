@@ -39,6 +39,9 @@ final class BatchStore {
             try await service.runBatch(p) { [weak self] row in
                 guard let self, var plan = self.plans[id], let i = plan.rows.firstIndex(where: { $0.line == row.line }) else { return }
                 withAnimation(.snappy) { plan.rows[i] = row; self.plans[id] = plan }
+                // Saved at every step, not only when the run ends: if the app is closed mid-run, the batch that comes
+                // back knows which rows already went out (and each one's transaction), so Retry can't pay them twice.
+                self.save()
             }
         } catch WalletError.cancelled {
         } catch {
@@ -87,6 +90,8 @@ extension BatchRow {
 
 /// The one review for a batch: every recipient, the total, fees, the checks and anything left out or blocking.
 /// Approve asks for Face ID / Touch ID once, then the transfers go out one by one with their status here and in chat.
+/// A Solana batch also shows the rent for new token accounts (per row and in the total) and stops at the first
+/// failure; Retry sends the rest after a new Face ID / Touch ID.
 struct BatchSendSheet: View {
     let id: String
     @Environment(AppModel.self) private var model
@@ -131,10 +136,10 @@ struct BatchSendSheet: View {
                     Button { start(p) } label: {
                         HStack(spacing: 7) {
                             if running { ProgressView().controlSize(.small).tint(.white) } else { Image(systemName: "touchid") }
-                            Text(running ? progress(p) : p.valid.contains { $0.status != .ready } ? "Resume, \(p.remaining.count) left" : "Approve and send")
+                            Text(running ? progress(p) : buttonTitle(p))
                         }
                     }
-                    .buttonStyle(WideButton(kind: .accent)).disabled(!p.canSend || running)
+                    .buttonStyle(WideButton(kind: .accent)).disabled(!(p.canSend || Self.needsCheck(p)) || running)
                 }
             }
         } else {
@@ -144,15 +149,38 @@ struct BatchSendSheet: View {
 
     private func summary(_ p: BatchPlan) -> [(String, String)] {
         var l: [(String, String)] = [("From", vm.wallet(p.walletID.uuidString)?.name ?? "Wallet"), ("Network", p.chain?.name ?? p.chainID),
-                                     ("Recipients", "\(p.valid.count)" + (p.invalid.isEmpty ? "" : ", \(p.invalid.count) left out")),
-                                     ("Total", "\(p.total) \(p.symbol)"), ("Network fees", "up to \(p.feeText)")]
+                                     ("Recipients", "\(p.valid.count)" + (p.invalid.isEmpty ? "" : ", \(p.invalid.count) left out"))]
+        if let s = p.solana {
+            // Solana: the amounts, the network fees, and the one-time rent for recipients without a token account yet.
+            if let mint = p.tokenAddress, p.chain?.token(p.symbol)?.address != mint { l.append(("Token", "\(p.symbol), mint \(mint.prefix(4))…\(mint.suffix(4))")) }
+            l.append(("Amounts", "\(p.total) \(p.symbol)"))
+            l.append(("Network fees", "about \(s.feeTotalText) SOL"))
+            if s.newAccounts > 0 {
+                l.append(("Account rent", "\(s.rentTotalText) SOL, \(s.newAccounts) new \(p.symbol) account\(s.newAccounts == 1 ? "" : "s")"))
+            }
+            l.append(("Total", p.solanaTotalText ?? "\(p.total) \(p.symbol)"))
+        } else {
+            l.append(("Total", "\(p.total) \(p.symbol)"))
+            l.append(("Network fees", "up to \(p.feeText)"))
+        }
         if p.origin == .agent { l.append(("Asked for by", "Hermit, from your message")) }
         return l
     }
 
     private func progress(_ p: BatchPlan) -> String {
-        let n = p.valid.filter { $0.status == .confirmed || $0.status == .sent }.count
+        // Solana confirms each transfer before the next starts, so the one in flight is the first not yet confirmed.
+        let n = p.valid.filter { $0.status == .confirmed || (p.solana == nil && $0.status == .sent) }.count
         return "Sending \(min(n + 1, p.valid.count)) of \(p.valid.count)"
+    }
+
+    /// A Solana row that was broadcast and never confirmed: the button looks it up again (no key needed for that).
+    static func needsCheck(_ p: BatchPlan) -> Bool { p.solana != nil && p.blocks.isEmpty && p.valid.contains { $0.status == .sent } }
+
+    private func buttonTitle(_ p: BatchPlan) -> String {
+        guard p.valid.contains(where: { $0.status != .ready }) else { return "Approve and send" }
+        if p.solana == nil { return "Resume, \(p.remaining.count) left" }
+        // A stopped Solana batch: the rest goes out after a new approval.
+        return p.remaining.isEmpty ? "Check again" : "Retry, \(p.remaining.count) left"
     }
 
     private func start(_ p: BatchPlan) {
@@ -181,6 +209,7 @@ struct BatchRowsList: View {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(r.shortAddress).font(Theme.mono).lineLimit(1)
                             if r.status != .ready { Text(r.stateText).font(.system(size: 11.5)).foregroundStyle(r.tone).lineLimit(2) }
+                            else if let note = Self.readyNote(r, in: plan) { Text(note).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(2) }
                         }
                         Spacer(minLength: 6)
                         Text(r.amount.isEmpty ? "–" : "\(r.amount) \(plan.symbol)").monospacedDigit().foregroundStyle(r.status == .invalid ? Theme.faint : Theme.text)
@@ -200,13 +229,23 @@ struct BatchRowsList: View {
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
     }
 
+    /// What a Solana row that hasn't gone out says under its address: the rent this row adds when the recipient has no
+    /// token account yet, or, once the batch has started, that this one wasn't sent.
+    static func readyNote(_ r: BatchRow, in plan: BatchPlan) -> String? {
+        guard let s = plan.solana, r.status == .ready else { return nil }
+        let started = plan.valid.contains { $0.status != .ready }
+        let rent = r.needsAccount == true ? "+ \(s.rentEachText) SOL rent, new \(plan.symbol) account" : nil
+        if started { return rent.map { "Not sent yet. \($0)" } ?? "Not sent yet" }
+        return rent
+    }
+
     @ViewBuilder private func statusMark(_ r: BatchRow) -> some View {
-        if let h = r.hash, let url = plan.chain?.explorerURL(tx: h) {
+        if let h = r.hash, let url = plan.transactionURL(h) {
             Link(destination: url) {
                 Image(systemName: r.status == .confirmed ? "checkmark.circle.fill" : r.status == .failed ? "xmark.circle.fill" : "clock")
                     .foregroundStyle(r.tone).font(.system(size: 13))
             }
-            .help("Open the transaction")
+            .help(plan.solana == nil ? "Open the transaction" : "Open the transaction on Solscan")
             .accessibilityLabel("Transaction for row \(r.line)")
         } else if r.status == .invalid || r.status == .failed {
             Image(systemName: "minus.circle").foregroundStyle(Theme.red.opacity(0.7)).font(.system(size: 13))
@@ -261,7 +300,7 @@ struct BatchSendCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Button { store.review(id, model: model) } label: {
-                        Label(running ? "Open" : p.valid.contains { $0.status != .ready } ? "Resume" : "Review", systemImage: "list.bullet")
+                        Label(running ? "Open" : p.valid.contains { $0.status != .ready } ? (p.solana == nil ? "Resume" : "Retry") : "Review", systemImage: "list.bullet")
                     }
                     .buttonStyle(BrandButton())
                 }

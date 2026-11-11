@@ -177,11 +177,8 @@ extension HermitToolbox {
         let vm = WalletsViewModel.shared
         guard let w = agentWallet, !w.record.solanaAddress.isEmpty else { throw ToolError("No wallet on \(Device.here) to sell with") }
         let asked = ToolsV3.text(a, "token")
-        let plainAsked = JupiterTokens.plain(asked)
-        if plainAsked.uppercased() == "SOL" || plainAsked == Jupiter.solMint { throw ToolError("SOL isn't sold here. Swap it instead.") }
-        // USDC "sold" could only go to SOL: that is a swap out of dollars, not a sale that lowers risk, and a swap is
-        // held to the assistant's per-move cap. It stays with the swap tool.
-        if plainAsked.uppercased() == "USDC" || plainAsked == Jupiter.usdcMint { throw ToolError("USDC isn't sold here. Swap it instead.") }
+        // SOL and USDC stay with the swap tool (ToolsV3.sellRefusal says why).
+        if let no = ToolsV3.sellRefusal(asked) { throw ToolError(no) }
         let receive = ToolsV3.text(a, "receive").uppercased()
         guard receive.isEmpty || receive == "USDC" || receive == "SOL" else { throw ToolError("receive is USDC or SOL") }
         let (items, failed) = await spotHoldings(w)
@@ -205,7 +202,7 @@ extension HermitToolbox {
         }
 
         // USDC itself sells for SOL. The fee, and rent for a new USDC account, come out of SOL.
-        let out: Jupiter.Token = receive != "SOL" && h.id != Jupiter.usdcMint ? Jupiter.usdc : Jupiter.sol
+        let out: Jupiter.Token = ToolsV3.sellOutput(mint: h.id, receive: receive)
         if !vm.loaded { await vm.refresh() }
         guard vm.balance(of: "SOL", wallet: w.id, chain: .solana) >= TradeBuy.solReserve else {
             return json(ToolsV3.blocked(["Keep about \(TradeAmount.text(TradeBuy.solReserve, maxFraction: 2)) SOL on Solana for fees. Add a little first."]))
@@ -221,8 +218,8 @@ extension HermitToolbox {
         guard let usdValue = priced else { throw ToolError("Couldn't get SOL's price, so Hermit can't check your daily limit. Try again in a moment.") }
         // A dollar stablecoin sold for SOL adds risk instead of lowering it, so that one is held to the assistant's
         // per-move cap like a swap. Every other sale is checked against the daily limit only.
-        let stableForSOL = out.mint == Jupiter.solMint && (JupiterTokens.shared.rows.first { $0.id == h.id }?.isStable ?? false)
-        let verdict = vm.service.policy.evaluate(usd: usdValue, payee: nil, origin: stableForSOL ? .agent : .user)
+        let soldIsStable = JupiterTokens.shared.rows.first { $0.id == h.id }?.isStable ?? false
+        let verdict = vm.service.policy.evaluate(usd: usdValue, payee: nil, origin: ToolsV3.sellOrigin(outMint: out.mint, soldIsStable: soldIsStable))
         if verdict.decision == .block { return json(ToolsV3.blocked(verdict.blocks)) }
         let impact = q.shownImpactPercent
         if impact > TradeBuy.maxImpact {
@@ -378,8 +375,8 @@ extension HermitToolbox {
         guard mark > 0 else { throw ToolError("No price for \(sym) right now. Try again in a moment.") }
         // Hyperliquid holds a trigger at 5 significant figures (Hyperliquid.triggerWire rounds it the same way). The
         // side check, the review and the signed order all use that price, so the sheet shows what is really placed.
-        let takeProfit: Double? = askedTP.map { $0 > 0 ? Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) : $0 }
-        let stopLoss: Double? = askedSL.map { $0 > 0 ? Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) : $0 }
+        let takeProfit: Double? = askedTP.map { ToolsV3.triggerPrice($0, szDecimals: asset.szDecimals) }
+        let stopLoss: Double? = askedSL.map { ToolsV3.triggerPrice($0, szDecimals: asset.szDecimals) }
         // A per-token price given for a market priced per 1,000 tokens (kPEPE).
         if let token = thousandOf(cur.coin), [takeProfit, stopLoss].contains(where: { ($0 ?? mark) < mark / 100 }) {
             return json(["error": "\(cur.coin) prices are per 1,000 \(token): the mark is \(Hyperliquid.wire(mark)). Give the take profit and stop loss in that unit.", "prepared": false])
@@ -393,8 +390,8 @@ extension HermitToolbox {
 
         var lines: [[String]] = [["Position", "\(sym) \(long ? "long" : "short") \(cur.leverage)x, \(Hyperliquid.wire(cur.coins)) \(sym)"],
                                  ["Price now", "$" + Hyperliquid.wire(ToolsV3.sig(mark, 5))]]
-        if let tp = takeProfit { lines.append(["Take profit", "$" + Hyperliquid.wire(tp)]) }
-        if let sl = stopLoss { lines.append(["Stop loss", "$" + Hyperliquid.wire(sl)]) }
+        if let tp = takeProfit { lines.append(["Take profit", ToolsV3.triggerText(tp)]) }
+        if let sl = stopLoss { lines.append(["Stop loss", ToolsV3.triggerText(sl)]) }
         lines.append(["Order", "Trigger, market, reduce only"])
         lines.append(["Covers", "The whole position, whatever its size is then"])
         if let replaces { lines.append(["Replaces", ToolsV3.capFirst(replaces)]) }

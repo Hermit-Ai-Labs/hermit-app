@@ -95,6 +95,18 @@ public final class SpendLimit: @unchecked Sendable {
             defaults.set(try? JSONEncoder().encode(l), forKey: ledgerKey)
         }
     }
+
+    /// Takes back the newest entry of this amount: a transfer that was counted while it could still land, and then
+    /// expired or failed without moving anything. Nothing happens when there is no such entry.
+    public func refund(usd: Decimal) {
+        lock.withLock {
+            var l = ledger
+            let tiny = Decimal(string: "0.000001") ?? 0
+            guard let i = l.lastIndex(where: { $0.usd - usd < tiny && usd - $0.usd < tiny }) else { return }
+            l.remove(at: i)
+            defaults.set(try? JSONEncoder().encode(l), forKey: ledgerKey)
+        }
+    }
 }
 
 /// Sends made from this device, newest first. Public data only (hashes, amounts, addresses), kept in the app's defaults.
@@ -128,6 +140,14 @@ public final class SendLog: @unchecked Sendable {
             all.removeAll { $0.hash == e.hash }
             all.insert(e, at: 0)
             defaults.set(try? JSONEncoder().encode(Array(all.prefix(500))), forKey: key)
+        }
+    }
+
+    /// Takes one send out of the list: a transfer that was listed while it could still land and never did.
+    public func remove(hash: String) {
+        lock.withLock {
+            let all = ((defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) }) ?? []).filter { $0.hash != hash }
+            defaults.set(try? JSONEncoder().encode(all), forKey: key)
         }
     }
 

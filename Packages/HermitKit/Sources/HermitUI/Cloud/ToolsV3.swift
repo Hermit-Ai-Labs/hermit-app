@@ -154,6 +154,48 @@ enum ToolsV3 {
         }
     }
 
+    // MARK: open_app
+
+    /// A host as it is compared: lowercase, no trailing dot, no leading "www.".
+    static func bareHost(_ host: String) -> String {
+        var h = host.lowercased()
+        while h.hasSuffix(".") { h.removeLast() }
+        if h.hasPrefix("www.") { h.removeFirst(4) }
+        return h
+    }
+
+    /// The domains written in the user's own messages: "uniswap.org", "https://app.aave.com/markets" (the host only,
+    /// never a domain-looking word inside a path or a query), "jup.ag." at the end of a sentence. An email address
+    /// names no site, and a scheme other than http(s) isn't a link Hermit opens.
+    static func typedHosts(_ texts: [String]) -> Set<String> {
+        var out = Set<String>()
+        for text in texts {
+            for raw in text.lowercased().components(separatedBy: .whitespacesAndNewlines) {
+                var t = raw.trimmingCharacters(in: CharacterSet(charactersIn: "()<>[]{}\"'`,;!?*.:"))
+                if let r = t.range(of: "://") {
+                    let scheme = String(t[..<r.lowerBound])
+                    guard scheme == "http" || scheme == "https" else { continue }
+                    t = String(t[r.upperBound...])
+                }
+                if let cut = t.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) { t = String(t[..<cut]) }
+                guard !t.contains("@") else { continue }
+                if let colon = t.lastIndex(of: ":"), t[t.index(after: colon)...].allSatisfy(\.isNumber) { t = String(t[..<colon]) }
+                t = bareHost(t.trimmingCharacters(in: CharacterSet(charactersIn: ".:")))
+                if t.range(of: #"^([a-z0-9]([a-z0-9\-]*[a-z0-9])?\.)+[a-z][a-z0-9\-]*[a-z0-9]$"#, options: .regularExpression) != nil { out.insert(t) }
+            }
+        }
+        return out
+    }
+
+    /// Whether open_app may open a page by itself. An app from Explore's own list may. A web address may only when the
+    /// user typed that very domain in this chat: the whole host has to match ("uniswap.org" typed vouches neither for
+    /// "uniswap.org.evil.io" nor for another subdomain). Everything else waits for one tap.
+    static func opensDirectly(fromExplore: Bool, host: String?, typed: [String]) -> Bool {
+        if fromExplore { return true }
+        guard let host, !host.isEmpty else { return false }
+        return typedHosts(typed).contains(bareHost(host))
+    }
+
     // MARK: Addresses and contacts
 
     struct Contact: Equatable {
@@ -329,6 +371,28 @@ enum ToolsV3 {
 
     // MARK: prepare_sell
 
+    /// SOL and USDC aren't sold with prepare_sell, by ticker ("$usdc" too) or by mint: why, or nil for any other token.
+    /// USDC "sold" could only go to SOL: that is a swap out of dollars, not a sale that lowers risk, and a swap is held
+    /// to the assistant's per-move cap. It stays with the swap tool.
+    static func sellRefusal(_ token: String) -> String? {
+        let t = JupiterTokens.plain(token.trimmingCharacters(in: .whitespacesAndNewlines))
+        if t.uppercased() == "SOL" || t == Jupiter.solMint { return "SOL isn't sold here. Swap it instead." }
+        if t.uppercased() == "USDC" || t == Jupiter.usdcMint { return "USDC isn't sold here. Swap it instead." }
+        return nil
+    }
+
+    /// What a sale pays out: USDC, or SOL when asked for (`receive` is "", "USDC" or "SOL"). USDC itself sells for SOL.
+    static func sellOutput(mint: String, receive: String) -> Jupiter.Token {
+        receive.uppercased() != "SOL" && mint != Jupiter.usdcMint ? Jupiter.usdc : Jupiter.sol
+    }
+
+    /// Who the spending policy checks a sale as. A sale lowers risk, so it is checked like the user's own (the daily
+    /// limit, not the assistant's per-move cap). A dollar stablecoin sold for SOL adds risk instead, so that one is
+    /// checked as the assistant: the cap applies, like a swap.
+    static func sellOrigin(outMint: String, soldIsStable: Bool) -> ActionOrigin {
+        outMint == Jupiter.solMint && soldIsStable ? .agent : .user
+    }
+
     enum SellPlan {
         case error(String)
         /// Nothing held under that ticker or mint; the word to call it by.
@@ -378,6 +442,51 @@ enum ToolsV3 {
         guard share > 0 else { return .error("That's too little \(h.symbol) to sell.") }
         guard let base = UInt64(exactly: share) else { return .error("That's more \(h.symbol) than one swap can sell. Try a smaller part.") }
         return .sell(h, base: base, part: part)
+    }
+
+    // MARK: Batch send on Solana
+
+    /// The family a batch's recipients are written in: Solana when the addresses that read as one are all Solana, EVM
+    /// when they are all 0x (or .eth). nil for a mixed list or one with no address in it: the list then can't pick the
+    /// network, and the review flags the rows that don't fit.
+    static func batchFamily(_ addresses: [String]) -> ChainKind? {
+        var evm = 0, solana = 0
+        for a in addresses {
+            let t = a.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.hasPrefix("0x") || t.hasPrefix("0X") || t.lowercased().hasSuffix(".eth") { evm += 1 }
+            else if SolanaPublicKey(t) != nil || t.lowercased().hasSuffix(".sol") { solana += 1 }
+        }
+        if solana > 0 && evm == 0 { return .solana }
+        if evm > 0 && solana == 0 { return .evm }
+        return nil
+    }
+
+    enum BatchToken: Equatable {
+        /// SOL, or a token Hermit lists on Solana (USDC, USDT): the wallet engine knows it.
+        case listed
+        /// A token the wallet holds, with its mint, decimals and Jupiter's price.
+        case held(SolanaBatch.Token)
+        case notHeld(String)
+        case choose([SolanaHoldings.Holding])
+        case frozen(SolanaHoldings.Holding)
+    }
+
+    /// Which Solana token a batch means. SOL and the listed stablecoins are themselves whatever else the wallet holds
+    /// under that name (a look-alike called USDC never stands in for USDC). Anything else has to be held: by symbol,
+    /// or by mint. Two holdings with the same symbol are a question back, never a guess.
+    static func batchToken(_ symbolIn: String, holdings: [SolanaHoldings.Holding]) -> BatchToken {
+        let t = JupiterTokens.plain(symbolIn.trimmingCharacters(in: .whitespacesAndNewlines))
+        if t.caseInsensitiveCompare(Chain.solana.nativeSymbol) == .orderedSame || Chain.solana.token(t) != nil { return .listed }
+        let held = holdings.filter { $0.amount > 0 }
+        let isMint = ToolGuard.looksLikeMint(t)
+        let matches: [SolanaHoldings.Holding]
+        if isMint { matches = held.filter { $0.id == t } }
+        else { matches = held.filter { JupiterTokens.plain($0.symbol).caseInsensitiveCompare(t) == .orderedSame } }
+        guard let h = matches.first else { return .notHeld(isMint ? shortMint(t) : t.uppercased()) }
+        if matches.count > 1 { return .choose(matches) }
+        if h.frozen { return .frozen(h) }
+        let usd: Decimal? = h.price.flatMap { $0.isFinite && $0 > 0 ? Decimal($0) : nil }
+        return .held(SolanaBatch.Token(mint: h.id, symbol: h.symbol, decimals: h.decimals, usd: usd, verified: h.verified))
     }
 
     static func sellChoice(_ hs: [SolanaHoldings.Holding]) -> [String: Any] {
@@ -587,6 +696,16 @@ enum ToolsV3 {
     }
 
     // MARK: set_tp_sl
+
+    /// The price a take profit or stop loss is really placed at. Hyperliquid holds a trigger at 5 significant figures
+    /// (and 6 minus the coin's size decimals); the side check, the review and the signed order all use this price, so
+    /// the sheet shows what is signed.
+    static func triggerPrice(_ asked: Double, szDecimals: Int) -> Double {
+        asked > 0 ? Hyperliquid.roundPrice(asked, szDecimals: szDecimals) : asked
+    }
+
+    /// How the review prints a trigger price: the same text the order carries, with a dollar sign.
+    static func triggerText(_ price: Double) -> String { "$" + Hyperliquid.wire(price) }
 
     /// nil when the prices sit on the right sides of the current price; else the sentence that says which one doesn't.
     /// A long's stop goes below the price and its take profit above; a short's the other way round.

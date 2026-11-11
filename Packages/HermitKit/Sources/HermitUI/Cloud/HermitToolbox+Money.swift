@@ -73,20 +73,49 @@ extension HermitToolbox {
 
     /// prepare_multisend: checks every recipient and opens the Batch send review (one Face ID for all of it).
     /// `origin` is .agent when the model asked; .user when the app read the user's own attached list.
-    /// `fromPicture`: the chat holds text read from a picture, so rows without an EIP-55 checksum are refused.
+    /// `fromPicture`: the chat holds text read from a picture, so rows without an EIP-55 checksum are refused (Solana
+    /// addresses have no checksum at all: from a picture only saved or already-paid ones pass).
+    /// The list goes to the Solana batch when the token is SOL, the user named Solana, or the addresses are Solana
+    /// addresses; there the token is SOL, USDC, USDT or any SPL token the wallet holds.
     @MainActor static func prepareMultisend(_ a: [String: Any], origin: ActionOrigin, source: String? = nil, fromPicture: Bool = false) async throws -> ToolOutcome {
-        guard let symbol = (a["symbol"] as? String)?.trimmingCharacters(in: .whitespaces), !symbol.isEmpty else { throw ToolError("Needs symbol and recipients") }
+        guard let asked = (a["symbol"] as? String)?.trimmingCharacters(in: .whitespaces), !asked.isEmpty else { throw ToolError("Needs symbol and recipients") }
+        // "$BONK" is BONK, and a listed token named by its mint is that token.
+        var symbol = JupiterTokens.plain(asked)
+        if let listed = Chain.solana.tokens.first(where: { $0.address == symbol }) { symbol = listed.symbol }
         let rows: [(address: String, amount: String)] = ((a["recipients"] as? [Any]) ?? []).compactMap { $0 as? [String: Any] }.map { r in
             ((r["address"] as? String) ?? "", (r["amount"] as? NSNumber)?.stringValue ?? (r["amount"] as? String) ?? "")
         }
         guard !rows.isEmpty else { throw ToolError("Needs at least one recipient with an address and an amount") }
         let vm = WalletsViewModel.shared
         guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
-        let candidates = Chain.mainnets.filter { WalletService.batchSupported($0) && hasToken(symbol, on: $0) }
+        // The addresses say which family the list is for; a network the user named still wins.
+        let family = ToolsV3.batchFamily(rows.map { $0.address })
+        let named: Chain? = (a["chain"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : findChain($0) }
+        let onSolana = named == Chain.solana || (named == nil && family == .solana)
+        var spl: SolanaBatch.Token?
         let chain: Chain
-        switch try await pickChain(a["chain"] as? String, symbol: symbol, candidates: candidates, doing: "batch send") {
-        case .chain(let c): chain = c
-        case .ask(let out): return out
+        if onSolana, !hasToken(symbol, on: Chain.solana) {
+            // Solana, and not SOL, USDC or USDT: it has to be a token this wallet holds (by symbol or by mint).
+            let (items, failed) = await spotHoldings(w)
+            if failed && items.isEmpty { return json(ToolsV3.blocked(["Couldn't read your Solana tokens right now. Try again in a moment."])) }
+            switch ToolsV3.batchToken(symbol, holdings: items) {
+            case .listed: break
+            case .held(let t): spl = t
+            case .notHeld(let name):
+                return json(["status": "not_held", "prepared": false, "note": "The user holds no \(name) on Solana. Nothing was prepared. Tell them."])
+            case .choose(let hs): return json(ToolsV3.sellChoice(hs))
+            case .frozen(let f): return json(ToolsV3.blocked(["Your \(f.symbol) balance is frozen by the token's authority, so it can't be sent."]))
+            }
+            chain = Chain.solana
+        } else {
+            let candidates = Chain.mainnets.filter { WalletService.batchSupported($0) && hasToken(symbol, on: $0) && (family == nil || $0.kind == family) }
+            if candidates.isEmpty, named == nil, family == .evm, hasToken(symbol, on: Chain.solana) {
+                return json(ToolsV3.blocked(["\(symbol.uppercased()) is on Solana, and these are 0x addresses. Check the list."]))
+            }
+            switch try await pickChain(a["chain"] as? String, symbol: symbol, candidates: candidates, doing: "batch send") {
+            case .chain(let c): chain = c
+            case .ask(let out): return out
+            }
         }
         // Whitelist only covers the assistant's batches as it covers its single sends: one payee it stops stops the list.
         for r in rows {
@@ -96,7 +125,8 @@ extension HermitToolbox {
         }
         let plan: BatchPlan
         do {
-            plan = try await vm.service.planBatch(walletID: w.record.id, chain: chain, symbol: symbol, recipients: rows, origin: origin, source: source, fromPicture: fromPicture)
+            plan = try await vm.service.planBatch(walletID: w.record.id, chain: chain, symbol: symbol, recipients: rows, origin: origin, source: source,
+                                                  fromPicture: fromPicture, spl: spl)
         } catch {
             return json(["status": "blocked", "prepared": false, "reasons": [message(error)],
                          "note": "Nothing was prepared. Tell the user why."])
@@ -106,6 +136,13 @@ extension HermitToolbox {
                                   "total": "\(plan.total) \(plan.symbol)", "fees_up_to": plan.feeText]
         if vm.wallets.count > 1 { out["wallet"] = w.name }
         if !leftOut.isEmpty { out["left_out"] = leftOut; out["left_out_count"] = plan.invalid.count }
+        if let s = plan.solana {
+            // Solana: the rent for recipients without a token account, and everything that leaves the wallet.
+            if s.newAccounts > 0 {
+                out["account_rent"] = "\(s.rentTotalText) SOL for \(s.newAccounts) new token account\(s.newAccounts == 1 ? "" : "s"), paid by the sender"
+            }
+            if let all = plan.solanaTotalText { out["total_with_fees"] = all }
+        }
         guard plan.blocks.isEmpty else {
             out["status"] = "blocked"; out["reasons"] = plan.blocks
             out["note"] = "Nothing was prepared. Tell the user why."

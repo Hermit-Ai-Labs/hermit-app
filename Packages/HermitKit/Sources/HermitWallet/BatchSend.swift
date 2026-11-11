@@ -26,6 +26,12 @@ public struct BatchRow: Codable, Sendable, Identifiable, Equatable {
     public var status: Status
     public var hash: String?
     public var error: String?
+    /// Solana token batches: the recipient has no token account for this mint yet, so this row's transfer creates it and
+    /// the sender pays its one-time rent (`BatchPlan.solana.rentPerAccount`). nil on other networks.
+    public var needsAccount: Bool? = nil
+    /// Solana: the last block height at which this row's broadcast transfer can still land. Past it, a transfer that
+    /// never showed up is known not to have moved anything, so it is safe to send again.
+    public var lastValid: UInt64? = nil
 
     public init(line: Int, input: String, address: String, amount: String, problem: String?, status: Status) {
         self.line = line; self.input = input; self.address = address; self.amount = amount; self.problem = problem; self.status = status
@@ -60,6 +66,8 @@ public struct BatchPlan: Codable, Sendable, Identifiable, Equatable {
     public let created: Date
     /// Dollars per whole unit of `symbol` when the plan was made (nil when unpriced): what each sent row adds to the daily limit.
     public var unitUSD: String? = nil
+    /// Solana batches: fees, account rent and the priority price the review showed (SolanaBatch.swift). nil elsewhere.
+    public var solana: SolanaBatchInfo? = nil
 
     public var chain: Chain? { Chain.with(id: chainID) }
     public var valid: [BatchRow] { rows.filter { $0.status != .invalid } }
@@ -72,17 +80,24 @@ public struct BatchPlan: Codable, Sendable, Identifiable, Equatable {
 extension WalletService {
     /// The most recipients in one batch.
     public nonisolated static let batchMax = 200
-    /// EVM networks where batches run (one signed transfer per recipient, sent one after another).
-    public nonisolated static func batchSupported(_ c: Chain) -> Bool { c.kind == .evm }
+    /// Networks where batches run: EVM (one signed transfer per recipient, sent one after another) and Solana
+    /// (SolanaBatch.swift: SOL and SPL tokens, each transfer confirmed before the next).
+    public nonisolated static func batchSupported(_ c: Chain) -> Bool { c.kind == .evm || c.kind == .solana }
 
     /// Checks a batch without signing anything: addresses (format, EIP-55 checksum, duplicates, not this wallet),
     /// amounts, the token and native balances against the total plus every network fee (one transfer simulated),
     /// the daily limit, the assistant's per-move cap when it prepared it, and first-time payees.
+    /// `spl`: a Solana token outside Hermit's own list that the wallet holds (the caller found its mint); ignored elsewhere.
     public func planBatch(walletID: UUID?, chain: Chain, symbol: String, recipients: [(address: String, amount: String)],
-                          origin: ActionOrigin, source: String? = nil, fromPicture: Bool = false) async throws -> BatchPlan {
+                          origin: ActionOrigin, source: String? = nil, fromPicture: Bool = false,
+                          spl: SolanaBatch.Token? = nil) async throws -> BatchPlan {
         guard let w = walletID.flatMap({ id in wallets.first { $0.id == id } }) ?? selected else { throw WalletError.vault("Create or import a wallet first.") }
         guard Self.batchSupported(chain) else {
-            throw WalletError.blocked("Batch sends work on EVM networks for now (Base, Ethereum, Arbitrum, BNB Chain, Polygon, Monad). On \(chain.name), send one at a time from Wallets.")
+            throw WalletError.blocked("Batch sends work on EVM networks (Base, Ethereum, Arbitrum, BNB Chain, Polygon, Monad) and Solana for now. On \(chain.name), send one at a time from Wallets.")
+        }
+        if chain.kind == .solana {
+            return try await planSolanaBatch(wallet: w, chain: chain, symbol: symbol, recipients: recipients, origin: origin, source: source,
+                                             fromPicture: fromPicture, spl: spl)
         }
         guard chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Sends on \(chain.name) are off in this build.") }
         guard !recipients.isEmpty else { throw WalletError.blocked("No recipients in the list.") }
@@ -202,13 +217,27 @@ extension WalletService {
                          unitUSD: unit.map { "\($0)" })
     }
 
+    /// Why these rows can't go out under the daily limit as it stands right now, or nil. A batch is checked against the
+    /// limit when it is reviewed; it is approved later, after other sends or another reviewed batch may have gone out,
+    /// so the rows still to go are checked again before the key is asked for. `unit`: dollars per whole token (nil when
+    /// the batch has no price, which only a testnet review lets through).
+    func batchLimitBlock(_ rows: [BatchRow], unit: Decimal?) -> String? {
+        guard let unit else { return nil }
+        let usd = rows.reduce(Decimal(0)) { $0 + (Decimal(string: $1.amount) ?? 0) * unit }
+        let left = spendLimit.remaining()
+        guard usd > left else { return nil }
+        return "Over your daily limit: \(SpendPolicy.money(left)) of \(SpendPolicy.money(spendLimit.dailyLimitUSD)) left today, and what is left of this batch is \(SpendPolicy.money(usd)). Nothing was sent."
+    }
+
     /// Sends the rows still to go (ready, or failed on an earlier try): one Face ID / Touch ID unlock signs every
     /// transfer with consecutive nonces, then they go out one after another, each confirmed before the next.
     /// A row reverted on chain is marked failed and the rest continue (its nonce is used); a broadcast error stops the
     /// run (later nonces would be stuck), leaving the rest ready for Resume. `update` gets every row change.
     public func runBatch(_ plan: BatchPlan, update: @escaping @MainActor (BatchRow) -> Void) async throws {
         guard plan.blocks.isEmpty else { throw WalletError.blocked(plan.blocks.joined(separator: " ")) }
-        guard let chain = plan.chain, Self.batchSupported(chain) else { throw WalletError.blocked("Batch sends work on EVM networks only.") }
+        // Solana: no nonces to pre-sign, so each transfer is built, signed and confirmed in turn (SolanaBatch.swift).
+        if plan.chain?.kind == .solana { return try await runSolanaBatch(plan, update: update) }
+        guard let chain = plan.chain, chain.kind == .evm else { throw WalletError.blocked("Batch sends work on EVM networks and Solana only.") }
         guard chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Mainnet sends are off in this build.") }
         guard let w = wallets.first(where: { $0.id == plan.walletID }) else { throw WalletError.vault("That wallet is gone.") }
         let todo = plan.remaining
@@ -218,6 +247,8 @@ extension WalletService {
         // What each row adds to the daily limit. A plan saved before it carried a price counts stablecoins at face value.
         let isStable = token.map { TokenTable.stableSymbols.contains($0.symbol) } ?? false
         let unit: Decimal? = plan.unitUSD.flatMap { Decimal(string: $0) } ?? (isStable ? Decimal(1) : nil)
+        // The daily limit again, now: the review checked it when the list was prepared, and other sends may have gone since.
+        if let block = batchLimitBlock(todo, unit: unit) { throw WalletError.blocked(block) }
         let client = evm(chain)
         let from = EVMAddress(w.evmAddress)!
         async let cidA = client.chainId()

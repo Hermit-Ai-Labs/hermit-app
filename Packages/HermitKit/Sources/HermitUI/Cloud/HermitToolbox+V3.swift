@@ -223,10 +223,16 @@ extension HermitToolbox {
     /// open_app: a site in Hermit's browser, by its name in Explore or by a web address. It opens a page and nothing
     /// else: a site connects to the wallet only on the connect sheet the user approves. While an automation runs in the
     /// background nothing opens over the user's screen: the chat gets a button instead, and the result says so.
+    ///
+    /// A web address opens by itself only when the user typed its domain in this chat. A link the model got anywhere
+    /// else (a web page, a tool result, a file) waits behind one tap on a button that names the domain, so a planted
+    /// link never loads on its own. Apps picked by name from Explore's own list open directly, as before.
     @MainActor static func openApp(_ a: [String: Any]) throws -> ToolOutcome {
         let name = ToolsV3.text(a, "name"), address = ToolsV3.text(a, "url")
         var url: URL?
         var dapp: ExploreDapp?
+        // The address came from Explore's list, not from the call.
+        var fromExplore = false
         if !address.isEmpty {
             guard let u = webURL(address) else { return json(["error": "Only http and https addresses can be opened."]) }
             url = u
@@ -234,8 +240,10 @@ extension HermitToolbox {
             if let site = ExploreData.sites.first(where: { $0.key.caseInsensitiveCompare(name) == .orderedSame }) {
                 url = URL(string: "https://" + site.value)
                 dapp = ExploreData.dapps.first { $0.name == site.key }
+                fromExplore = true
             } else if let close = ExploreData.closeMatch(name, in: ExploreData.dapps), let u = close.url {
                 url = u; dapp = close
+                fromExplore = true
             } else if name.contains("."), let u = webURL(name) {
                 // "uniswap.org" given as a name is an address.
                 url = u
@@ -250,8 +258,19 @@ extension HermitToolbox {
         if dapp == nil, let host = target.host(), let known = DappBrowser.directoryName(for: host) {
             dapp = ExploreData.dapps.first { $0.name == known }
         }
-        let title = dapp?.name ?? target.host() ?? "the site"
+        let host = target.host()?.lowercased()
+        // What the user typed in this chat (their messages only: not files, not what tools returned).
+        let typed: [String] = ToolHost.shared.model.map { m in m.messages.filter { $0.role == .user }.map(\.text) } ?? []
+        let direct = ToolsV3.opensDirectly(fromExplore: fromExplore, host: host, typed: typed)
+        // An app from Explore is named by its name; a link is always named by the domain it goes to.
+        let title = fromExplore ? (dapp?.name ?? host ?? "the site") : (host ?? "the site")
         let button = Action("Open \(title)", primary: true, symbol: "safari", open: "app:" + target.absoluteString)
+        guard direct else {
+            var o = json(["status": "button_shown", "url": target.absoluteString,
+                          "note": "Not opened: the user didn't type \(title) in this chat, so it waits for their tap on the button that names it. Nothing connects to the wallet until the user approves it."])
+            o.action = button
+            return o
+        }
         if let model = ToolHost.shared.model, !model.backgroundRunActive {
             DappBrowser.shared.open(target, dapp: dapp, model: model)
             var o = json(["status": "opened", "opened": target.absoluteString,
