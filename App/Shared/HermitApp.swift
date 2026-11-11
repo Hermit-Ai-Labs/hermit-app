@@ -32,6 +32,8 @@ struct HermitApp: App {
     #endif
     init() {
         HermitFonts.register()
+        // Before launch finishes, so tapping an automation's notification that opened the app reaches its chat.
+        AutomationNotificationHandler.install()
         #if DEBUG && os(macOS)
         MacTour.startIfRequested()
         #endif

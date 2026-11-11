@@ -1,8 +1,8 @@
 import Foundation
 
-/// Buying a Solana token inside Hermit, no website in between: Jupiter's free swap API gives the quote and builds the
-/// transaction; Hermit checks the token is on Jupiter's verified list, shows the review, signs with the wallet's key on
-/// this device and sends it to the chain itself.
+/// Buying and selling a Solana token inside Hermit, no website in between: Jupiter's free swap API gives the quote and
+/// builds the transaction; HermitUI checks the token (Jupiter's verified list, or the audit Jupiter's search reports for
+/// one that isn't), shows the review, and Hermit signs with the wallet's key on this device and sends it to the chain itself.
 public enum Jupiter {
     static let api = "https://lite-api.jup.ag"
     public static let usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -81,6 +81,10 @@ public enum Jupiter {
             let msg = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String
             throw Error.bad(msg ?? "quote")
         }
+        // The quote must be for exactly what was asked: these mints, this input amount, exact in. Anything else and the
+        // review would show one token while the transaction swaps another.
+        guard j["inputMint"] as? String == input.mint, j["outputMint"] as? String == output.mint, inA == amount,
+              (j["swapMode"] as? String ?? "ExactIn") == "ExactIn" else { throw Error.bad("a quote for a different swap") }
         let route = (j["routePlan"] as? [[String: Any]] ?? []).compactMap { ($0["swapInfo"] as? [String: Any])?["label"] as? String }
         return Quote(input: input, output: output, inAmount: inA, outAmount: outA,
                      priceImpactPct: Double(j["priceImpactPct"] as? String ?? "") ?? 0, slippageBps: j["slippageBps"] as? Int ?? slippageBps,
@@ -197,6 +201,13 @@ public enum Jupiter {
         return true
     }
 
+    /// What Face ID or Touch ID says it's for: "Sell PUMP on Solana" when the swap pays out USDC or SOL for another
+    /// token, else "Buy PUMP on Solana".
+    public static func reason(_ q: Quote) -> String {
+        let cash: Set<String> = [usdcMint, solMint]
+        return cash.contains(q.output.mint) && !cash.contains(q.input.mint) ? "Sell \(q.input.symbol) on Solana" : "Buy \(q.output.symbol) on Solana"
+    }
+
     /// A Solana error in plain words. Custom error 6001 (0x1771) is Jupiter's slippage check.
     static func plainChainError(_ e: String) -> String {
         (e.contains("Custom") && e.contains("6001")) || e.contains("0x1771") ? "the price moved past the slippage limit, try again" : e
@@ -244,7 +255,7 @@ extension WalletService {
         // The wallet is the fee payer (checked above), so it is static key 0 and the static keys are enough here.
         // A node that reports no balances leaves only the checks on the transaction itself.
         _ = try Jupiter.checkSimulation(sim, keys: tx.message.staticKeys, wallet: me, quote: q)
-        let signed = try await dappSolanaSign(walletID: walletID, tx, reason: "Buy \(q.output.symbol) on Solana")
+        let signed = try await dappSolanaSign(walletID: walletID, tx, reason: Jupiter.reason(q))
         let sig = try await client.sendRaw(signed, skipPreflight: false)
         let status: (Bool, UInt64, String?)
         do { status = try await client.waitForConfirmation(sig) } catch WalletError.timeout {

@@ -62,6 +62,8 @@ public struct RootView: View {
         .onAppear {
             // prepare_swap from the assistant: open Wallets on the prefilled Swap review. The user approves (or not).
             WalletsViewModel.shared.tools.presentSwap = { [model] intent in
+                // From an automation running in the background: the review waits in its chat, the screen stays put.
+                if model.holdForBackground(intent) { return }
                 WalletsViewModel.shared.pendingSwap = intent
                 model.open(.wallets, tab: "agent-swap")
             }

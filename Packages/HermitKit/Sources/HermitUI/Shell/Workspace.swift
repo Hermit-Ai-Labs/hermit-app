@@ -70,29 +70,84 @@ public struct Automation: Identifiable, Equatable, Codable {
     public var thread: [Message]
     /// When it last ran (nil until the first run).
     public var lastRun: Date?
+    /// When its clock started: saved, switched on, or given a new time. Slots before this never count as missed.
+    /// Nil in files from before schedules ran (they start counting from now).
+    public var since: Date?
 
     public var isSchedule: Bool { Automation.nextRun(trigger, after: Date()) != nil }
     /// What a run sends to Hermit.
     public var runPrompt: String { prompt ?? action }
 
+    /// The slot it runs at next: the first one after its last run (or after it was switched on). It is due once that
+    /// has passed, and a run moves it past now, so time away from the app gives one run, never one per missed slot.
+    /// Nil when it is paused or isn't a schedule.
+    public func nextDue(_ now: Date = Date()) -> Date? {
+        guard on else { return nil }
+        // A one-off is done once it has run at or after its time. Run now pressed before then doesn't use it up.
+        if isOnce, let last = lastRun, let slot = Automation.nextRun(trigger, after: since ?? last), last >= slot { return nil }
+        let base = [lastRun, since].compactMap { $0 }.max() ?? now
+        return Automation.nextRun(trigger, after: base)
+    }
+
+    /// Runs once ("Once at 14:32", or a draft's "In 2 minutes"), then stays saved for Run now.
+    public var isOnce: Bool { trigger.hasPrefix("Once at ") || Automation.minutes(in: trigger, prefix: "In ") != nil }
+
+    public func isDue(_ now: Date = Date()) -> Bool { nextDue(now).map { $0 <= now } ?? false }
+
+    /// The next slot still ahead of now (the row's "Next run" and the reminder's time). Nil when paused or not a schedule.
+    public func upcoming(_ now: Date = Date()) -> Date? {
+        guard let d = nextDue(now) else { return nil }
+        return d > now ? d : Automation.nextRun(trigger, after: now)
+    }
+
     init(name: String, trigger: String, action: String, limit: String, on: Bool, last: String, prompt: String? = nil, asks: Bool = false, runs: [(String, String)]? = nil) {
         self.name = name; self.trigger = trigger; self.action = action; self.limit = limit; self.on = on; self.last = last
         self.prompt = prompt; self.asks = asks
+        since = on ? Date() : nil
         thread = [Message(role: .user, text: prompt ?? "\(trigger): \(action.prefix(1).lowercased() + action.dropFirst())"),
-                  // Nothing runs on a schedule yet, so the reply doesn't promise it.
-                  Message(role: .assistant, text: "Saved. It runs when you press Run now. Schedules are coming soon.", note: true)]
+                  Message(role: .assistant, text: Automation.savedNote(trigger: trigger, on: on), note: true)]
             + (runs ?? []).reversed().map { Message(role: .assistant, text: $0.1, run: $0.0) }
+    }
+
+    /// The reply to Save: when it runs next, that it is paused, or that it waits for Run now.
+    static func savedNote(trigger: String, on: Bool) -> String {
+        guard let next = nextRun(trigger, after: Date()) else { return "Saved. It runs when you press Run now." }
+        return on ? "Saved. Next run \(dayText(next))." : "Saved. It's paused: switch it on in Automations to run it on schedule."
+    }
+
+    /// "Mon 09:00": the weekday in the user's language, the time in 24 hours like the triggers.
+    static func dayText(_ d: Date) -> String { format(d, "EEE HH:mm") }
+    /// "09:00".
+    static func timeText(_ d: Date) -> String { format(d, "HH:mm") }
+
+    private static func format(_ d: Date, _ pattern: String) -> String {
+        let f = DateFormatter()
+        f.locale = .current
+        f.dateFormat = pattern
+        return f.string(from: d)
     }
 
     /// Nothing is pre-made; people describe their own.
     static let seed: [Automation] = []
 
     /// The next time a schedule trigger fires: "Every day 08:00", "Every Monday 09:00", "Every hour".
-    /// Nil for triggers that wait on an event (prices, email), which can only run by hand for now.
+    /// Nil for triggers that wait on an event (prices, email) or say "When you run it": those run only from Run now.
+    /// Short ones too: "Every minute", "Every 5 minutes" (the next whole minute that many minutes on), "In 2 minutes" (a
+    /// draft's one-off, from now) and "Once at 14:32" (that one-off once saved; see `isOnce`).
     static func nextRun(_ trigger: String, after now: Date) -> Date? {
         let cal = Calendar.current
         if trigger == "Every hour" {
             return cal.nextDate(after: now, matching: DateComponents(minute: 0), matchingPolicy: .nextTime)
+        }
+        if let n = minutes(in: trigger, prefix: "Every ") {
+            // From the start of the minute, so runs land on whole minutes.
+            let start = cal.dateInterval(of: .minute, for: now)?.start ?? now
+            return start.addingTimeInterval(TimeInterval(n * 60))
+        }
+        if let n = minutes(in: trigger, prefix: "In ") { return now.addingTimeInterval(TimeInterval(n * 60)) }
+        if trigger.hasPrefix("Once at "), let clock = trigger.split(separator: " ").last,
+           clock.count == 5, let h = Int(clock.prefix(2)), let m = Int(clock.suffix(2)), h < 24, m < 60 {
+            return cal.nextDate(after: now, matching: DateComponents(hour: h, minute: m), matchingPolicy: .nextTime)
         }
         guard trigger.hasPrefix("Every "), let clock = trigger.split(separator: " ").last,
               clock.count == 5, let h = Int(clock.prefix(2)), let m = Int(clock.suffix(2)) else { return nil }
@@ -104,6 +159,22 @@ public struct Automation: Identifiable, Equatable, Codable {
             parts.weekday = i + 1
         }
         return cal.nextDate(after: now, matching: parts, matchingPolicy: .nextTime)
+    }
+
+    /// 1 for "Every minute" or "In 1 minute", n for "Every n minutes" or "In n minutes" (1 to 59), else nil.
+    static func minutes(in trigger: String, prefix: String) -> Int? {
+        guard trigger.hasPrefix(prefix) else { return nil }
+        let rest = trigger.dropFirst(prefix.count)
+        if rest == "minute" || rest == "1 minute" { return 1 }
+        let words = rest.split(separator: " ")
+        guard words.count == 2, words[1] == "minutes", let n = Int(words[0]), (1...59).contains(n) else { return nil }
+        return n
+    }
+
+    /// "In 2 minutes" as the one-off it becomes on Save: "Once at 14:32". Other triggers stay as they are.
+    static func pinned(_ trigger: String, at now: Date = Date()) -> String {
+        guard minutes(in: trigger, prefix: "In ") != nil, let d = nextRun(trigger, after: now) else { return trigger }
+        return "Once at " + timeText(d)
     }
 }
 

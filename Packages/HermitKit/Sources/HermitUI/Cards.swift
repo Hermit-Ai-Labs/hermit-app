@@ -277,10 +277,10 @@ struct QuestCard: View {
             }
             .buttonStyle(PlainCardButton())
             Button {
-                // Saved, not scheduled: nothing runs by itself yet, so nothing promises it will.
+                // Saved paused: it only runs on its schedule once the user switches it on.
                 model.addAutomation(Automation(name: "Monad quests", trigger: "Every day 08:00", action: "Finish open Monad quests", limit: "$1 gas / day",
                                                on: false, last: "Not run yet"))
-                model.react("Save to Automations", "Saved to Automations. Press Run now there to start it. Schedules are coming soon, so it won't run by itself yet.")
+                model.react("Save to Automations", "Saved to Automations, paused. Switch it on there to run it every day at 08:00.")
             } label: {
                 Label("Save to Automations", systemImage: "plus")
             }

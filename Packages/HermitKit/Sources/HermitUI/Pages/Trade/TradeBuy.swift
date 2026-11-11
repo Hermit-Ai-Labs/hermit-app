@@ -109,7 +109,14 @@ enum TradeBuy {
 
     /// Quote, policy, review, then Hermit signs and sends. `amount` is in the paying token (USDC or SOL). `exact` is the
     /// amount as typed, when there is one: it becomes base units exactly instead of going through a Double.
-    @MainActor static func buyOnSolana(token: Jupiter.Token, payUSDC: Bool, amount: Double, exact: String? = nil, model: AppModel) {
+    /// `check` is what Jupiter's search said about a token that isn't on the verified list: an unverified token needs it,
+    /// and its `refusal` (too little liquidity, a freeze authority) stops the buy before any review opens.
+    @MainActor static func buyOnSolana(token: Jupiter.Token, payUSDC: Bool, amount: Double, exact: String? = nil, check: TokenCheck? = nil,
+                                       model: AppModel) {
+        if let why = check?.refusal { model.toast(why, kind: .error); return }
+        if !token.verified && check == nil {
+            model.toast("Hermit couldn't check \(token.symbol), so it won't buy it. Search for it again.", kind: .error); return
+        }
         let vm = WalletsViewModel.shared
         guard let w = vm.wallets.first, !w.record.solanaAddress.isEmpty else { model.fundGoal = .wallet; return }
         let pay: Jupiter.Token = payUSDC ? Jupiter.usdc : Jupiter.sol
@@ -142,19 +149,28 @@ enum TradeBuy {
                     model.toast("Price impact is \(String(format: "%.1f", impact))%, so Hermit won't send it. Try a smaller amount."); return
                 }
                 let impactWarning = impact > warnImpact ? ["Price impact is \(String(format: "%.1f", impact))%. You get noticeably less than the market price."] : []
+                // An unverified token: the strongest line first, with the whole mint to check against (the line above
+                // it shows the mint shortened), then what its audit says.
+                let strong: [String] = token.verified ? [] : ["\(token.symbol) is NOT on Jupiter's verified list. Anyone can make a token with this name. Check its full mint is the one you mean: \(token.mint)"]
+                let audit: [String] = check?.warnings.filter { !$0.hasPrefix("Not on Jupiter's verified list") } ?? []
+                let unverified = strong + audit
                 // The limit is read here, on the main actor: the review's closure runs off it.
                 let svc = vm.service, limit = vm.service.spendLimit, wid = w.record.id, walletKey = w.id, sym = token.symbol
+                let owner = w.record.solanaAddress, mintID = token.mint, decimals = token.decimals, quoted = q.outAmount, paySym = pay.symbol
                 let mint = token.mint.count > 12 ? "\(token.mint.prefix(4))…\(token.mint.suffix(4))" : token.mint
                 let lines: [[String]] = [["You pay", "\(q.inFormatted) \(pay.symbol) on Solana"], ["You get, about", "\(q.outFormatted) \(token.symbol)"],
                                          ["Price impact", String(format: "%.2f%%", impact)], ["Slippage", "up to \(Double(q.slippageBps) / 100)%"],
                                          ["Route", "Jupiter" + (q.route.isEmpty ? "" : " via " + q.route.prefix(2).joined(separator: ", "))],
-                                         ["Token", token.name + ", verified on Jupiter"], ["Mint", mint]]
+                                         ["Token", token.name + (token.verified ? ", verified on Jupiter" : ", not verified")], ["Mint", mint]]
                 let got = Double(q.outFormatted) ?? 0, paidShown = Double(q.inFormatted) ?? 0
                 let what = "Bought about \(MoneyFmt.amount(got)) \(sym) with \(MoneyFmt.amount(paidShown)) \(pay.symbol)"
                 let approval = Approval(kind: "Buy", title: "Buy \(token.symbol)", lines: lines,
-                                        checks: ["Token is on Jupiter's verified list", "Hermit tests Jupiter's transaction on Solana before it's signed",
-                                                 "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
-                                        success: "Bought \(token.symbol)", warnings: verdict.warnings + impactWarning) {
+                                        checks: (token.verified ? ["Token is on Jupiter's verified list"] : [])
+                                            + ["Hermit tests Jupiter's transaction on Solana before it's signed",
+                                               "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
+                                        success: "Bought \(token.symbol)", warnings: unverified + verdict.warnings + impactWarning) {
+                    // The balance before, so what actually arrived can be measured (for the cost book) once it's confirmed.
+                    let before = await SolanaHoldings.balance(owner: owner, mint: mintID)
                     let sig: String
                     do { sig = try await svc.executeJupiter(q, walletID: wid) } catch WalletError.pending(let h, let explorer) {
                         // Sent but not confirmed in time: it may still land, so it counts toward the daily limit and is
@@ -173,6 +189,104 @@ enum TradeBuy {
                         ActivityLedger.shared.record(ActivityItem(id: sig, kind: .swap, chainID: "solana", walletID: walletKey, what: what, detail: "Jupiter",
                                                                   amount: got, symbol: sym, date: Date(), tx: sig, status: "Confirmed",
                                                                   link: Chain.solana.explorerURL(tx: sig)))
+                    }
+                    // Into the cost book with what arrived (the quote's amount if it can't be read), then the success
+                    // moment. Off the sheet's path, so the review reports back at once.
+                    Task {
+                        let received = await SolanaHoldings.received(owner: owner, mint: mintID, before: before) ?? UInt128(quoted)
+                        let n = Double(Units.format(received, decimals: decimals)) ?? got
+                        await MainActor.run {
+                            SolanaHoldings.shared.finished(
+                                SpotTrade(walletID: walletKey, mint: mintID, symbol: sym, tokens: String(received), decimals: decimals,
+                                          usd: usdValue, sell: false, date: Date(), tx: sig),
+                                done: SolanaHoldings.Done(mint: mintID, symbol: sym, got: n, gotSymbol: sym, sell: false,
+                                                          detail: "≈ \(MoneyFmt.usd(usdValue, digits: 2)) in \(paySym)"))
+                        }
+                    }
+                    return sig
+                }
+                model.approval = approval
+            } catch {
+                model.toast((error as? LocalizedError)?.errorDescription ?? error.localizedDescription, kind: .error)
+            }
+        }
+    }
+
+    /// Sells `percent` (25, 50 or 100) of a Solana token the wallet holds, for USDC or SOL (USDC itself sells for SOL),
+    /// through the same path as buying: Jupiter's quote, the spending policy, the review, a test run of Jupiter's
+    /// transaction, then Hermit signs and sends. The amount is exact base units of what the wallet holds, rounded down;
+    /// 100% is all of it. The wallet keeps `solReserve` (0.01 SOL) for the fee and a new token account's rent.
+    @MainActor static func sellOnSolana(_ held: SolanaHoldings.Holding, percent: Int, toUSDC: Bool = true, model: AppModel) {
+        let vm = WalletsViewModel.shared
+        guard let w = vm.wallets.first, !w.record.solanaAddress.isEmpty else { model.fundGoal = .wallet; return }
+        // The latest reading, if there is one (the button may be from a screen a refresh ago).
+        let h = SolanaHoldings.shared.holding(held.id) ?? held
+        guard [25, 50, 100].contains(percent) else { return }
+        guard !h.frozen else { model.toast("The token's issuer froze this account, so it can't be sold.", kind: .error); return }
+        guard h.id != Jupiter.solMint else { model.toast("That's wrapped SOL. It counts as SOL in your wallet.", kind: .info); return }
+        let share = percent == 100 ? h.amount : h.amount * UInt128(percent) / 100
+        guard share > 0 else { model.toast("That's too little \(h.symbol) to sell", kind: .info); return }
+        guard let base = UInt64(exactly: share) else { model.toast("That's more \(h.symbol) than one swap can sell. Try 25%.", kind: .error); return }
+        let out: Jupiter.Token = toUSDC && h.id != Jupiter.usdcMint ? Jupiter.usdc : Jupiter.sol
+        // The fee, and rent for a new USDC account, come out of SOL: keep solReserve (0.01 SOL) in hand.
+        guard vm.balance(of: "SOL", wallet: w.id, chain: .solana) >= solReserve else {
+            model.toast("Keep about \(TradeAmount.text(solReserve, maxFraction: 2)) SOL on Solana for fees. Add a little first.")
+            model.fundGoal = .token(.solana, "SOL"); return
+        }
+        let token = h.token
+        model.toast("Getting a quote from Jupiter…", kind: .progress)
+        Task {
+            do {
+                let q = try await Jupiter.quote(from: token, to: out, amount: base)
+                let gets = Double(q.outFormatted) ?? 0, sold = Double(q.inFormatted) ?? 0
+                // The daily limit needs a dollar value: USDC as is, SOL at its price. With no SOL price, stop.
+                let priced: Double? = out.mint == Jupiter.usdcMint ? gets : solPrice().map { gets * $0 }
+                guard let usdValue = priced else {
+                    model.toast("Couldn't get SOL's price, so Hermit can't check your daily limit. Try again in a moment."); return
+                }
+                let verdict = vm.service.policy.evaluate(usd: usdValue, payee: nil, origin: .user)
+                if verdict.decision == .block { model.toast(verdict.blocks.first ?? "Blocked by your spending policy", kind: .error); return }
+                let impact = q.shownImpactPercent
+                if impact > maxImpact {
+                    model.toast("Price impact is \(String(format: "%.1f", impact))%, so Hermit won't send it. Try selling less."); return
+                }
+                let impactWarning = impact > warnImpact ? ["Price impact is \(String(format: "%.1f", impact))%. You get noticeably less than the market price."] : []
+                let unverified: [String] = token.verified ? [] : ["\(token.symbol) isn't on Jupiter's verified list. Mint \(token.mint)."]
+                let svc = vm.service, limit = vm.service.spendLimit, wid = w.record.id, walletKey = w.id, sym = token.symbol, outSym = out.symbol
+                let mintID = token.mint, decimals = token.decimals, sharePart = percent == 100 ? "all of it" : "\(percent)%"
+                let mint = token.mint.count > 12 ? "\(token.mint.prefix(4))…\(token.mint.suffix(4))" : token.mint
+                let lines: [[String]] = [["You sell", "\(q.inFormatted) \(sym) (\(sharePart))"], ["You get, about", "\(q.outFormatted) \(outSym) on Solana"],
+                                         ["Price impact", String(format: "%.2f%%", impact)], ["Slippage", "up to \(Double(q.slippageBps) / 100)%"],
+                                         ["Route", "Jupiter" + (q.route.isEmpty ? "" : " via " + q.route.prefix(2).joined(separator: ", "))],
+                                         ["Token", token.name + (token.verified ? ", verified on Jupiter" : ", not verified")], ["Mint", mint]]
+                let what = "Sold \(MoneyFmt.amount(sold)) \(sym) for about \(MoneyFmt.amount(gets)) \(outSym)"
+                let approval = Approval(kind: "Sell", title: "Sell \(sym)", lines: lines,
+                                        checks: (token.verified ? ["Token is on Jupiter's verified list"] : [])
+                                            + ["Hermit tests Jupiter's transaction on Solana before it's signed",
+                                               "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
+                                        success: "Sold \(sym)", warnings: unverified + verdict.warnings + impactWarning) {
+                    let sig: String
+                    do { sig = try await svc.executeJupiter(q, walletID: wid) } catch WalletError.pending(let hash, let explorer) {
+                        // Sent but not confirmed in time: listed as pending, and it counts toward the daily limit, like a buy.
+                        limit.record(usd: Decimal(usdValue))
+                        await MainActor.run {
+                            ActivityLedger.shared.record(ActivityItem(id: hash, kind: .swap, chainID: "solana", walletID: walletKey, what: what, detail: "Jupiter",
+                                                                      amount: gets, symbol: outSym, date: Date(), tx: hash, status: "Pending",
+                                                                      link: Chain.solana.explorerURL(tx: hash)))
+                        }
+                        throw WalletError.pending(hash: hash, explorer: explorer)
+                    }
+                    limit.record(usd: Decimal(usdValue))
+                    await MainActor.run {
+                        ActivityLedger.shared.record(ActivityItem(id: sig, kind: .swap, chainID: "solana", walletID: walletKey, what: what, detail: "Jupiter",
+                                                                  amount: gets, symbol: outSym, date: Date(), tx: sig, status: "Confirmed",
+                                                                  link: Chain.solana.explorerURL(tx: sig)))
+                        // The input is exact, so the book takes away exactly what was sold.
+                        SolanaHoldings.shared.finished(
+                            SpotTrade(walletID: walletKey, mint: mintID, symbol: sym, tokens: String(base), decimals: decimals,
+                                      usd: usdValue, sell: true, date: Date(), tx: sig),
+                            done: SolanaHoldings.Done(mint: mintID, symbol: sym, got: gets, gotSymbol: outSym, sell: true,
+                                                      detail: "Sold \(MoneyFmt.amount(sold)) \(sym)"))
                     }
                     return sig
                 }

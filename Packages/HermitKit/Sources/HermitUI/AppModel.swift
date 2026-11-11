@@ -121,7 +121,7 @@ public final class AppModel {
     public var projectMD: [String: String] = [:] { didSet { save(); pushContext(onlyIfChanged: true) } }
 
     // Automations
-    public var automations: [Automation] = Automation.seed { didSet { save() } }
+    public var automations: [Automation] = Automation.seed { didSet { save(); AutomationScheduler.shared.changed(self) } }
     /// The automation thread open on the Automations route: a name, or a new draft from a sentence.
     public var automationOpen: AutomationOpen?
     public enum AutomationOpen: Hashable { case existing(String), new(String) }
@@ -198,7 +198,11 @@ public final class AppModel {
         pushContext()
         // First launch: Hermit's model starts downloading by itself (on Wi-Fi; mobile data asks first). Not in
         // snapshots, the Debug tour or tests.
-        if persist && NSClassFromString("XCTestCase") == nil { models.autoStart() }
+        if persist && NSClassFromString("XCTestCase") == nil {
+            models.autoStart()
+            // Scheduled automations run while the app is open (AutomationScheduler.swift).
+            AutomationScheduler.shared.attach(self)
+        }
     }
 
     #if DEBUG
@@ -274,6 +278,7 @@ public final class AppModel {
     public func newChat(project: String?) {
         // Stop the reply first, so the chat is saved as it stands and its tail can't touch the new one.
         replyTask?.cancel(); replyGen &+= 1
+        cancelBackgroundRun()
         commit()
         switchingChat = true; chatProject = project; switchingChat = false
         pushContext()
@@ -295,6 +300,7 @@ public final class AppModel {
     public func openConversation(_ id: String) {
         guard let c = conversations.first(where: { $0.id == id }) else { return }
         replyTask?.cancel(); replyGen &+= 1
+        cancelBackgroundRun()
         commit()
         // The model starts this one fresh: it doesn't carry the other chat's context in.
         agent.reset(); busy = false
@@ -309,7 +315,7 @@ public final class AppModel {
         withAnimation(.snappy) { conversations.removeAll { $0.id == id } }
         if currentID == id {
             // Deleting the open chat stops its reply and clears the model, so the next chat doesn't start inside it.
-            replyTask?.cancel(); replyGen &+= 1; agent.reset(); busy = false
+            replyTask?.cancel(); replyGen &+= 1; cancelBackgroundRun(); agent.reset(); busy = false
             messages = []; currentID = nil; batchFile = nil; pictureInChat = false
         }
         save()
@@ -341,6 +347,10 @@ public final class AppModel {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || attachment != nil, !busy else { return }
         if text.isEmpty, let a = attachment { text = "What's in \(a.name)?" }
+        // You come first: an automation answering in the background stops (it runs again on a later check), and the
+        // model starts this message from your chat, not from the automation's.
+        cancelBackgroundRun()
+        lastSendAt = Date()
         route = .home; drawerOpen = false
         if currentID == nil {
             let c = Conversation(title: String(text.prefix(60)), project: chatProject, when: "Today", messages: [])
@@ -494,20 +504,23 @@ public final class AppModel {
     }
 
     private func apply(_ event: AgentEvent, to id: UUID) {
-        update(id) { m in
-            switch event {
-            case .status(let s):
-                m.status = s
-                // The step list under "n steps" names what was done; waiting lines aren't steps.
-                if !s.hasPrefix("Thinking") && !s.hasPrefix("Waking up") { m.tools.append(s.hasSuffix("…") ? String(s.dropLast()) : s) }
-            case .steps(let n): m.steps = n; m.status = nil
-            case .text(let chunk):
-                if case .text(let t)? = m.blocks.last { m.blocks[m.blocks.count - 1] = .text(t + chunk) } else { m.text += chunk }
-            case .card(let c): m.card = c
-            case .actions(let a): m.actions = a
-            case .block(let b): m.blocks.append(b)
-            case .proof(let p): m.proof = p
-            }
+        update(id) { Self.fold(event, into: &$0) }
+    }
+
+    /// One agent event written into a reply (the visible chat's, or a background run's).
+    static func fold(_ event: AgentEvent, into m: inout Message) {
+        switch event {
+        case .status(let s):
+            m.status = s
+            // The step list under "n steps" names what was done; waiting lines aren't steps.
+            if !s.hasPrefix("Thinking") && !s.hasPrefix("Waking up") { m.tools.append(s.hasSuffix("…") ? String(s.dropLast()) : s) }
+        case .steps(let n): m.steps = n; m.status = nil
+        case .text(let chunk):
+            if case .text(let t)? = m.blocks.last { m.blocks[m.blocks.count - 1] = .text(t + chunk) } else { m.text += chunk }
+        case .card(let c): m.card = c
+        case .actions(let a): m.actions = a
+        case .block(let b): m.blocks.append(b)
+        case .proof(let p): m.proof = p
         }
     }
 
@@ -533,6 +546,12 @@ public final class AppModel {
             case let o where o.hasPrefix("batch:"): BatchStore.shared.review(String(o.dropFirst("batch:".count)), model: self)
             case let o where o.hasPrefix("earn-deposit:"): EarnFlow.open(link: o, model: self)
             case "earn-positions": open(.earn, tab: "positions")
+            case let o where o.hasPrefix("agent-swap:"):
+                // A swap an automation prepared in the background: its review opens only now, when you ask for it.
+                if let i = heldSwaps[String(o.dropFirst("agent-swap:".count))] {
+                    WalletsViewModel.shared.pendingSwap = i
+                    open(.wallets, tab: "agent-swap")
+                } else { toast("That review has expired. Ask Hermit again.", kind: .info) }
             case let o where o.hasPrefix("chat:"):
                 let id = String(o.dropFirst("chat:".count))
                 if conversations.contains(where: { $0.id == id }) { openConversation(id) } else { toast("That chat was deleted", kind: .info) }
@@ -596,6 +615,137 @@ public final class AppModel {
         a.kind == "Connect a site" || ["Transaction from ", "Signature request from ", "Sign-in request from "].contains { a.kind.hasPrefix($0) }
     }
 
+    // MARK: Background runs (scheduled automations)
+
+    /// What a background run left: its new saved chat, the reply, and whether that reply holds a money review waiting
+    /// for the user (a prepared send, swap, batch or deposit). Nothing was approved: reviews only open from a tap.
+    struct BackgroundReply {
+        let chatID: String
+        let reply: Message
+        let needsApproval: Bool
+    }
+
+    /// The reply an automation is writing in the background (nil when none). The visible chat never waits on it.
+    @ObservationIgnored private var backgroundTask: Task<Message?, Never>?
+    /// Goes up with every background run started or stopped, so a stopped run's tail never resets the model again.
+    @ObservationIgnored private var backgroundGen = 0
+    /// Swaps an automation prepared, kept until the user opens their review from the automation's chat ("agent-swap:<id>").
+    @ObservationIgnored private var heldSwaps: [String: SwapIntent] = [:]
+    @ObservationIgnored private var heldNow: [String] = []
+    /// When the user last sent a message: a background run waits until they have been quiet for a moment.
+    @ObservationIgnored private var lastSendAt = Date.distantPast
+
+    var backgroundRunActive: Bool { backgroundTask != nil }
+
+    /// Hermit is free for an automation: no reply streaming, no approval sheet open, no other run, the user isn't in
+    /// the middle of a back-and-forth, and the model that would answer is there.
+    var canRunInBackground: Bool {
+        guard persist, !busy, approval == nil, backgroundTask == nil, !user.isEmpty else { return false }
+        guard Date().timeIntervalSince(lastSendAt) >= 30 else { return false }
+        return ChatMode.current == .cloud || models.readyModel != nil
+    }
+
+    /// Answers `prompt` in a new saved chat without touching the open one: no route change, `messages`, `currentID` and
+    /// `busy` stay as they are. The chat is added to the list only once the reply is complete. Returns nil when the run
+    /// didn't finish (the user sent a message, started or opened a chat, or the app left the screen); it can run again.
+    /// The model is shared, so the open chat's next message starts the model fresh, as reopening a chat does.
+    func runInBackground(_ prompt: String, title: String) async -> BackgroundReply? {
+        guard !busy, backgroundTask == nil else { return nil }
+        backgroundGen &+= 1
+        let gen = backgroundGen
+        heldNow = []
+        // A fresh conversation with the name and hermit.md, but no project's instructions.
+        agent.reset()
+        agent.setContext(name: user, memory: memory)
+        pushedName = nil; pushedNotes = nil
+        let stream = agent.reply(to: prompt)
+        let task = Task { () -> Message? in
+            var m = Message(role: .assistant, done: false)
+            for await event in stream { AppModel.fold(event, into: &m) }
+            return Task.isCancelled ? nil : m
+        }
+        backgroundTask = task
+        let answer = await task.value
+        // Stopped for the user's own chat: that path already reset the model and gave it the open chat's context.
+        guard backgroundGen == gen else { return nil }
+        backgroundTask = nil
+        agent.reset(); pushContext()
+        let held = heldNow
+        heldNow = []
+        guard var reply = answer else {
+            for id in held { heldSwaps[id] = nil }
+            return nil
+        }
+        reply.done = true; reply.status = nil
+        if !held.isEmpty {
+            reply.blocks.append(.actions(held.enumerated().map { i, id in
+                Action(i == 0 ? "Review the swap" : "Review swap \(i + 1)", primary: true, symbol: "arrow.left.arrow.right", open: "agent-swap:" + id)
+            }))
+        }
+        let c = Conversation(title: String(title.prefix(60)), project: nil, when: "Today",
+                             messages: [Message(role: .user, text: prompt), reply])
+        withAnimation(.snappy) { conversations.insert(c, at: 0) }
+        save()
+        return BackgroundReply(chatID: c.id, reply: reply, needsApproval: Self.needsApproval(reply))
+    }
+
+    /// Stops a background run (the user comes first). It runs again on a later check.
+    func cancelBackgroundRun() {
+        guard let t = backgroundTask else { return }
+        t.cancel()
+        backgroundTask = nil
+        backgroundGen &+= 1
+        for id in heldNow { heldSwaps[id] = nil }
+        heldNow = []
+        agent.reset(); pushContext()
+    }
+
+    /// prepare_swap during a background run: the review is kept for the automation's chat instead of opening Wallets
+    /// over whatever the user is doing. False when no run is going (the swap review opens as usual).
+    func holdForBackground(_ intent: SwapIntent) -> Bool {
+        guard backgroundTask != nil else { return false }
+        let id = UUID().uuidString
+        heldSwaps[id] = intent
+        heldNow.append(id)
+        return true
+    }
+
+    /// A reply that holds a money move to review: a button with a review, a batch, deposit or held swap link, or a card
+    /// with its own Approve.
+    static func needsApproval(_ m: Message) -> Bool {
+        func money(_ a: Action) -> Bool {
+            a.approval != nil || ["batch:", "earn-deposit:", "agent-swap:"].contains { a.open?.hasPrefix($0) == true }
+        }
+        func pays(_ c: Card?) -> Bool {
+            guard let c else { return false }
+            switch c {
+            case .perpTicket, .apiBuy, .inbox: return true
+            default: return false
+            }
+        }
+        if m.actions.contains(where: money) || pays(m.card) { return true }
+        return m.blocks.contains { b in
+            switch b {
+            case .actions(let list): return list.contains(where: money)
+            case .card(let c): return pays(c)
+            case .text: return false
+            }
+        }
+    }
+
+    /// A reply as one plain line: its text without Markdown marks, for a run's entry and history.
+    static func preview(_ m: Message, max: Int = 160) -> String {
+        let texts = [m.text] + m.blocks.compactMap { (b: Block) -> String? in
+            if case .text(let t) = b { return t }
+            return nil
+        }
+        let flat = texts.joined(separator: " ")
+            .replacingOccurrences(of: #"[*`#>]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return flat.count > max ? String(flat.prefix(max - 1)).trimmingCharacters(in: .whitespaces) + "…" : flat
+    }
+
     // MARK: Projects
 
     public func openProject(_ name: String) {
@@ -625,9 +775,19 @@ public final class AppModel {
 
     // MARK: Automations
 
+    /// Pause or switch on. Switching on starts its clock now, so slots missed while it was paused don't run.
     public func toggleAutomation(_ name: String) {
         guard let i = automations.firstIndex(where: { $0.name == name }) else { return }
-        withAnimation(.snappy) { automations[i].on.toggle() }
+        var a = automations[i]
+        a.on.toggle()
+        if a.on { a.since = Date() }
+        withAnimation(.snappy) { automations[i] = a }
+        if a.on {
+            AutomationScheduler.shared.askPermission()
+            if let next = a.upcoming() { toast("On. Next run \(Automation.dayText(next))", kind: .success) } else { toast("On", kind: .success) }
+        } else {
+            toast("Paused", kind: .info)
+        }
     }
 
     /// Names are ids: saving one that already exists (a card's Save pressed twice) keeps the saved one and its runs.
@@ -682,7 +842,12 @@ public final class AppModel {
             conversations = saved.conversations
             projectList = saved.projects
             projectMD = saved.projectMD
-            automations = saved.automations
+            // Switched on before schedules ran (no `since`): its clock starts now, so it never runs at once for an old slot.
+            automations = saved.automations.map { a in
+                var a = a
+                if a.on && a.since == nil { a.since = Date() }
+                return a
+            }
             todos = saved.todos
             costsOff = Set(saved.costsOff)
             // A chat whose project wasn't saved (files from before projects were) goes back to Recents instead of hiding.

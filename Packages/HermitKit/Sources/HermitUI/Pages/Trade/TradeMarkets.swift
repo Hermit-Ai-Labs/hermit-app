@@ -28,7 +28,8 @@ struct TradeMarkets: View {
 // MARK: Perps terminal
 
 /// Hyperliquid perps with Hermit built in: market picker and live stats, Hermit actions, real candles with TP/SL,
-/// the live order book and trades, and the order form (greyed until trading is wired to an exchange).
+/// the live order book and trades, the order form (signed on this device after the approval sheet), and under it your
+/// position and orders in this market.
 struct TradeTerminal: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var askApproval
@@ -63,6 +64,13 @@ struct TradeTerminal: View {
     @State private var bookFailures = 0
     /// The TP and SL text the defaults last wrote: while the fields still hold them, a leverage change moves them too.
     @State private var autoLevels = ""
+    /// The order-done moment, and where it shows: "form" in place of the order button, "position" over the card.
+    @State private var done: PerpDone?
+    @State private var doneAt = "form"
+    /// The close being prepared (0.25, 0.5, 1) and the orders being cancelled, for their spinners.
+    @State private var closing: Double?
+    @State private var cancelling: Set<Int> = []
+    @State private var positionError: String?
 
     private var mkt: TradeData.Perp? { feed.perps[coin] }
     private var sym: String { coin.split(separator: ":").last.map(String.init) ?? coin }
@@ -105,17 +113,20 @@ struct TradeTerminal: View {
                 HStack(alignment: .top, spacing: 28) {
                     VStack(alignment: .leading, spacing: 22) { chart; bookPanel }
                         .frame(maxWidth: .infinity)
-                    form.frame(width: 300)
+                    VStack(alignment: .leading, spacing: 22) { form; positionPanel }.frame(width: 300)
                 }
                 .padding(.top, 6)
             } else {
-                VStack(alignment: .leading, spacing: 22) { chart; form; bookPanel }.padding(.top, 6)
+                VStack(alignment: .leading, spacing: 22) { chart; form; positionPanel; bookPanel }.padding(.top, 6)
             }
         }
         .tradeWidth($width)
         .marketPollBackingOff(every: 15, id: 0) { await feed.refreshPerps(); return feed.perpFailures == 0 }
         .marketPollBackingOff(every: 30, id: coin + tf) { await loadCandles() }
         .marketPollBackingOff(every: 5, id: coin) { await loadBook() }
+        // The account: every 5 s while there's a position or order in this market to show, else every 20 s (a limit
+        // order may fill). Stops when the terminal isn't on screen.
+        .marketPollBackingOff(every: hasHere ? 5 : 20, id: "\(hl.address ?? "")|\(hasHere)") { await hl.poll() }
         .onChange(of: mkt?.px != nil, initial: true) { _, has in if has && defaultsFor != coin { setDefaults(side) } }
         .onChange(of: lev) { _, _ in if tpText + "|" + slText == autoLevels { setDefaults(side) } }
         .onChange(of: tf) { candles = []; chartState = .loading; rangeLevels = [] }
@@ -380,7 +391,7 @@ struct TradeTerminal: View {
 
     // MARK: Order form
 
-    /// The full form so you can size a trade against live prices. Submitting isn't wired to an exchange yet.
+    /// The full form, sized against live prices. Submitting builds the exact order and opens the approval sheet.
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
             TradeWideSegmented(options: ["Market", "Limit"], selection: $type)
@@ -455,6 +466,9 @@ struct TradeTerminal: View {
                         : "Move USDC or any coin you hold on any network, or add some with a QR code. It lands in about a minute."
                 } ?? "Move USDC or any coin you hold on any network, or add some with a QR code. It lands in about a minute.")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            } else if let d = done, doneAt == "form" {
+                PerpDoneView(done: d) { clearDone(d) }
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
             } else {
                 Button { Task { await review() } } label: {
                     HStack(spacing: 6) {
@@ -478,6 +492,7 @@ struct TradeTerminal: View {
         }
         .task(id: hl.address) { await hl.refresh(); fitMargin() }
         .onChange(of: hl.available) { _, _ in fitMargin() }
+        .animation(.smooth(duration: 0.3), value: done)
     }
 
     /// Builds the exact order, shows it on the review sheet, and signs + sends it only after Approve (Face ID).
@@ -560,7 +575,89 @@ struct TradeTerminal: View {
             let r = try await trader.place(order, leverage: leverage, current: cur)
             return r.summary
         }
-        askApproval(approval) { Task { try? await Task.sleep(for: .seconds(1.5)); await hl.refresh() } }
+        let placed = PerpDone(title: "\(isBuy ? "Long" : "Short") \(sym) \(Hyperliquid.wire(size)) placed",
+                              note: type == "Limit" ? "It waits at $\(limit.tradePx) until it fills" : "Your position updates below")
+        askApproval(approval) {
+            showDone(placed, at: "form")
+            hl.refreshAfterTrade()
+        }
+    }
+
+    // MARK: Your position here
+
+    private var herePosition: Hyperliquid.Position? { hl.account?.positions.first { $0.coin == coin && $0.size != 0 } }
+    private var hereOrders: [Hyperliquid.OpenOrder] { hl.account?.orders.filter { $0.coin == coin } ?? [] }
+    private var hasHere: Bool { herePosition != nil || !hereOrders.isEmpty }
+
+    /// Under the order form: the open position in this market (P&L, the numbers, its TP and SL, Close 25/50/100%), and
+    /// this market's other open orders with Cancel. Nothing when there's neither.
+    @ViewBuilder private var positionPanel: some View {
+        let p = herePosition
+        let orders = hereOrders
+        // With a position, its TP and SL sit on the card; without one, any left over are listed as orders.
+        let listed = p == nil ? orders : orders.filter { !$0.isTrigger }
+        let showDoneHere = done != nil && doneAt == "position"
+        if p != nil || !orders.isEmpty || showDoneHere || positionError != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(p == nil ? "Your \(sym) orders" : "Your \(sym) position").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                if let d = done, doneAt == "position" {
+                    PerpDoneView(done: d) { clearDone(d) }
+                        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+                }
+                if let p {
+                    PerpPositionCard(position: p, protection: orders.filter(\.isTrigger), closing: closing, cancelling: cancelling,
+                                     onClose: { f in closeHere(p, f) }, onCancel: { o in cancelHere(o) })
+                        .transition(.opacity)
+                }
+                if !listed.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if p != nil { Text("Open orders").font(.system(size: 12.5)).foregroundStyle(Theme.hint).padding(.top, 4) }
+                        TradeRows(data: listed) { o in
+                            PerpOrderRow(order: o, showLogo: false, cancelling: cancelling.contains(o.oid)) { cancelHere(o) }
+                        }
+                    }
+                }
+                if let positionError {
+                    Text(positionError).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.smooth(duration: 0.3), value: p)
+            .animation(.smooth(duration: 0.3), value: done)
+            .animation(.smooth(duration: 0.25), value: orders)
+            .transition(.opacity)
+        }
+    }
+
+    private func showDone(_ d: PerpDone, at place: String) {
+        withAnimation(.smooth) { doneAt = place; done = d }
+    }
+
+    private func clearDone(_ d: PerpDone) {
+        guard done?.id == d.id else { return }
+        withAnimation(.smooth) { done = nil }
+    }
+
+    private func closeHere(_ p: Hyperliquid.Position, _ f: Double) {
+        guard closing == nil else { return }
+        positionError = nil
+        closing = f
+        Task {
+            let e = await PerpActions.close(p, fraction: f, ask: askApproval) { d in showDone(d, at: "position") }
+            closing = nil
+            withAnimation(.smooth) { positionError = e }
+        }
+    }
+
+    private func cancelHere(_ o: Hyperliquid.OpenOrder) {
+        guard !cancelling.contains(o.oid) else { return }
+        positionError = nil
+        cancelling.insert(o.oid)
+        Task {
+            let e = await PerpActions.cancel(o, model: model)
+            cancelling.remove(o.oid)
+            withAnimation(.smooth) { positionError = e }
+        }
     }
 
     private func sideButton(_ s: String, _ title: String, _ color: Color) -> some View {
@@ -645,7 +742,7 @@ struct TradeTerminal: View {
         withAnimation(.smooth(duration: 0.25)) {
             coin = c
             candles = []; chartState = .loading; book = nil; prints = []; bookState = .loading
-            rangeLevels = []; limitText = ""
+            rangeLevels = []; limitText = ""; positionError = nil
             lev = min(lev, Double(feed.perps[c]?.maxLev ?? 10))
             setDefaults(side)
         }
