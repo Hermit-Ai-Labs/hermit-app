@@ -4,245 +4,308 @@
 <style>
 @font-face { font-family: 'Geist'; src: url('../fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
 @font-face { font-family: 'Geist Mono'; src: url('../fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; }
-:root {
-  --bg: #000000;
-  --neon: #3CFF3C;
-  --neon-dim: rgba(60,255,60,.55);
-  --white: #FFFFFF;
-  --ink2: #D9D9D9;
-  --ink3: #A6A6A6;
-}
+/* Two colours only: Klein blue and white. Softer text is white at lower opacity. Same page as Private Cloud. */
+:root { --blue:#1E2AD6; --white:#FFFFFF; --w2:rgba(255,255,255,.80); --w3:rgba(255,255,255,.62); --w4:rgba(255,255,255,.38); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { background: transparent; }
-body { width: 1200px; background: none; color: var(--white); font-family: 'Geist', system-ui; -webkit-font-smoothing: antialiased; }
-#fig { position: relative; width: 1200px; background: var(--bg); border-radius: 28px; overflow: hidden; }
-#fig > * { position: absolute; }
+body::before { content: ''; position: absolute; inset: 0; border-radius: 28px; background: var(--blue); z-index: -1; }
+body { position: relative; isolation: isolate; width: 1200px; background: none; clip-path: inset(0 round 28px); color: var(--white); border-radius: 28px;
+  overflow: hidden; font-family: 'Geist', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: 'Geist Mono'; font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
+.abs { position: absolute; }
+#dither { position: absolute; left: 0; top: 0; z-index: 0; image-rendering: pixelated; }
+svg.layer { position: absolute; left: 0; top: 0; width: 1200px; overflow: visible; pointer-events: none; }
+svg.layer#back { z-index: 1; } svg.layer#front { z-index: 4; }
+#root > * { z-index: 3; }
+svg.ico { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; flex: none; }
 
-/* texture: faint scanlines, a soft glow behind the spine, a vignette */
-.tex { left: 0; top: 0; right: 0; bottom: 0; z-index: 0; pointer-events: none;
-  background:
-    repeating-linear-gradient(0deg, rgba(255,255,255,.028) 0 1px, transparent 1px 4px),
-    radial-gradient(ellipse 34% 46% at 50% 52%, rgba(255,255,255,.075), transparent 70%),
-    radial-gradient(ellipse 90% 70% at 50% 50%, transparent 60%, rgba(0,0,0,.6)); }
-.grid { left: 0; top: 0; z-index: 0; }
-
-.corner { font: 500 19px/24px 'Geist'; color: var(--white); letter-spacing: .01em; white-space: nowrap; }
-.slash { font: 500 19px/24px 'Geist Mono'; color: var(--white); }
-.eyebrow { display: flex; align-items: center; gap: 12px; font: 500 18px/24px 'Geist Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--ink2); white-space: nowrap; }
+.eyebrow { left: 64px; top: 56px; display: flex; align-items: center; gap: 12px; height: 24px;
+  font: 500 18px/24px 'Geist Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--w2); white-space: nowrap; }
 .eyebrow svg { width: 37px; height: 24px; }
-h1 { font: 600 58px/64px 'Geist'; letter-spacing: -.03em; color: var(--white); white-space: nowrap;
-  text-shadow: 0 0 22px rgba(255,255,255,.25); }
-.sub { font: 400 22px/30px 'Geist'; color: var(--ink2); white-space: nowrap; }
-.eyebrow, .sub, .hd, .slash, .corner { z-index: 3; }
+h1 { position: absolute; left: 62px; top: 96px; font: 600 58px/64px 'Geist'; letter-spacing: -.03em; white-space: nowrap; }
+.sub { left: 64px; top: 174px; font: 400 22px/30px 'Geist'; color: var(--w2); white-space: nowrap; }
 
-.tag { display: inline-block; background: var(--neon); color: #000; font: 600 18px/26px 'Geist Mono'; letter-spacing: .03em;
-  text-transform: uppercase; padding: 1px 10px 0; white-space: nowrap; box-shadow: 0 0 18px rgba(60,255,60,.28); }
-.tag.white { background: var(--white); box-shadow: 0 0 22px rgba(255,255,255,.35); }
-.tag.line { background: #000; color: var(--neon); outline: 1.5px solid var(--neon); outline-offset: -1.5px; box-shadow: none; }
-.tag .n { opacity: .62; margin-right: 10px; }
+/* lane heads */
+.lh { text-align: center; white-space: nowrap; }
+.lh .n { display: flex; align-items: center; justify-content: center; gap: 9px; font: 600 21px/28px 'Geist'; letter-spacing: -.01em; }
+.lh .s { font: 400 18px/24px 'Geist'; color: var(--w3); margin-top: 2px; }
+.lh.left { text-align: left; } .lh.left .n { justify-content: flex-start; }
+.tag { height: 28px; padding: 0 12px; background: var(--blue); display: flex; align-items: center; gap: 8px;
+  font: 500 18px/28px 'Geist Mono'; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
 
-.blk { z-index: 3; }
-.blk.l { text-align: right; }
-.blk .d { margin-top: 8px; font: 400 20px/27px 'Geist'; color: var(--ink2); white-space: nowrap; }
-.blk .d.big { font: 500 23px/30px 'Geist'; color: var(--white); }
-.blk .d.mono { font: 450 19px/26px 'Geist Mono'; color: var(--white); }
-.list { margin-top: 10px; display: grid; grid-template-columns: auto auto; column-gap: 26px; row-gap: 4px; text-align: left; }
-.blk.l .list { margin-left: auto; width: max-content; }
-.list div { font: 400 19px/26px 'Geist'; color: var(--ink2); white-space: nowrap; display: flex; align-items: center; gap: 10px; }
-.list div::before { content: ''; width: 7px; height: 7px; background: var(--neon); flex: none; }
+/* the money at both ends of the path */
+.subj { text-align: center; padding: 15px 34px 16px; border-radius: 20px; white-space: nowrap; }
+.subj .s1 { font: 600 34px/38px 'Geist'; letter-spacing: -.02em; }
+.subj .s2 { margin-top: 4px; font: 500 18px/24px 'Geist Mono'; letter-spacing: .1em; text-transform: uppercase; color: var(--w2); }
+.subj.start { background: var(--blue); border: 1.5px solid var(--white); }
+.subj.end { background: var(--white); color: var(--blue); }
+.subj.end .s2 { color: var(--blue); }
 
-.colhead { font: 500 18px/24px 'Geist Mono'; letter-spacing: .06em; text-transform: uppercase; color: var(--ink2); white-space: nowrap; z-index: 3; }
+/* phases */
+.ph { display: flex; align-items: baseline; gap: 14px; padding-right: 14px; background: var(--blue); white-space: nowrap; }
+.ph .l { width: 30px; height: 30px; align-self: center; border: 1.5px solid var(--white); border-radius: 8px; display: grid; place-items: center; font: 600 18px/1 'Geist Mono'; }
+.ph .k { font: 500 18px/28px 'Geist Mono'; letter-spacing: .12em; text-transform: uppercase; }
 
-.phase { z-index: 1; border: 1.5px solid var(--neon); }
-.phase .bar { position: absolute; left: -1.5px; right: -1.5px; top: -1.5px; height: 34px; background: var(--neon); color: #000;
-  font: 600 18px/34px 'Geist Mono'; letter-spacing: .04em; text-transform: uppercase; padding: 0 14px; display: flex; justify-content: space-between; }
+/* steps */
+.badge { width: 32px; height: 32px; border-radius: 50%; background: var(--white); color: var(--blue);
+  font: 600 18px/32px 'Geist'; text-align: center; font-variant-numeric: tabular-nums; }
+.al { font: 600 21px/28px 'Geist'; letter-spacing: -.01em; white-space: nowrap; }
+.as { font: 400 18px/24px 'Geist'; color: var(--w2); white-space: nowrap; }
+.as.code { font: 450 19px/24px 'Geist Mono'; color: var(--white); font-variant-ligatures: none; }
+.quote { font: 400 20px/26px 'Geist'; color: var(--white); white-space: nowrap; }
 
-.subject { z-index: 3; text-align: center; }
-.subject .s1 { font: 600 34px/38px 'Geist'; letter-spacing: -.02em; color: var(--white); white-space: nowrap; text-shadow: 0 0 24px rgba(255,255,255,.45); }
-.subject .s2 { margin-top: 6px; font: 500 18px/24px 'Geist Mono'; letter-spacing: .06em; text-transform: uppercase; color: var(--neon); white-space: nowrap; }
+/* checklists and the two promises */
+.chk .t { display: flex; align-items: center; gap: 12px; font: 400 19px/26px 'Geist'; white-space: nowrap; padding: 4px 0; }
+.chk .t svg { width: 18px; height: 18px; stroke-width: 2.2; }
+.ok { padding-top: 14px; border-top: 1.5px solid var(--w4); font: 600 21px/28px 'Geist'; letter-spacing: -.01em; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 12px; border-radius: 18px;
+  background: var(--white); color: var(--blue); font: 600 19px/36px 'Geist'; white-space: nowrap; }
+.chip svg { width: 20px; height: 20px; stroke-width: 2.1; }
 
-.track { z-index: 3; display: flex; gap: 0; }
-.track .st { width: 116px; text-align: center; font: 500 18px/24px 'Geist Mono'; letter-spacing: .02em; text-transform: uppercase; color: var(--white); padding-top: 22px; position: relative; }
-.track .st::before { content: ''; position: absolute; left: 50%; top: 2px; width: 12px; height: 12px; margin-left: -6px; border: 1.5px solid var(--neon); background: #000; }
-.track .st:last-child::before { background: var(--neon); }
-.track::before { content: ''; position: absolute; left: 58px; right: 58px; top: 9px; height: 1.5px; background: var(--neon-dim); }
-.note { z-index: 3; font: 500 23px/30px 'Geist'; color: var(--white); white-space: nowrap; text-shadow: 0 0 18px rgba(255,255,255,.3); }
-.note .sl { font-family: 'Geist Mono'; color: var(--neon); margin-right: 12px; text-shadow: none; }
+/* live status track */
+.track { display: flex; }
+.track .st { width: 96px; padding-top: 22px; position: relative; font: 400 18px/24px 'Geist'; color: var(--w2); white-space: nowrap; }
+.track .st::before { content: ''; position: absolute; left: 0; top: 2px; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--white); background: var(--blue); z-index: 1; }
+.track .st:last-child::before { background: var(--white); }
+.track .st:not(:last-child)::after { content: ''; position: absolute; left: 12px; right: -2px; top: 7.25px; height: 1.5px; background: var(--w4); }
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-face" viewBox="0 0 24 24"><path d="M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2A2.5 2.5 0 0 1 20.5 6v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6A2.5 2.5 0 0 1 3.5 18v-2"/><path d="M8.5 9v1.5M15.5 9v1.5M12 9v4.2h-1M9 16.2c1.8 1.4 4.2 1.4 6 0"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h14.5M15 4.5L18.5 8 15 11.5M20 16H5.5M9 12.5L5.5 16 9 19.5"/></symbol>
+  </defs>
+</svg>
 
-svg.lines { left: 0; top: 0; z-index: 2; overflow: visible; }
-</style>
-</head>
-<body><div id="fig"></div>
+<canvas id="dither"></canvas>
+<svg class="layer" id="back"></svg>
+<svg class="layer" id="front"></svg>
+
+<div class="abs eyebrow"><svg viewBox="0 0 171.8 110"><g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h161.8v100H5zM105 5v100M105 66.8h61.8M128.6 66.8V105M105 81.4h23.6M119.6 66.8v14.6M5 105A100 100 0 0 1 105 5a61.8 61.8 0 0 1 61.8 61.8 38.2 38.2 0 0 1-38.2 38.2 23.6 23.6 0 0 1-23.6-23.6 14.6 14.6 0 0 1 14.6-14.6"/></g></svg><span>Hermit / the money path</span></div>
+<h1>One swap, end to end</h1>
+<div class="abs sub">The assistant prepares, you approve, and NEAR Intents settles.</div>
+
+<div id="root"></div>
+
 <script>
-const fig = document.getElementById('fig');
-const W = 1200, PX = 64, SP = 600;          // SP: the spine, the swap's path
-const GUT = 52;                              // space between a block and the spine
-const ANCH = { tl:[0,0], tc:[-50,0], tr:[-100,0], cl:[0,-50], c:[-50,-50], cr:[-100,-50], bl:[0,-100], bc:[-50,-100], br:[-100,-100] };
-function put(cls, x, y, html, a = 'tl', role = 'text', style = {}) {
-  const d = document.createElement('div');
-  d.className = cls; d.innerHTML = html; d.dataset.role = role;
-  d.style.left = x + 'px'; d.style.top = y + 'px';
-  const [tx, ty] = ANCH[a]; if (tx || ty) d.style.transform = `translate(${tx}%, ${ty}%)`;
-  Object.assign(d.style, style);
-  fig.appendChild(d); return d;
-}
-const R = el => { const r = el.getBoundingClientRect(), f = fig.getBoundingClientRect(); return { x: r.left - f.left, y: r.top - f.top, w: r.width, h: r.height, r: r.right - f.left, b: r.bottom - f.top }; };
-const tag = (n, t, cls = '') => `<span class="tag ${cls}">${n ? `<span class="n">${n}</span>` : ''}${t}</span>`;
-const list = items => `<div class="list">${items.map(i => `<div>${i}</div>`).join('')}</div>`;
-
-window.figureReady = (async () => {
-await Promise.all(["600 18px 'Geist Mono'", "500 18px 'Geist Mono'", "450 19px 'Geist Mono'", "400 20px Geist", "600 58px Geist", "500 23px Geist"].map(f => document.fonts.load(f)));
-await document.fonts.ready;
-
-const lines = [];   // {pts, kind, head}
-const nodes = [];   // {y, kind}
-const focusPaths = [];
-
-/* ---------- header ---------- */
-put('eyebrow', PX, 56, `<svg viewBox="0 0 171.8 110"><g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h161.8v100H5zM105 5v100M105 66.8h61.8M128.6 66.8V105M105 81.4h23.6M119.6 66.8v14.6M5 105A100 100 0 0 1 105 5a61.8 61.8 0 0 1 61.8 61.8 38.2 38.2 0 0 1-38.2 38.2 23.6 23.6 0 0 1-23.6-23.6 14.6 14.6 0 0 1 14.6-14.6"/></g></svg><span>Hermit / the money path</span>`);
-put('slash', W - PX, 56, '///', 'tr');
-put('hd', PX - 2, 96, '<h1>One swap, end to end</h1>');
-put('sub', PX, 174, 'The assistant prepares, you approve, and NEAR Intents settles.');
-
-/* ---------- column heads + start of the path ---------- */
-let y = 262;
-put('colhead', SP - GUT, y, 'On your iPhone or Mac', 'tr');
-put('colhead', SP + GUT, y, 'NEAR Intents 1Click, chains', 'tl');
-y += 58;
-const start = put('subject', SP, y, '<div class="s1">20 USDC</div><div class="s2">on Base</div>', 'tc', 'subject');
-const SPINE_TOP = focus(start).y1;
-y = R(start).b + 54;
-
-/* ---------- rows ---------- */
-// one row: optional left block, optional right block, an optional arrow across the spine.
-function row(o) {
-  const top = y;
-  let L, Rt;
-  if (o.l) L = put('blk l', SP - GUT, top, o.l, 'tr', 'block');
-  if (o.r) Rt = put('blk r', SP + GUT, top, o.r, 'tl', 'block');
-  if (o.note) put('note', SP + GUT, top - 1, `<span class="sl">///</span>${o.note}`, 'tl', 'block');
-  const tagOf = el => R(el.querySelector('.tag'));
-  const cy = top + 14;   // centre of the first tag line
-  const lt = L && tagOf(L), rt = Rt && tagOf(Rt);
-  if (o.arrow === 'lr') lines.push({ pts: [[lt.r + 1, cy], [rt.x - 2, cy]], kind: o.kind || 'neon', head: true });
-  else if (o.arrow === 'rl') lines.push({ pts: [[rt.x - 1, cy], [lt.r + 2, cy]], kind: o.kind || 'neon', head: true, dash: o.dash });
-  else {
-    if (L) lines.push({ pts: [[lt.r + 1, cy], [SP, cy]], kind: 'call' });
-    if (Rt) lines.push({ pts: [[SP, cy], [rt.x - 1, cy]], kind: 'call' });
-  }
-  nodes.push({ y: cy, kind: o.node || 'neon' });
-  const b = Math.max(L ? R(L).b : 0, Rt ? R(Rt).b : 0);
-  y = b + (o.after ?? 34);
-  return { L, Rt, cy };
-}
-const phases = [];
-function phase(num, name, fn) {
-  const top = y;
-  y = top + 34 + 30;
-  fn();
-  const bot = y - 34 + 28;
-  phases.push({ num, name, top, bot });
-  y = bot + 36;
-}
-
-phase('01', 'Assistant prepares', () => {
-  row({ l: tag('01', 'You ask') + `<div class="d big">“Swap 20 USDC on Base to NEAR”</div>` });
-  row({ l: tag('02', 'Assistant calls') + `<div class="d mono">prepare_swap</div>`,
-        r: tag('03', 'Dry quote') + `<div class="d">Signed by 1Click</div>`, arrow: 'lr' });
-  row({ l: tag('04', 'Checks on device') + list(['Quote signature', 'Under $100 a move', 'Within $500 a day', 'Token has a price', 'Loss under 10%', 'Pays out to you']) });
-  row({ l: tag('05', 'Swap review opens') + `<div class="d">Filled in for you</div>`, note: 'The assistant only prepares' });
-});
-phase('02', 'You approve and sign', () => {
-  row({ l: tag('06', 'You tap Review'), r: tag('07', 'Live quote') + `<div class="d">One-time deposit address</div>`, arrow: 'lr' });
-  row({ l: tag('08', 'Checks again') + list(['Spending policy', 'Quote signature', 'Refunds to you']) });
-  row({ l: tag('09', 'Face ID', 'white') + `<div class="d">You approve</div>`, node: 'white', note: 'Face ID before any signature' });
-  row({ l: tag('10', 'Key vault signs', 'white') + `<div class="d">The Secure Enclave unseals the seed.<br>Hermit signs, then wipes the key.</div>`, node: 'white' });
-  row({ l: tag('11', '20 USDC sent', 'white'), r: tag('', 'Base', 'line') + `<div class="d">To the one-time deposit address</div>`, arrow: 'lr', kind: 'white', node: 'white' });
-});
-phase('03', 'NEAR Intents settles', () => {
-  row({ l: tag('12', 'Submit tx hash'), r: tag('13', 'Solvers fill the swap') + `<div class="d">wNEAR to your NEAR account</div>`, arrow: 'lr' });
-  row({ l: tag('14', 'Live status') + `<div class="track" style="position:relative;margin-top:16px;margin-left:auto;width:max-content">${['Deposit', 'Seen', 'Swap', 'Delivered'].map(s => `<div class="st">${s}</div>`).join('')}</div>`,
-        r: tag('', '1Click', 'line') + `<div class="d">Polled for status</div>`, arrow: 'rl', dash: true });
-});
-
-const endTop = y + 12;
-const end = put('subject', SP, endTop, '<div class="s1">wNEAR</div><div class="s2">in your NEAR account</div>', 'tc', 'subject');
-const SPINE_BOT = focus(end).y0;
-y = R(end).b + 56;
-
-/* ---------- footer ---------- */
-put('corner', PX, y, 'iPhone and Mac');
-put('slash', SP, y, '///', 'tc');
-put('corner', W - PX, y, 'NEAR Intents', 'tr');
-const H = y + 24 + 40;
-fig.style.height = H + 'px'; document.body.style.height = H + 'px';
-
-/* phase frames (drawn after rows, under them) */
-for (const p of phases) {
-  const d = put('phase', PX, p.top, `<div class="bar"><span>${p.num} /// ${p.name}</span><span>///</span></div>`, 'tl', 'frame',
-    { width: (W - 2 * PX) + 'px', height: (p.bot - p.top) + 'px' });
-}
-put('tex', 0, 0, '', 'tl', 'deco');
-
-/* focus brackets around the start and end of the path */
-function focus(e) { const r = R(e); const x0 = r.x - 28, x1 = r.r + 28, y0 = r.y - 16, y1 = r.b + 14, L = 16;
-  const d = `M${x0} ${y0 + L}V${y0}H${x0 + L}M${x1 - L} ${y0}H${x1}V${y0 + L}M${x1} ${y1 - L}V${y1}H${x1 - L}M${x0 + L} ${y1}H${x0}V${y1 - L}`;
-  focusPaths.push(d); return { y0, y1 }; }
-/* ---------- lines ---------- */
 const NS = 'http://www.w3.org/2000/svg';
-const svg = document.createElementNS(NS, 'svg');
-svg.setAttribute('class', 'lines'); svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-svg.innerHTML = `<defs>
-  <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1200" height="4000"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  <filter id="glowS" filterUnits="userSpaceOnUse" x="0" y="0" width="1200" height="4000"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-</defs>`;
-fig.appendChild(svg);
-const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
-const K = { neon: { c: '#3CFF3C', w: 2 }, call: { c: '#3CFF3C', w: 1.5 }, white: { c: '#FFFFFF', w: 3 } };
+const root = document.getElementById('root');
+const back = document.getElementById('back'), front = document.getElementById('front');
+const W = 1200;
+function div(cls, x, y, html, w) { const e = document.createElement('div'); e.className = 'abs ' + cls; e.style.left = x + 'px'; e.style.top = y + 'px'; if (w) e.style.width = w + 'px'; e.innerHTML = html; root.appendChild(e); return e; }
+function el(parent, tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; }
+const tick = '<svg class="ico"><use href="#i-tick"/></svg>';
 
-for (const d of focusPaths) el('path', { d, fill: 'none', stroke: '#FFFFFF', 'stroke-width': 2, 'stroke-linecap': 'square' });
-// the spine: the swap's path, white and glowing, with ruler ticks
-el('line', { x1: SP, y1: SPINE_TOP, x2: SP, y2: SPINE_BOT, stroke: '#FFFFFF', 'stroke-width': 3, filter: 'url(#glow)' });
-for (let t = SPINE_TOP + 20; t < SPINE_BOT - 10; t += 20) el('line', { x1: SP - 6, y1: t, x2: SP - 12, y2: t, stroke: 'rgba(255,255,255,.28)', 'stroke-width': 1 });
+/* ---------- geometry ---------- */
+const DEV = { x: 64, r: 556 };     // device outline
+const R = 104;                     // device rail
+const ZX = 140;                    // device text column
+const SP = 600;                    // the swap's path, between the two
+const PAN = { x: 644, r: 1136 };   // NEAR Intents, dithered walls
+const WALL = 32;
+const RX = 716, RZX = 752;         // the NEAR Intents lane and its text column
 
-for (const l of lines) {
-  const k = K[l.kind];
-  const [a, b] = l.pts;
-  let bx = b[0];
-  if (l.head) {
-    const dx = Math.sign(b[0] - a[0]), HL = 11, hw = 6;
-    bx = b[0] - dx * HL;
-    el('path', { d: `M${b[0]} ${b[1]}L${bx} ${b[1] - hw}L${bx} ${b[1] + hw}Z`, fill: k.c });
+const WHITE = '#FFFFFF', SOFT = 'rgba(255,255,255,.62)';
+function arrow(x1, x2, y, o = {}) {
+  const color = o.color || WHITE, w = o.w || 2;
+  const dir = Math.sign(x2 - x1), base = x2 - dir * 11;
+  el(front, 'path', { d: `M${x1} ${y}H${base}`, stroke: color, 'stroke-width': w, fill: 'none', 'stroke-dasharray': o.dash || '', 'stroke-linecap': o.dash ? 'butt' : 'round' });
+  el(front, 'path', { d: `M${x2} ${y}L${base} ${y - 6}L${base} ${y + 6}Z`, fill: color });
+}
+const port = y => el(front, 'circle', { cx: SP, cy: y, r: 7, fill: WHITE, stroke: 'var(--blue)', 'stroke-width': 3 });
+const knock = y => el(back, 'rect', { x: SP - 9, y: y - 8, width: 18, height: 16, fill: 'var(--blue)' });
+const hollow = y => el(front, 'circle', { cx: RX, cy: y, r: 9, fill: 'var(--blue)', stroke: WHITE, 'stroke-width': 3 });
+const badge = (cx, cy, n) => div('badge', cx - 16, cy - 16, String(n));
+// device step on an arrow: label above the arrow, sub below it
+function step(n, y, label, sub, subCls = 'as') {
+  badge(R, y, n);
+  div('al', ZX, y - 36, label);
+  if (sub) div(subCls, ZX, y + 10, sub);
+}
+// a step that stands alone: label beside the badge, sub under it
+function solo(n, x, tx, y, label, sub) {
+  if (n) badge(x, y, n); else hollow(y);
+  div('al', tx, y - 14, label);
+  if (sub) div('as', tx, y + 18, sub);
+}
+const checks = items => `<div style="margin-top:12px">${items.map(t => `<div class="t">${tick}<span>${t}</span></div>`).join('')}</div>`;
+
+let geom = {};
+function layout() {
+  root.innerHTML = ''; back.innerHTML = ''; front.innerHTML = '';
+
+  /* ---------- the money leaves from here ---------- */
+  const start = div('subj start', 0, 250, `<div class="s1">20 USDC</div><div class="s2">on Base</div>`);
+  start.style.left = (SP - start.offsetWidth / 2) + 'px';
+  const SPINE0 = 250 + start.offsetHeight;
+  const TOP = SPINE0 + 44;
+
+  /* ---------- lane heads ---------- */
+  const HY = TOP + 40;
+  div('lh left', ZX - 40, HY, `<div class="n">On your iPhone or Mac</div>`);
+  div('lh left', RX - 4, HY, `<div class="n">1Click and chains</div>`);
+  const LIFE0 = HY + 46;
+  let y = LIFE0 + 34;
+
+  /* ---------- A: the assistant prepares ---------- */
+  const PA = y; y += 64;
+  const s1 = y;
+  solo(1, R, ZX, s1, 'You ask');
+  div('quote', ZX, s1 + 18, '“Swap 20 USDC on Base to NEAR”');
+  const s2 = s1 + 128;
+  step(2, s2, 'Assistant calls', 'prepare_swap', 'as code');
+  solo(3, RX, RZX, s2, 'Dry quote', 'Signed by 1Click');
+  const s4 = s2 + 104;
+  badge(R, s4, 4);
+  const c4 = div('chk', ZX, s4 - 14, `<div class="al">Checks on device</div>${checks(['Quote signature', 'Under $100 a move', 'Within $500 a day', 'Token has a price', 'Loss under 10%', 'Pays out to you'])}`);
+  const s5 = s4 - 14 + c4.offsetHeight + 50;
+  solo(5, R, ZX, s5, 'Swap review opens', 'Filled in for you');
+  const n1 = div('ok', ZX, s5 + 18 + 24 + 26, 'The assistant only prepares', DEV.r - 24 - ZX);
+  y = s5 + 68 + n1.offsetHeight + 40;
+
+  /* ---------- B: you approve and sign ---------- */
+  const PB = y; y += 64;
+  const s6 = y + 36;
+  step(6, s6, 'You tap Review');
+  solo(7, RX, RZX, s6, 'Live quote', 'One-time deposit address');
+  const s8 = s6 + 104;
+  badge(R, s8, 8);
+  const c8 = div('chk', ZX, s8 - 14, `<div class="al">Checks again</div>${checks(['Spending policy', 'Quote signature', 'Refunds to you'])}`);
+  const s9 = s8 - 14 + c8.offsetHeight + 52;
+  badge(R, s9, 9);
+  div('', ZX, s9 - 18, `<span class="chip"><svg class="ico"><use href="#i-face"/></svg>Face ID</span>`);
+  div('as', ZX, s9 + 28, 'You approve');
+  const n2 = div('ok', ZX, s9 + 28 + 24 + 26, 'Face ID before any signature', DEV.r - 24 - ZX);
+  const s10 = s9 + 78 + n2.offsetHeight + 54;
+  solo(10, R, ZX, s10, 'Key vault signs', 'The Secure Enclave unseals the seed.');
+  div('as', ZX, s10 + 44, 'Hermit signs, then wipes the key.');
+  const s11 = s10 + 44 + 24 + 76;
+  step(11, s11, '20 USDC sent');
+  solo(0, RX, RZX, s11, 'Base', 'To the one-time deposit address');
+  y = s11 + 18 + 24 + 40;
+
+  /* ---------- C: NEAR Intents settles ---------- */
+  const PC = y; y += 64;
+  const s12 = y + 36;
+  step(12, s12, 'Submit tx hash');
+  solo(13, RX, RZX, s12, 'Solvers fill the swap', 'wNEAR to your NEAR account');
+  const s14 = s12 + 104;
+  badge(R, s14, 14);
+  div('al', ZX, s14 - 36, 'Live status');
+  const tr = div('track', ZX, s14 + 16, ['Deposit', 'Seen', 'Swap', 'Delivered'].map(s => `<div class="st">${s}</div>`).join(''));
+  solo(0, RX, RZX, s14, '1Click', 'Polled for status');
+  const PANB = s14 + 18 + 24 + 52;
+  const DEV_B = s14 + 16 + tr.offsetHeight + 34;
+
+  /* ---------- containers ---------- */
+  el(back, 'rect', { x: DEV.x + 0.75, y: TOP, width: DEV.r - DEV.x - 1.5, height: DEV_B - TOP, rx: 26, fill: 'none', stroke: WHITE, 'stroke-width': 1.5 });
+  const tag = div('tag', 0, TOP - 14, `<svg class="ico" style="width:20px;height:20px"><use href="#i-swap"/></svg><span>NEAR Intents</span>`);
+  tag.style.left = ((PAN.x + PAN.r) / 2 - tag.offsetWidth / 2) + 'px';
+
+  /* ---------- lifelines ---------- */
+  for (const [x, end] of [[R, DEV_B - 22], [RX, PANB - 40]])
+    el(back, 'path', { d: `M${x} ${LIFE0} V${end}`, stroke: WHITE, 'stroke-width': 1.5, 'stroke-dasharray': '1.5 7', 'stroke-linecap': 'round', opacity: .55 });
+
+  /* ---------- phase rules ---------- */
+  for (const [yy, l, k] of [[PA, 'A', 'Assistant prepares'], [PB, 'B', 'You approve and sign'], [PC, 'C', 'NEAR Intents settles']]) {
+    el(back, 'path', { d: `M${DEV.x + 20} ${yy}H${1136}`, stroke: WHITE, 'stroke-width': 1, opacity: .38 });
+    div('ph', DEV.x + 20, yy - 14, `<span class="l">${l}</span><span class="k">${k}</span>`);
   }
-  el('line', { x1: a[0], y1: a[1], x2: bx, y2: b[1], stroke: k.c, 'stroke-width': k.w, 'stroke-dasharray': l.dash ? '7 6' : 'none',
-    filter: l.kind === 'white' ? 'url(#glowS)' : 'none' });
-}
-// nodes: a crosshair square on the spine for every step
-for (const n of nodes) {
-  const c = n.kind === 'white' ? '#FFFFFF' : '#3CFF3C';
-  el('rect', { x: SP - 9, y: n.y - 9, width: 18, height: 18, fill: '#000', stroke: c, 'stroke-width': 2, filter: n.kind === 'white' ? 'url(#glowS)' : 'none' });
-  el('rect', { x: SP - 3.5, y: n.y - 3.5, width: 7, height: 7, fill: c });
+
+  /* ---------- the money arrives here ---------- */
+  const endTop = DEV_B + 44;
+  const end = div('subj end', 0, endTop, `<div class="s1">wNEAR</div><div class="s2">in your NEAR account</div>`);
+  end.style.left = (SP - end.offsetWidth / 2) + 'px';
+  const endB = endTop + end.offsetHeight;
+
+  /* ---------- the swap's path ---------- */
+  el(back, 'path', { d: `M${SP} ${SPINE0} V${endTop}`, stroke: WHITE, 'stroke-width': 6, 'stroke-linecap': 'butt' });
+
+  /* ---------- arrows ---------- */
+  const S = { w: 2.5 }, T = { w: 1.75, color: SOFT };
+  arrow(R + 18, RX - 18, s2, S); port(s2);
+  arrow(R + 18, RX - 18, s6, S); port(s6);
+  arrow(R + 18, RX - 14, s11, { w: 3.5 }); port(s11);
+  arrow(R + 18, RX - 18, s12, S); port(s12);
+  knock(s14); arrow(RX - 14, R + 18, s14, { ...T, dash: '6 6' });
+
+  /* ---------- canvas ---------- */
+  const BAND = 150;
+  const HT = endB + 40 + BAND;
+  document.body.style.height = HT + 'px';
+  back.setAttribute('height', HT); front.setAttribute('height', HT);
+  geom = { SPINE0, endTop, PAN: { x: PAN.x, y: TOP, r: PAN.r, b: PANB }, band: HT - BAND, HT, hillTop: x => hillTop(x, HT - BAND, PANB + 70) };
+  drawDither();
 }
 
-/* ---------- checks ---------- */
-window.figureCheck = () => {
-  const out = [];
-  const boxes = [...fig.querySelectorAll('[data-role="block"],[data-role="subject"],.colhead,.corner,.slash,.eyebrow,.sub,.hd')].map(e => ({ e, r: R(e) }));
+/* a dune that rises under NEAR Intents, low under the device */
+function hillTop(x, low, high) {
+  const t = Math.min(1, Math.max(0, (x - 700) / 400)), e = t * t * (3 - 2 * t);
+  return low + 40 + (high - low - 40) * e + 16 * Math.sin(x / W * 9 + .6) * (0.4 + e);
+}
+
+/* ---------- 1-bit ordered dither: the NEAR Intents walls and a band at the foot ---------- */
+const BAYER = [0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21];
+function drawDither() {
+  const c = document.getElementById('dither'), HT = geom.HT, DPR = 2, CELL = 6;   // 3 CSS px pixels
+  c.width = W * DPR; c.height = HT * DPR; c.style.width = W + 'px'; c.style.height = HT + 'px';
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height); g.fillStyle = '#FFFFFF';
+  const P = geom.PAN, rad = 30;
+  function inside(px, py) {
+    const cx = (P.x + P.r) / 2, cy = (P.y + P.b) / 2, hw = (P.r - P.x) / 2 - rad, hh = (P.b - P.y) / 2 - rad;
+    const qx = Math.abs(px - cx) - hw, qy = Math.abs(py - cy) - hh;
+    const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - rad;
+    return -out;
+  }
+  for (let j = 0; j * CELL < c.height; j++) for (let i = 0; i * CELL < c.width; i++) {
+    const px = (i + .5) * CELL / DPR, py = (j + .5) * CELL / DPR;
+    let v = 0;
+    const d = inside(px, py);
+    if (d >= 0 && d < WALL) v = Math.pow(1 - d / WALL, 1.25) * 1.02;
+    const top = geom.hillTop(px);
+    // capped below solid white so the card's corners keep their shape on a white page
+    if (py > top) v = Math.max(v, Math.pow(Math.min(1, (py - top) / 210), 1.15) * .78);
+    if (v > (BAYER[(j % 8) * 8 + (i % 8)] + .5) / 64) g.fillRect(i * CELL, j * CELL, CELL, CELL);
+  }
+}
+
+window.runChecks = function () {
+  const H = document.body.offsetHeight;
+  const out = { problems: [] };
+  const leaves = [...document.querySelectorAll('body *')].filter(e => !(e.closest('svg')) && !['SCRIPT', 'STYLE'].includes(e.tagName) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+  const boxes = [];
+  const P = geom.PAN;
+  for (const e of leaves) {
+    const rng = document.createRange(); rng.selectNodeContents(e);
+    const fs = parseFloat(getComputedStyle(e).fontSize);
+    if (fs < 18) out.problems.push(`small font ${fs} "${e.textContent.trim()}"`);
+    for (const r of rng.getClientRects()) {
+      if (r.left < 62 || r.top < 0 || r.right > W - 63 || r.bottom > H) out.problems.push(`off canvas "${e.textContent.trim()}"`);
+      const onWall = !e.closest('.tag') && r.right > P.x - 4 && r.left < P.r + 4 && r.bottom > P.y - 4 && r.top < P.b + 4 &&
+        (r.left < P.x + WALL + 4 || r.right > P.r - WALL - 4 || r.top < P.y + WALL + 4 || r.bottom > P.b - WALL - 4);
+      if (onWall) out.problems.push(`text on dither wall "${e.textContent.trim()}"`);
+      if (r.bottom > Math.min(geom.hillTop(r.left), geom.hillTop(r.right), geom.hillTop((r.left + r.right) / 2)) - 12) out.problems.push(`text in dither band "${e.textContent.trim()}"`);
+      if (!e.closest('.subj') && r.bottom > geom.SPINE0 && r.top < geom.endTop && r.left < SP + 12 && r.right > SP - 12) out.problems.push(`text on the path "${e.textContent.trim()}"`);
+      boxes.push({ e, r, t: e.textContent.trim() });
+    }
+  }
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-    const A = boxes[i].r, B = boxes[j].r;
+    const a = boxes[i].r, b = boxes[j].r;
     if (boxes[i].e.contains(boxes[j].e) || boxes[j].e.contains(boxes[i].e)) continue;
-    const ov = Math.min(A.r, B.r) - Math.max(A.x, B.x), oh = Math.min(A.b, B.b) - Math.max(A.y, B.y);
-    if (ov > .5 && oh > .5) out.push(`overlap: "${boxes[i].e.textContent.trim().slice(0, 24)}" x "${boxes[j].e.textContent.trim().slice(0, 24)}"`);
+    if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) out.problems.push(`text overlap "${boxes[i].t}" / "${boxes[j].t}"`);
   }
-  for (const b of boxes) {
-    if (b.r.x < PX - 2.5 || b.r.r > W - PX + .5 || b.r.y < 0 || b.r.b > H - 30) out.push(`off-canvas: "${b.e.textContent.trim().slice(0, 24)}"`);
-    if (b.e.dataset.role === 'block' && (b.r.x < SP + 20 && b.r.r > SP - 20)) out.push(`block crosses spine: "${b.e.textContent.trim().slice(0, 24)}"`);
+  const blocks = [...document.querySelectorAll('#root > *, h1, .sub, .eyebrow')];
+  for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
+    const a = blocks[i].getBoundingClientRect(), b = blocks[j].getBoundingClientRect();
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) out.problems.push(`block overlap "${blocks[i].textContent.trim().slice(0, 24)}" / "${blocks[j].textContent.trim().slice(0, 24)}"`);
   }
-  const walker = document.createTreeWalker(fig, NodeFilter.SHOW_TEXT);
-  let n; while ((n = walker.nextNode())) { if (!n.textContent.trim()) continue; const fs = parseFloat(getComputedStyle(n.parentElement).fontSize); if (fs < 17.5) out.push(`small text ${fs}: ${n.textContent}`); }
-  if (/·/.test(fig.textContent)) out.push('middle dot found');
-  return { problems: out, H };
+  for (const e of document.querySelectorAll('.al, .lh .n')) { const n = e.textContent.trim().split(/\s+/).length; if (n > 5) out.problems.push(`label >5 words: "${e.textContent.trim()}"`); }
+  const vis = [...document.querySelectorAll('#root, h1, .sub, .eyebrow')].map(e => e.textContent).join(' ');
+  if (vis.includes(String.fromCharCode(183))) out.problems.push('middle dot found');
+  return out;
 };
-})();
+window.figureReady = document.fonts.ready.then(() => { layout(); });
+window.figureCheck = () => window.runChecks();
 </script>
 </body></html>
