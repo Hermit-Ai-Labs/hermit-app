@@ -10,7 +10,7 @@ needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it se
 - Mac: https://hermit.my/dmg (notarized, Apple silicon, macOS 26)
 - Mac TestFlight: https://testflight.apple.com/join/P66H5DF8
 - iPhone TestFlight: https://testflight.apple.com/join/ed9vUh7d (iOS 26)
-- Demo video: `HUMAN: link to the X post with the demo video`
+- Demo video: TODO
 
 The model downloads on first launch (about 2.3 GB, 1 GB on smaller iPhones). It's mainnet: real swaps move real money.
 
@@ -71,10 +71,13 @@ They're sealed with a Secure Enclave key. There's no account and no analytics. T
 ## Built at NEAR HACKATHON
 
 We started this repository on 2026-10-29, ten days after the hackathon was announced, and tagged the first commit
-`pre-hackathon`. The NEAR work starts after commit `8fe7b71` on 2026-11-08, and
-[this diff](https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main) shows everything since then. The app
-uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use requests,
-cryptography, eth-account and dcap-qvl. What came before, the services and models we use, and how we used AI coding
-agents are in [docs/SUBMISSION.md](docs/SUBMISSION.md).
+`pre-hackathon`. The wallet, the on-device chat and the other chains (EVM, Solana, Hyperliquid) came first. The NEAR
+work starts after commit `8fe7b71` on 2026-11-08: Private Cloud on NEAR AI Cloud, the NEAR account, NEAR Intents and
+the spending policy. [This diff](https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main) shows everything
+since then.
 
-MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my. Team: `HUMAN: names, roles and X handles.`
+The app uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use
+requests, cryptography, eth-account and dcap-qvl. No templates or boilerplate. We wrote a lot of the code, tests and
+docs with AI coding agents (Claude Code), and we review all of it ourselves.
+
+MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my. Team: TODO

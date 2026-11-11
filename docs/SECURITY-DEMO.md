@@ -16,9 +16,8 @@ bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutraliz
 ```
 
 The filter picks 29 tests, and the run should end in `0 failures`. They all passed in our full run on 2026-11-11, which
-ended with `Executed 182 tests, with 13 tests skipped and 0 failures`. That log isn't in the repository yet.
-
-`MAC: run the command above, save the output as docs/logs/core-tests-2026-11-11.txt, and link it here.`
+ended with `Executed 182 tests, with 13 tests skipped and 0 failures`. TODO: save that run as
+`docs/logs/core-tests-2026-11-11.txt`.
 
 The saved log is from 2026-11-08, on a MacBook Air M3, from an earlier tree with fewer tests:
 [logs/core-tests-2026-11-08.txt](logs/core-tests-2026-11-08.txt). Its last line is
