@@ -66,17 +66,19 @@ the limits in the wallet's Security tab.
 
 ## The model and its tools
 
-Hermit 1.2 is Qwen3-4B-Instruct-2507 (Apache-2.0), fine-tuned on Hermit's tools and converted to MLX 4-bit. It's about
-2.3 GB, published as `rahulol/Hermit-1.2-4B-MLX-4bit` on Hugging Face and pinned to a commit in
+Hermit 1.2 is Qwen3-4B-Instruct-2507 (Apache-2.0), fine-tuned by us on Hermit's tools (LoRA, on one rented NVIDIA
+A6000) and converted to MLX 4-bit. It's about 2.3 GB, published as
+[aiquantgod/Hermit-1.2-4B-MLX-4bit](https://huggingface.co/aiquantgod/Hermit-1.2-4B-MLX-4bit) and pinned to a commit in
 `HermitModel/ModelCatalog.swift`. iPhones with less memory get Hermit 1.1 Lite. That one is plain Qwen3-1.7B
 (mlx-community's 4-bit weights, not fine-tuned), about 1 GB. The download comes from models.hermit.my or Hugging Face,
 and every file and 128 MiB piece has to match a SHA-256 hash pinned in the app (`HermitModel/ModelSources.swift`,
 `ModelPins.swift`).
 
-The model has 15 tools: `calculator`, `get_price`, `get_balances`, `hyperliquid_account`, `position_math`,
+On the device, Hermit 1.2 has 15 tools: `calculator`, `get_price`, `get_balances`, `hyperliquid_account`, `position_math`,
 `search_markets`, `get_yields`, `get_quote`, `prepare_trade`, `prepare_swap`, `prepare_send`, `prepare_multisend`,
-`prepare_deposit`, `prepare_withdraw` and `open_add_funds`. They're OpenAI-format function schemas, so the same list
-goes to Private Cloud (`HermitCloud/Resources/hermit_tools.json`). `testAppToolsAreTheTrainedOnesPlusQuote` pins the
+`prepare_deposit`, `prepare_withdraw` and `open_add_funds`. They're OpenAI-format function schemas. Private Cloud gets
+all 30 (`HermitCloud/Resources/hermit_tools_v3.json`), adding selling Solana tokens, token search, positions, your whole
+portfolio, cancelling orders, take-profit and stop-loss, automations, scheduled payments and contacts. `testAppToolsAreTheTrainedOnesPlusQuote` pins the
 list and its order. The tool loop parses tool calls, cleans tool results and guards the money tools
 (`HermitCore/ToolLoop.swift`, `ToolCalls.swift`, `AgentTools.swift`).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Publish a Hermit model to the download mirror (models.hermit.my, Cloudflare R2) and print its in-app pin.
 
-  sudo -n python3 scripts/publish-model.py --repo rahulol/Hermit-1.2-4B-MLX-4bit --revision <hf commit> --local <dir> [--upload]
+  sudo -n python3 scripts/publish-model.py --repo aiquantgod/Hermit-1.2-4B-MLX-4bit --revision <hf commit> --local <dir> [--upload]
 
 1. Lists the Hugging Face repo at that exact commit and checks every local file against it (LFS files by sha256, the
    rest by git blob sha1), so the mirror can only ever hold the bytes Hugging Face has.

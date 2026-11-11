@@ -75,6 +75,12 @@ Where the keys live. One recovery phrase gives you an EVM, a Solana and a NEAR a
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/keys_accounts-dark.png"><img src="docs/img/keys_accounts-light.png" alt="A 12-word recovery phrase is sealed with AES-GCM under a key agreed with a Secure Enclave P-256 key, Face ID or Touch ID unseals the seed in memory only while signing, and Hermit derives one key, EVM at m/44'/60'/0'/0/0, Solana at m/44'/501'/0'/0' or NEAR at m/44'/397'/0', signs with it and wipes it." width="880"></picture>
 
+## Our models
+
+We train our own. Hermit 1.2 is a LoRA fine-tune of Qwen3-4B-Instruct-2507 on Hermit's tools, trained on one rented
+NVIDIA A6000. Hermit 1.3 and 1.3 Lite (Qwen3-1.7B) are training right now on 21,000 examples of real Hermit tasks, on
+an A100 80GB and an A6000. They run on your device as MLX 4-bit. Weights: [huggingface.co/aiquantgod](https://huggingface.co/aiquantgod).
+
 ## Built at NEAR HACKATHON
 
 We started this repository on 2026-10-29, ten days after the hackathon was announced, and tagged the first commit
