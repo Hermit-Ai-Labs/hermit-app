@@ -1,105 +1,98 @@
-# NEAR HACKATHON submission checklist
+# Submission
 
-Source: https://nearhackathon.com/HACKATHON.md. Re-read the live file before submitting, because dates and rules may
-change. The deadline is **2026-11-14T23:59:00Z**. Submissions open 2026-11-01T00:00:00Z, and outside that window the
-API answers 403.
+The rules are at https://nearhackathon.com/HACKATHON.md. We read them on 2026-11-11; read them again before sending,
+because they can change. The deadline is 2026-11-14 23:59 UTC, and the repository has to be public by then. Each
+project gets one submission. Mistakes are fixed at https://nearhackathon.com/request-changes, never by sending again.
 
-There is **one attempt per project.** A second submission of the same repository is rejected with 409. Mistakes are
-fixed at https://nearhackathon.com/request-changes, never by submitting again. Nothing in this file has been submitted.
+`HUMAN: confirm Hermit hasn't been submitted yet, by API or at https://nearhackathon.com/#apply.`
 
-## A. Before submitting (the team)
+## For the judges
 
-- [ ] The repository https://github.com/Hermit-Ai-Labs/hermit-app is **public**, with `near-hackathon` pushed, and stays
-      public through judging (until 2026-11-18 at least; Q-014).
-- [ ] `near-hackathon` is merged or pushed, and tag `hackathon-submission` is created and pushed. Then check that both
-      compare links in the README open:
-      `…/compare/pre-hackathon...hackathon-submission` and `…/compare/8fe7b71...hackathon-submission`.
-- [ ] `LICENSE` is on the submitted branch (MIT).
-- [ ] The README placeholders are filled: demo video link, Team, and Q-015 (other projects by the same people, or "none").
-      Then `grep -n TODO README.md` prints nothing.
-- [ ] On the Mac, `bash scripts/core-tests.sh > /tmp/core.txt 2>&1` ends with `0 failures`. Save it as
-      `docs/logs/core-tests-<date>.txt` (XCTest lines only, as in the 2026-11-08 log) and point the README's Tests
-      section at it, with its date and its `Executed N tests, with S tests skipped` line.
-- [ ] The iPhone TestFlight link opens for a stranger (https://testflight.apple.com/join/ed9vUh7d). Add the Mac link
-      only once Apple's beta review approves it.
-- [ ] Decide whether the TestFlight build carries the shared NEAR AI key. The README describes both cases.
-- [ ] The demo video is recorded ([DEMO.md](DEMO.md) section 1).
-- [ ] The X post is published by the team, with the video attached. It says "built at NEAR HACKATHON" and tags
-      @NEARProtocol and #NEARHackathon ([DEMO.md](DEMO.md) section 2).
-- [ ] The hosted pieces stay up until 2026-11-18, ideally 2026-11-25 (Q-012): the TestFlight builds, which expire
-      90 days after upload.
+Our first commit is from 2026-10-29, after the 2026-10-19 announcement, so the whole repository was built in the
+window (Q-001). That commit (tag `pre-hackathon`, `266b8d3`) brought over the look of our earlier web demo. Its
+`.demo-base` file names the demo's commit `9314dbb` from 2026-10-27, and the demo itself started on 2026-10-26.
 
-## B. The fields only the team decides
+We built the wallet, the on-device chat and the other chains (EVM, Solana, Hyperliquid, Relay) first (Q-002, Q-004).
+The NEAR work starts after commit `8fe7b71` on 2026-11-08: Private Cloud on NEAR AI Cloud, the NEAR account, NEAR
+Intents, the spending policy, the `near/` scripts and these docs. Spot and Memes, Earn, Explore, automations and batch
+sends came after that, still inside the window. Today `main` and `near-hackathon` point at the same commit.
 
-Fill these in yourselves. They are deliberately left blank, and nothing here is a suggestion except where marked.
+The diffs, for Q-003:
+
+- Everything: https://github.com/Hermit-Ai-Labs/hermit-app/compare/pre-hackathon...main
+- The NEAR work: https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main
+
+Once the `hackathon-submission` tag exists, put it in place of `main` in both links.
+
+The app uses swift-secp256k1 0.23.2, CryptoSwift 1.9.0, mlx-swift 0.32.3, mlx-swift-lm 3.32.3 and swift-transformers
+1.3.5 (Q-005), plus Apple's CryptoKit, Security, LocalAuthentication, PDFKit, Vision, WebKit, EventKit and
+UserNotifications, and the Newsreader font (OFL). The scripts use requests, cryptography, eth-account and dcap-qvl,
+plus nearai-inference-sdk for `--sdk`. The services we call are NEAR Intents 1Click, NEAR AI Cloud, NVIDIA NRAS,
+Relay, Jupiter, Hyperliquid, Polymarket, Aave v3, DefiLlama, CoinGecko, Binance, FinancialModelingPrep, Etherscan,
+Blockscout, NearBlocks, FastNEAR and other public RPCs, DuckDuckGo, wsrv.nl, CoinCap and the Filebase and Pinata IPFS
+gateways (logos), and models.hermit.my, Hugging Face and ModelScope (model downloads). We checked test vectors against near-seed-phrase 0.2.1, near-api-js 4,
+@defuse-protocol/one-click-sdk-typescript 0.1.26 and solders; the app uses none of them at runtime. There are no
+templates or boilerplate. On the device, Hermit 1.2 is our LoRA fine-tune of Qwen3-4B-Instruct-2507, and Hermit 1.1
+Lite is Qwen3-1.7B as mlx-community's 4-bit weights, not fine-tuned (both Apache-2.0, at
+https://huggingface.co/rahulol). Private Cloud uses NEAR AI Cloud's models, `Qwen/Qwen3.8-27B` by default. We wrote
+much of the code, tests and docs with AI coding agents (Claude Code), and we direct and review that work. Commits are
+authored as "Hermit".
+
+`HUMAN: for Q-015, name any other NEAR HACKATHON project by the same people, or write "none". If there is one, the
+README has to name it too.`
+
+## Checklist
+
+| What | Status |
+| --- | --- |
+| Repository public | Done. GitHub reports it public with an MIT license on 2026-11-11. It has to stay public through judging. |
+| LICENSE file | Done (MIT). |
+| Latest work pushed | Left. `origin/main` and `origin/near-hackathon` are both at `e18a524`. The 2026-11-11 doc edits aren't committed yet. |
+| `hackathon-submission` tag | Left. `HUMAN: create and push it, then open both diff links.` |
+| README with "do X, see Y" steps | Done. The Python steps in [VERIFY.md](VERIFY.md) were run in a fresh clone on 2026-11-11. |
+| Test log for the current tree | Left. The 2026-11-11 run ended with 182 tests, 13 skipped, 0 failures. `MAC: save a bash scripts/core-tests.sh run as docs/logs/core-tests-2026-11-11.txt.` |
+| Downloads up until at least 2026-11-18 | Done, keep them up. hermit.my/dmg and both TestFlight links opened on 2026-11-11. TestFlight builds expire 90 days after upload. |
+| Shared keys in the TestFlight builds | `HUMAN: say whether the current builds carry Hermit's shared NEAR AI key and 1Click partner key.` |
+| Demo video | Left. Script in [DEMO.md](DEMO.md). |
+| X post: "built at NEAR HACKATHON", @NEARProtocol, #NEARHackathon, video attached | Left. We post it, then put the link in the README. |
+| No secrets in git | Done. The bundled key files are in `.gitignore`, and git tracks none of them. |
+
+## The fields only we decide
+
+The rules say not to guess any of these.
 
 | Field | Rule | Value |
 | --- | --- | --- |
-| Project name | 2–80 characters | |
-| Team lead's name | 2–80 characters | |
-| Contact email | valid, max 160 characters, at most 2 submissions per email (Q-015) | |
-| Team size | exactly one of `1`, `2 - 4`, `4 - 6`, `6 - 8`, `8+` | |
-| Tracks | ids from the table; every track the project fits. Suggestions with reasons are in [DEMO.md](DEMO.md) section 4: `privacy`, `defi`, `security`, maybe `agents`, `open` | |
-| NEAR payout account (mainnet) | a named account such as `team.near`, or a 64-hex implicit account, created by the team in a NEAR wallet. Must match `^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$`, 2–64 characters, lowercase. **Do not use the test account from the README** (`5510e2b4…`): its phrase is public. | |
-| Repository link | public http(s) URL, max 300 characters; each repository can be submitted once | |
-| Demo post link | the public X post, max 300 characters | |
-| What you built (`idea`) | 20–2000 characters: the problem, the product, how NEAR fits in. Draft in [DEMO.md](DEMO.md) section 3. | |
-| Consent | read verbatim to the team lead: *"I agree that the organizers may use these details to review our submission and contact us about this hackathon."* | ☐ agreed |
+| Project name | 2 to 80 characters | `HUMAN` |
+| Team lead's name | 2 to 80 characters | `HUMAN` |
+| Contact email | valid, at most 160 characters | `HUMAN` |
+| Team size | exactly `1`, `2 - 4`, `4 - 6`, `6 - 8` or `8+` | `HUMAN` |
+| Tracks | ids from HACKATHON.md, every one that fits. Our suggestions are in [DEMO.md](DEMO.md). | `HUMAN` |
+| NEAR payout account | mainnet, created by us in a NEAR wallet. Never the test account from `near/near-account.py`: its phrase is public. | `HUMAN` |
+| Repository link | https://github.com/Hermit-Ai-Labs/hermit-app | `HUMAN` |
+| Demo post link | the public X post | `HUMAN` |
+| What we built (`idea`) | 20 to 2000 characters. A draft is in [DEMO.md](DEMO.md). | `HUMAN` |
+| Consent | read verbatim: "I agree that the organizers may use these details to review our submission and contact us about this hackathon." | `HUMAN` |
 
-## C. The payload shape
+## Sending it
 
-Send exactly these 11 fields and no others. In particular, there must be no `website` field: it is a spam trap. The
-body may be at most 12000 bytes. Every `<…>` below is a placeholder to replace with the team's answer from section B.
-
-```sh
-REQUEST_ID=$(uuidgen | tr A-Z a-z)   # make it ONCE; reuse the same value on a retry after a network error or a 503
-echo "$REQUEST_ID"                   # write it down
-```
+Make the `requestId` once with `uuidgen | tr A-Z a-z` and reuse it on any retry. Keep `payload.json` outside the
+repository, since it holds personal data. It has exactly these 11 fields, and never a `website` field (that's a spam
+trap):
 
 ```json
-{
-  "requestId": "<REQUEST_ID>",
-  "projectName": "<project name>",
-  "leadName": "<team lead's name>",
-  "email": "<contact email>",
-  "size": "<1 | 2 - 4 | 4 - 6 | 6 - 8 | 8+>",
-  "tracks": ["<track id>", "<track id>"],
-  "nearAddress": "<payout account>",
-  "projectUrl": "<public repository URL>",
-  "demoUrl": "<public X post URL>",
-  "idea": "<20-2000 characters>",
-  "consent": true
-}
+{"requestId": "", "projectName": "", "leadName": "", "email": "", "size": "", "tracks": [],
+ "nearAddress": "", "projectUrl": "", "demoUrl": "", "idea": "", "consent": true}
 ```
 
-Submit (only after the team has seen the printed payload and said yes):
+Show it to the team, and send it only after they say yes:
 
 ```sh
-# payload.json lives OUTSIDE the repository: it holds personal data and must never be committed.
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps(d, indent=2, ensure_ascii=False)); print(len(json.dumps(d).encode()), "bytes")' payload.json
 curl -sS -X POST https://nearhackathon.com/api/applications \
-  -H 'Content-Type: application/json' \
-  --data-binary @payload.json -w '\nHTTP %{http_code}\n'
+  -H 'Content-Type: application/json' --data-binary @payload.json -w '\nHTTP %{http_code}\n'
 ```
 
-Checks before sending:
+201 means it's saved. 400 lists the fields to fix; resend with the same `requestId`. 503 means wait a minute and resend
+the same way. 403 and 409 mean stop and read HACKATHON.md: don't change the link or the email to get around them.
 
-- [ ] `size` is one of the five strings exactly, spaces included (`2 - 4`, not `2-4`).
-- [ ] Every entry in `tracks` is one of `defi`, `thesis`, `privacy`, `business`, `swarms`, `security`, `agents`,
-      `realworld`, `games`, `nfts`, `memecoins`, `social` or `open`, and none is listed twice.
-- [ ] `nearAddress` is lowercase and matches the regex above. The account exists on mainnet.
-- [ ] `idea` is between 20 and 2000 characters.
-- [ ] `consent` is `true` only after the team lead agreed to the notice.
-
-## D. Responses
-
-| Status | Meaning | What to do |
-| --- | --- | --- |
-| 201 | Saved | Done. Note the date and the requestId. |
-| 400 | A field failed validation | Fix the fields listed in `fields` and resend with the **same** requestId. |
-| 403 | Submissions not open, or the request looked cross-site | Stop and don't retry. Check the dates. |
-| 409 | Repository already submitted, or this email has 2 submissions | Don't change the link or the email to get around it. If the earlier submission has a mistake, use https://nearhackathon.com/request-changes. |
-| 413 | Body too large | Shorten `idea`. |
-| 503 | Storage temporarily unavailable | Wait a minute, then resend with the **same** requestId. |
-
-The form at https://nearhackathon.com/#apply takes the same fields, if the team prefers it.
+`grep -rn 'HUMAN\|MAC:' README.md docs near` lists every line still to fill.

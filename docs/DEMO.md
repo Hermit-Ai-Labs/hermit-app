@@ -1,105 +1,100 @@
 # Demo video, X post and submission text
 
-Everything in this file is a draft for the team. The team records the video, publishes the post and decides the final
-wording and tracks.
+These are drafts. We record the video, post it and pick the final words and tracks ourselves. The rules say
+screenshots aren't enough when judges can't open the demo, so the video matters.
 
-## 1. Demo video: shot list (60 to 90 seconds, iPhone screen recording)
+## Video script (about 2 minutes 40 seconds)
 
-Goal: show one complete moment, from a real request to a visible result. Start with the user's problem. Skip intros and
-architecture slides.
+Start with the problem, then real taps with real results. No intro, no architecture slides.
 
 Before recording:
 
-- Use a wallet with about $25 of USDC on Base, so the swap can actually go through. If you'd rather not move funds,
-  stop at the approval sheet in shot 4 and say so in a caption.
-- Use a NEAR AI key, or a build with the shared key.
-- Let the on-device model finish downloading (it starts by itself on first launch).
-- Clear notifications and turn on Do Not Disturb. Hide balances you don't want to show.
-- Use iOS Screen Recording with the microphone off. Captions are added in the edit.
+- Record on the Mac. Dropping a spreadsheet into the chat is easiest there, and the Touch ID prompt shows on screen.
+- Fund one wallet with small mainnet amounts: about $40 of USDC on Base plus a little ETH for gas, about $10 of USDC
+  on Solana plus 0.02 SOL, and one open Hyperliquid position of at least $10.
+- Make `payees.csv` with three rows (`address,amount`), 1 USDC each, all wallets we own on Base.
+- Put a NEAR AI key in Settings, Private Cloud, or use a build with the shared key.
+- Let Hermit 1.2 finish downloading. Leave the assistant cap at $100 so shot 8 refuses.
+- Turn on Do Not Disturb. Never show the recovery phrase, the API key or full addresses.
 
-| # | Time | On screen | Caption / voice-over |
+| # | Time | Tap and type | Say |
 | --- | --- | --- | --- |
-| 1 | 0:00–0:06 | The Hermit home screen, the chat box empty. | "Your AI wallet assistant shouldn't send your balances to someone's server." |
-| 2 | 0:06–0:14 | Type **"swap 20 USDC on Base to NEAR"** and send. The step line appears: "Getting a NEAR Intents quote for 20 USDC to NEAR…" | "Hermit's AI runs on the phone. Ask it in plain words." |
-| 3 | 0:14–0:24 | The answer with the quote (amount of NEAR, fee, about 35 s). The Swap review opens prefilled. Pause on the route line, "NEAR Intents (1Click)", and on the policy checks: within the daily limit, under the assistant's $100 cap, pays out to your own address. | "NEAR Intents finds the route across chains. The quote's signature is checked on the phone. The assistant can only prepare. A spending policy caps what it can do." |
-| 4 | 0:24–0:34 | Tap **Review**. The approval sheet appears. Approve with **Face ID**. | "Nothing moves until you approve with Face ID." |
-| 5 | 0:34–0:46 | The status tracker steps through: deposit, seen, solvers filling, **Delivered**. Speed it up 4 to 8 times in the edit, with a small "sped up" label. End on the NEAR balance going up in Wallets. | "Settled through NEAR Intents. The NEAR lands in an account derived on this phone." |
-| 6 | 0:46–0:52 | Optional, the guard in action: ask **"swap 500 USDC on Base to NEAR"**. You see "The assistant can prepare up to $100 per move." | "Ask for too much, and the policy says no before any screen opens." |
-| 7 | 0:52–1:06 | Tap the model name and choose **Private Cloud**. The Home card reads "… in an enclave this phone just verified". Ask a longer question. Tap the **Verified in a TEE** chip and scroll the sheet: Intel TDX quote, nonce, MRCONFIGID, RTMR3, GPU, TLS, response signature. | "Need a bigger model? NEAR AI Cloud runs it in a hardware enclave. The phone checks the enclave's proof before it sends a word, and checks the signature on the answer." |
-| 8 | 1:06–1:18 | Swipe down to Control Center and turn on **Airplane mode**. Switch back to **On-device** and ask "what did I just swap?". It answers. | "And with no network at all, it still works." |
-| 9 | 1:18–1:25 | End card: Hermit logo, "Built at NEAR HACKATHON", the TestFlight link, `github.com/Hermit-Ai-Labs/hermit-app`. | none |
+| 1 | 0:00 | Hermit on New chat, the model name showing "Hermit 1.2". | "An AI that helps with your money shouldn't send your money to someone's server. Hermit runs the AI on this Mac." |
+| 2 | 0:08 | Type "swap 20 USDC on Base to NEAR". The step line reads "Getting a NEAR Intents quote for 20 USDC to NEAR", and the Swap review opens. Pause on the route "NEAR Intents (1Click)" and the policy lines ("Within daily limit", "Under the assistant's $100 per-move cap", "Pays out to your own address"). Approve with Touch ID and cut the wait (label it "sped up"). | "I ask in plain words. NEAR Intents finds the route, and Hermit checks the quote's signature here. The assistant can only prepare. Nothing moves until I approve." |
+| 3 | 0:35 | Tap the model name, pick Private Cloud. The Home card reads "*model* in an enclave this Mac just verified". Ask "compare my NEAR swap fee with a typical exchange withdrawal fee". Tap the Verified in a TEE chip and scroll the checks. | "For a bigger model, NEAR AI Cloud runs it in a hardware enclave. Hermit checks the enclave's proof before a word leaves this Mac, and checks its signature on the answer." |
+| 4 | 0:57 | Trade, Markets, Spot. Pick JUP, enter $5, pay with USDC, tap Swap, approve with Touch ID. Then Trade, Positions: JUP under "Solana tokens" with its cost and P&L. | "Spot on Solana through Jupiter, inside Hermit. It won't buy a token whose creator can freeze it unless Jupiter has verified it." |
+| 5 | 1:17 | Trade, Markets, Perps, the market of the open position. Show the position card and the Close buttons. Then Trade, Positions, tap the position for the detail sheet. Don't close it. | "Perps on Hyperliquid. Close a quarter, half or all of it in one tap." |
+| 6 | 1:30 | Automations. Tap "Every minute, tell me the BTC price and my wallet total", then Save. Cut to the "... ran" toast (label it "a minute later") and tap it. | "Automations run on this Mac while Hermit is open. If one ever needs to move money, it only prepares and waits for me." |
+| 7 | 1:50 | New chat. Drop `payees.csv` in and type "send these". The step line "Checking 3 recipients for your review", then Review batch send with every row. Approve once. Each row turns to sent. | "Payroll from a spreadsheet. Hermit builds the batch from my own rows, so an address hidden somewhere else can't sneak in." |
+| 8 | 2:18 | Type "swap 500 USDC on Base to NEAR". The reply says "The assistant can prepare up to $100 per move. Open Swap yourself for more." No review opens. | "And when it asks for more than I allowed, the policy says no." |
+| 9 | 2:32 | End card: "Built at NEAR HACKATHON", hermit.my/dmg, the TestFlight links, github.com/Hermit-Ai-Labs/hermit-app. | |
 
-Notes:
+Keep each wait under 12 seconds and label the cuts. Stick to Base USDC to NEAR in shot 2: on another pair Relay can win,
+and then the review names Relay. If we'd rather not move funds in shot 2, stop at the approval sheet and caption it.
+Export 1080x1920 for X.
 
-- Keep each shot under 12 seconds. If the real swap takes longer than about 40 s, cut the wait instead of speeding up
-  the whole clip.
-- Don't show the recovery phrase, the API key or full addresses.
-- Export in 1080×1920 for X, plus a 16:9 version with the phone centred if you want it for YouTube.
+## X post draft
 
-## 2. X post: draft
+The rules: say it was built at NEAR HACKATHON, tag @NEARProtocol and #NEARHackathon, attach the video.
 
-Rules from HACKATHON.md: say the project was built at NEAR HACKATHON, tag @NEARProtocol and #NEARHackathon, and attach
-the video. Lead with the problem, give NEAR's role concretely, and end with the links and a real question.
-@NearLegion and @NearBuilders are optional.
-
-**Main post** (under 280 characters, so it works without X Premium):
+Main post:
 
 ```text
 An AI that helps with your money shouldn't read your money on someone else's server.
 
-Hermit runs the AI on your iPhone, swaps across chains through NEAR Intents, and checks a NEAR AI enclave's proof before using it.
+Hermit runs the AI on your device, moves money across chains through NEAR Intents, and checks a NEAR AI enclave's proof before using it.
 
 Built at NEAR HACKATHON @NEARProtocol #NEARHackathon
 ```
 
-**Reply 1** (what NEAR does):
+Reply 1:
 
 ```text
 What NEAR does in it:
-- NEAR Intents: one swap screen for EVM, Solana, NEAR, BTC and Hyperliquid, and add funds from any chain
-- NEAR AI Cloud: a bigger model in a TEE, its proof checked on the phone
-- A NEAR account derived on the phone
+- NEAR Intents: swaps and bridges across EVM, Solana, NEAR, BTC and Hyperliquid, and funding from any chain
+- NEAR AI Cloud: a bigger model in a TEE, its proof checked on the device
+- A NEAR account derived on the device
 ```
 
-**Reply 2** (safety, and the ask):
+Reply 2:
 
 ```text
-The AI can't hold keys. It only prepares moves: a $100 cap, swaps pay only you, Face ID every time. Injection tests in the repo.
+The AI can't hold keys. It only prepares moves: a $100 cap, swaps pay only you, Face ID or Touch ID every time.
 
-iPhone beta: https://testflight.apple.com/join/ed9vUh7d
+Mac: https://hermit.my/dmg
+iPhone: https://testflight.apple.com/join/ed9vUh7d
 Code: https://github.com/Hermit-Ai-Labs/hermit-app
 
 What cap would you give an AI with your money? @NearBuilders @NearLegion
 ```
 
-Before posting, check that the video is attached to the main post, that the links work, and that the Mac TestFlight
-link is added only after Apple approves it.
-
-## 3. Submission `idea` text (20 to 2000 characters)
-
-About 1,600 characters. Paste it as is or edit it.
+## Submission `idea` draft (20 to 2000 characters)
 
 ```text
 Problem: an AI assistant that helps with money has to see your balances, addresses and plans. Today that means a company's server reads all of it, or an agent holds keys it can be tricked into using.
 
-Hermit is a self-custody wallet for iPhone and Mac with a private AI assistant. The model (Qwen3-4B, MLX) runs on the phone and works in flight mode. The assistant can only prepare a move. A spending policy checks every move: a daily limit, a warning for new addresses, a $100 cap per assistant move, swap output only to the user's own addresses, and sends only to addresses the user typed. Tool results are treated as data, against prompt injection. The user approves every move with Face ID.
+Hermit is a wallet for iPhone and Mac with a private AI assistant. The model (Hermit 1.2, a Qwen3-4B fine-tune on MLX) runs on the device and works offline. The assistant can only prepare a move. A spending policy checks every move: a daily limit, a warning for new addresses, a $100 cap per assistant move, swap output only to the user's own addresses, and sends only to addresses the user typed. Tool results and files are treated as data, against prompt injection. The user approves every move with Face ID or Touch ID.
 
 How NEAR fits in:
-1) NEAR Intents (1Click API) is the cross-chain engine. It handles swaps and bridges across EVM chains, Solana, NEAR, Bitcoin and Hyperliquid, and "add funds from any chain" through one-time deposit addresses. Quote signatures are checked on the phone, and statuses are tracked through REFUNDED and FAILED.
-2) NEAR AI Cloud powers Private Cloud mode. Before each prompt, the phone verifies the enclave itself: the Intel TDX quote to Intel's root, a fresh nonce, the signer binding, MRCONFIGID and RTMR3 replay, the GPU evidence with NVIDIA NRAS, and the TLS key binding. Then it checks the enclave's signature over the exact request and response bytes.
-3) Each wallet derives a NEAR account on the phone (m/44'/397'/0') for NEAR and NEP-141 balances and sends.
+1) NEAR Intents (1Click) is the cross-chain engine: swaps and bridges across EVM chains, Solana, NEAR, Bitcoin and Hyperliquid, from the chat or the Swap screen, and funding from any chain through one-time deposit addresses. Quote signatures are checked on the device.
+2) NEAR AI Cloud runs Private Cloud mode. Before each reply the device checks the enclave itself: the Intel TDX quote up to Intel's root, a fresh nonce, the signer, MRCONFIGID and RTMR3, a signed NVIDIA GPU verdict, and the TLS key. Then it checks the enclave's signature over the exact request and response.
+3) Each wallet derives a NEAR account on the device for NEAR and NEP-141 balances and sends.
 
-Judges can check it on Linux: scripts in near/ run a live dry quote, the NEAR key derivation, and an attestation verification of the NEAR AI Cloud enclave (23 checks, or 27 with an API key).
+Also: Solana spot through Jupiter with token safety checks, Hyperliquid perps, Aave, a browser with injected wallets, automations, and batch sends from a spreadsheet.
+
+Judges can check the NEAR parts on a Mac without the app: the scripts in near/ run a live dry quote, the NEAR key derivation and the NEAR AI Cloud attestation (23 checks pass without a key).
 ```
 
-## 4. Suggested tracks (the team decides)
+Check the length before pasting.
 
-| Track id | Fit | Why |
+## Suggested tracks
+
+We decide. HACKATHON.md says to list every track that fits.
+
+| Track | Fit | Why |
 | --- | --- | --- |
-| `privacy` | Strong | On-device AI by default. NEAR AI Cloud TEE inference with the attestation verified on the device, and response signatures. This is the deepest NEAR work in the project. |
-| `defi` | Strong | NEAR Intents 1Click is the swap, bridge and funding engine across EVM, Solana, NEAR, BTC and Hyperliquid, with dry-run quotes and handling for REFUNDED and FAILED. |
-| `security` | Strong | Spending policy, an assistant that only prepares, a guard against prompt injection, and an attack demo with a log ([SECURITY-DEMO.md](SECURITY-DEMO.md)). Function-call keys are not used (see the limits there). |
-| `agents` | Possible | The assistant calls tools that quote and prepare payments through NEAR Intents. But it doesn't earn, hire other agents or pay for APIs, which is the core of that track. |
-| `open` | Possible | It doesn't fit one category neatly. |
-
-Several tracks are allowed in one submission. HACKATHON.md says to list "every track the project fits".
+| `privacy` | Strong | On-device AI by default, and NEAR AI Cloud with the attestation checked on the device. Our deepest NEAR work. |
+| `defi` | Strong | NEAR Intents is the swap, bridge and funding engine. Perps, spot and Aave sit on top. |
+| `security` | Strong | The spending policy, an assistant that only prepares, and the attack demo in [SECURITY-DEMO.md](SECURITY-DEMO.md). |
+| `realworld` | Possible | Batch sends from a spreadsheet and scheduled payments, though payroll isn't the core. |
+| `agents` | Possible | It quotes and prepares payments through NEAR Intents and runs on a schedule. It doesn't earn or hire other agents. |

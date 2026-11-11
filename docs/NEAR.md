@@ -1,0 +1,116 @@
+# How Hermit uses NEAR
+
+Three parts of Hermit run on NEAR: NEAR Intents moves money between chains, every wallet has a NEAR account, and
+Private Cloud runs on NEAR AI Cloud. Code paths below are under `Packages/HermitKit/Sources/`. To try each part
+yourself, see [VERIFY.md](VERIFY.md).
+
+## NEAR Intents (1Click)
+
+The wallet holds keys for the EVM chains, Solana and NEAR. Through 1Click it can also deliver to Bitcoin and to a
+Hyperliquid account.
+
+- Try a quote, the assistant's `get_quote` and the Swap screen all ask `POST /v0/quote` for dry quotes. A dry quote
+  has no deposit address, so nothing can be sent. When you tap Review, Hermit asks again for a live quote with a
+  one-time deposit address. Slippage is 1%, and refunds go to your own address on the sending chain
+  (`HermitWallet/NearIntents.swift`).
+- The Swap screen asks 1Click and Relay at the same time and takes whichever pays out more. The review names the
+  route. An Intents swap is one plain transfer from your wallet to the deposit address, through the approval sheet.
+  Then Hermit calls `POST /v0/deposit/submit` and polls `GET /v0/status` (`HermitUI/Pages/Wallets/SwapSheet.swift`,
+  `HermitWallet/IntentsSwap.swift`).
+- In chat, `prepare_swap` gets a quote, refuses a swap that would lose more than 10% of its value, runs the spending
+  policy as the assistant, and opens the same Swap review, filled in (`HermitWallet/WalletTools.swift`).
+- Add funds takes money from any chain. You pick what you'll send (BTC, ETH, SOL, USDT on Tron and more) and what it
+  should arrive as: NEAR, USDC, ETH or SOL on the network you choose, or USDC in your Hyperliquid account. Hermit gets
+  a live `FLEX_INPUT` quote and shows the deposit address as a QR code. You can send from an exchange or any other
+  wallet; nothing is signed in Hermit. Refunds go to your own address on the sending chain, or to one you type when
+  Hermit has no key there (`HermitUI/Pages/Wallets/AnyChainFund.swift`).
+- You get a four-step tracker (deposit, seen, swap, delivered) and each 1Click status in plain words: PENDING_DEPOSIT,
+  KNOWN_DEPOSIT_TX, PROCESSING, SUCCESS, INCOMPLETE_DEPOSIT, REFUNDED and FAILED. You also see the refunded amount when
+  there is one, and a link to explorer.near-intents.org. Swaps show in Activity too (`IntentsStatus` in
+  `HermitWallet/NearIntents.swift`, `HermitUI/Pages/Wallets/IntentsViews.swift`).
+- Nobody can cancel a 1Click swap: money sent to a deposit address still swaps. You can hide a waiting swap, but
+  Hermit keeps tracking it, so a late deposit still shows in Activity. A finished swap can be removed. Start over on
+  Add funds hides the old address the same way. Unused, an address expires.
+- The device checks 1Click's ed25519 signature on every quote. The check is a field-for-field port of
+  `verifyQuoteSignature` from `@defuse-protocol/one-click-sdk-typescript` 0.1.26, down to JavaScript's spread rules
+  and `json-stable-stringify` (`NearIntents.swift`).
+- A switch on the Swap screen asks 1Click for a confidential swap (`confidentiality: basic`). It needs a 1Click
+  partner key and is greyed out without one.
+- The partner key is optional. It comes from `ONECLICK_JWT`, from Wallets, Security, or from a key we bundle into
+  TestFlight builds. Without one, 1Click adds 0.2%, and the review shows it as the API fee.
+
+1Click prices native NEAR as the token `nep141:wrap.near`. Hermit shows it as NEAR and hides wNEAR from its pickers,
+but the quote JSON, `near/intents-quote.py` and the explorer say wNEAR. Hermit doesn't unwrap anything.
+
+Tests: `Tests/HermitWalletTests/NearIntentsTests.swift`, with real dry quotes and the token list recorded on
+2026-11-08 in `Fixtures/`. Script: `near/intents-quote.py`.
+
+## A NEAR account in every wallet
+
+Each wallet derives a NEAR implicit account from its recovery phrase: SLIP-10 ed25519 at `m/44'/397'/0'`, the path
+near-seed-phrase and MyNearWallet use. A wallet made before we added NEAR gets its account after one Face ID check.
+
+Balances (NEAR, plus USDC, USDT and wNEAR as NEP-141 tokens) come from public RPC (FastNEAR), and the available
+balance leaves out the storage reserve. Sends are Borsh-serialized transactions signed with CryptoKit's ed25519:
+`Transfer` for NEAR and `ft_transfer` with 1 yocto attached for tokens, with `storage_deposit` first when the receiver
+isn't registered with the token. Hermit checks its own signature before sending, submits with `send_tx`
+(`EXECUTED_OPTIMISTIC`) and reports a failed receipt as a failure. NEAR can also be the sending side of an Intents
+swap, and payees in Payments can be NEAR accounts.
+
+Code: `HermitWallet/Near.swift`, `WalletService+Near.swift`, `KeyVault.swift` (`nearPath`),
+`HermitUI/Pages/Wallets/NearViews.swift`. Tests: `NearTests` in `NearIntentsTests.swift` check the bytes against
+near-api-js 4 and the keys against near-seed-phrase 0.2.1. Script: `near/near-account.py`.
+
+## Private Cloud on NEAR AI Cloud
+
+The chat box has a mode menu: On-device (the default) or Private Cloud. Private Cloud talks to NEAR AI Cloud's
+OpenAI-compatible gateway at `https://cloud-api.near.ai/v1`. Hermit lists only models NEAR runs itself in TEEs
+(`owned_by: nearai`) that can call tools, and the default is `Qwen/Qwen3.8-27B`.
+
+Before every reply, the device:
+
+1. Makes 32 random bytes (`SecRandomCopyBytes`) and opens one HTTPS connection to the gateway that it watches.
+2. Fetches `/v1/attestation/report` on that connection with the nonce and `include_tls_fingerprint=true`, and no API
+   key.
+3. Checks the gateway and each model candidate: the TDX v4 quote's signature, its certification by Intel's Quoting
+   Enclave and the PCK chain up to an embedded copy of Intel's SGX Root CA, with validity dates; debug mode off; the
+   nonce in the quote's report data and echoed back; the signing address bound in the report data;
+   `SHA-256(app_compose)` equal to MRCONFIGID; the event log replayed to RTMR3; evidence for the model you asked for,
+   with the nonce in the GPU evidence; and the connection's server key equal to the gateway quote's
+   `tls_cert_fingerprint`.
+4. Sends the GPU evidence to NVIDIA NRAS and checks the token that comes back: an ES384 signature by a key in NVIDIA's
+   published set, NVIDIA as the issuer, the time window, and this request's nonce.
+
+If any check fails, nothing is sent. Otherwise the prompt goes out on the same connection, without streaming and with
+`x-no-aliasing: true`. After the reply, the device fetches `/v1/signature/{id}`, hashes the exact request and response
+bytes itself, recovers the EIP-191 signer and requires it to be the attested model's key. Each reply gets a Verified
+sheet with every check, who did it and what wasn't checked. Tools still run on the device, under the same spending
+policy as on-device mode.
+
+Your key lives in the Keychain on the device and isn't sent until the checks pass. TestFlight builds may carry our
+shared key, with 30 messages per device per day. It's masked in the bundle, but anyone with the binary can dig it out,
+and the app counts the limit itself. That's a risk to our credits, not to you.
+
+Code: `HermitCloud/TDXQuote.swift`, `X509Lite.swift`, `Attestation.swift`, `TLSBinding.swift`,
+`ResponseSignature.swift`, `NearAICloud.swift`, `NearCloudAgent.swift`, and `HermitUI/Cloud/`. Tests:
+`Tests/HermitCloudTests/`, on real reports recorded on 2026-11-08: a wrong nonce, wrong model, swapped signer, edited
+compose, edited event log, flipped quote byte, expired certificate, wrong TLS key, missing GPU verdict, forged NRAS
+token and forged response signature each fail. Script: `near/verify-attestation.py`.
+
+## What the device checks, and what it doesn't
+
+| Claim | Checked where | Notes |
+| --- | --- | --- |
+| The quote came from 1Click, unchanged | On the device | Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either (`testSignatureMatchesSDKOnLiveQuotes`). The Swap review then says "Quote signature not confirmed", and Add funds won't go on until you tap "I've checked it". Check the amount and address yourself on those. |
+| Swap status (SUCCESS, REFUNDED, ...) | Not on the device | We trust 1Click's status API over HTTPS and show explorer links. |
+| The swap pays out to you | On the device | The recipient is your own derived address. For the assistant, anything else is blocked. |
+| NEAR balances | Not proven | They come from public RPC (FastNEAR). There's no light client. A lying RPC could show wrong balances, but it can't forge a signature. |
+| A NEAR transaction | On the device | Borsh bytes are tested against near-api-js, and Hermit checks its own signature before sending. |
+| TDX quote, Intel chain, debug off, nonce, signer, MRCONFIGID, RTMR3 | On the device | CryptoKit and an embedded copy of Intel's root certificate. |
+| Intel TCB status, advisories, revocation | Not on the device | `near/verify-attestation.py` does it with `dcap-qvl` and Intel's collateral. |
+| The GPUs | NVIDIA NRAS | NRAS judges the GPU evidence. The device checks the nonce in it, and the token's signature, issuer, time and nonce. |
+| The connection ends at the attested gateway | On the device | The server key must match the quote's fingerprint, and the prompt goes out on that connection. |
+| The answer came from the attested model, unchanged | On the device | EIP-191 signature over `model:sha256(request):sha256(response)`, by the attested model key. |
+| The gateway-to-model hop for this request | Can't be proven today | NEAR's TLS binding covers the gateway only, and a matching model signer doesn't prove it was the same instance. |
+| Who built the container images | Not checked | The compose hash is bound to the quote. The images' provenance isn't. |
+| The on-device model is the one we published | On the device | Every file and every 128 MiB piece must match a SHA-256 hash pinned in `HermitModel/ModelPins.swift`. |
