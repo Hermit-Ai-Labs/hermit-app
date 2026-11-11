@@ -552,6 +552,17 @@ public final class AppModel {
                     WalletsViewModel.shared.pendingSwap = i
                     open(.wallets, tab: "agent-swap")
                 } else { toast("That review has expired. Ask Hermit again.", kind: .info) }
+            case let o where o.hasPrefix("page:"):
+                // open_page's button: a page of the app, optionally on one of its tabs. Only what the allow-list holds.
+                let parts = o.dropFirst("page:".count).split(separator: ":").map(String.init)
+                if let first = parts.first, let target = ToolsV3.pageTarget(first, tab: parts.count > 1 ? parts[1] : nil) { open(target.route, tab: target.tab) }
+                else { toast("That link isn't available anymore", kind: .info) }
+            case let o where o.hasPrefix("app:"):
+                // open_app's button: a site in Hermit's browser. Nothing connects until the user approves the connect sheet.
+                if let u = DappBrowserSession.normalize(String(o.dropFirst("app:".count))) {
+                    let name = u.host().flatMap { DappBrowser.directoryName(for: $0) }
+                    DappBrowser.shared.open(u, dapp: ExploreData.dapps.first { $0.name == name }, model: self)
+                } else { toast("That link isn't available anymore", kind: .info) }
             case let o where o.hasPrefix("chat:"):
                 let id = String(o.dropFirst("chat:".count))
                 if conversations.contains(where: { $0.id == id }) { openConversation(id) } else { toast("That chat was deleted", kind: .info) }
@@ -719,7 +730,8 @@ public final class AppModel {
         func pays(_ c: Card?) -> Bool {
             guard let c else { return false }
             switch c {
-            case .perpTicket, .apiBuy, .inbox: return true
+            // A confirm card waits for a tap too (a cancel, a contact, an automation, a payment reminder).
+            case .perpTicket, .apiBuy, .inbox, .confirm: return true
             default: return false
             }
         }

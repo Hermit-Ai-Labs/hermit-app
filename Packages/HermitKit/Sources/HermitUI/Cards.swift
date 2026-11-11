@@ -34,6 +34,7 @@ struct CardView: View {
         case .memory(let item): MemoryCard(item: item)
         case .liveTrade(let t): DemoOnly { LiveTradeCard(trade: t) }
         case .suggestions(let prompts): SuggestionsCard(prompts: prompts)
+        case .confirm(let c): ToolConfirmCard(card: c)
         }
     }
 }

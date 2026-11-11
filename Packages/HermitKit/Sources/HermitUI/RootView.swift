@@ -60,6 +60,8 @@ public struct RootView: View {
                 .fitSheet()
         }
         .onAppear {
+            // The window chat's tools act in (open_app opens the browser here).
+            ToolHost.shared.model = model
             // prepare_swap from the assistant: open Wallets on the prefilled Swap review. The user approves (or not).
             WalletsViewModel.shared.tools.presentSwap = { [model] intent in
                 // From an automation running in the background: the review waits in its chat, the screen stays put.

@@ -5,9 +5,16 @@ import HermitWallet
 /// Payments hands the money part to the wallet: Send opens filled in, with its review screen, safety check and Face ID.
 /// The network follows the address and the token, so Send never swaps the asset. `onSent` runs only after the
 /// approval went through for exactly this payment (same address, token and amount), not when Send was edited.
-@MainActor func payViaWallet(_ model: AppModel, address: String, amount: String, token: String, onSent: (@MainActor () -> Void)? = nil) {
+/// `chain` is the network saved with a scheduled payment (a chain id); it is used when it fits the address and carries
+/// the token, else the usual choice applies.
+@MainActor func payViaWallet(_ model: AppModel, address: String, amount: String, token: String, chain wanted: String? = nil,
+                             onSent: (@MainActor () -> Void)? = nil) {
     let addr = address.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let chain = payChain(address: addr, token: token) else {
+    let usual = payChain(address: addr, token: token)
+    var saved: Chain?
+    if let id = wanted, let c = Chain.with(id: id), let u = usual, c.kind == u.kind, c.sendsEnabled,
+       WalletsViewModel.shared.tokens(chain: c).contains(token) { saved = c }
+    guard let chain = saved ?? usual else {
         model.toast("\(token) can't be sent to that address. Pick another token.")
         return
     }
@@ -94,7 +101,7 @@ struct PaySchedule: View {
                             if !p.paused {
                                 Button("Pay now") {
                                     let id = p.id
-                                    payViaWallet(model, address: p.addr, amount: p.sendAmount, token: p.token) { PaymentsStore.shared.markPaid(id) }
+                                    payViaWallet(model, address: p.addr, amount: p.sendAmount, token: p.token, chain: p.chain) { PaymentsStore.shared.markPaid(id) }
                                 }
                                 .disabled(!PayAddress.valid(p.addr) || p.amount <= 0)
                             }

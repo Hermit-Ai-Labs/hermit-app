@@ -183,10 +183,10 @@ struct PayScheduleSheet: View {
                     Button("Pay now") {
                         guard let amt = PayAmount.exact(amount) else { return }
                         dismiss()
-                        let addr = self.addr, token = f.token, id = f.id
+                        let addr = self.addr, token = f.token, id = f.id, chain = f.chain
                         Task { @MainActor in
                             try? await Task.sleep(for: .milliseconds(350))
-                            payViaWallet(model, address: addr, amount: amt, token: token) { PaymentsStore.shared.markPaid(id) }
+                            payViaWallet(model, address: addr, amount: amt, token: token, chain: chain) { PaymentsStore.shared.markPaid(id) }
                         }
                     }
                     .buttonStyle(PayPillButton(kind: .accent))

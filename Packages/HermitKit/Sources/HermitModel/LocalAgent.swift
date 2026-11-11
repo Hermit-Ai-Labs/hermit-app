@@ -81,6 +81,7 @@ public final class LocalAgent: Agent, @unchecked Sendable {
             guard let ready = await MainActor.run(body: { store.readyModel }) else { return }
             guard (try? await engine.load(id: ready.spec.id, directory: ready.directory)) != nil else { return }
             await chat.setFamily(await engine.family)
+            await chat.setToolSet(ready.spec.toolSet)
             await engine.prefill(await chat.systemPrefix())
         }
     }
@@ -92,9 +93,10 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     /// Name and hermit.md for the system prompt. The model reads its instructions when a conversation starts,
     /// so this applies from the next new chat (or right away if this one hasn't started).
     public func setContext(name: String, memory: [String]) {
-        let text = Self.instructions(name: name, memory: memory)
         Task { [chat, engine] in
-            await chat.setSystem(text)
+            // The chat builds the prompt for the tool set of the model that answers (v2 for Hermit 1.2: the same text
+            // as `instructions(name:memory:)`).
+            await chat.setContext(name: name, memory: memory)
             // Before the chat starts, read the new system prompt into the cache too, so the first answer is quick.
             if await chat.history.isEmpty, await engine.isLoaded { await engine.prefill(await chat.systemPrefix()) }
         }
@@ -117,6 +119,8 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                         loadTime = try await engine.load(id: ready.spec.id, directory: ready.directory)
                     }
                     await chat.setFamily(await engine.family)
+                    // The prompt follows what the loaded model was trained on (v2 for Hermit 1.2 and 1.1 Lite).
+                    await chat.setToolSet(ready.spec.toolSet)
                     // A hot device slows the model down: say so instead of leaving the wait unexplained.
                     let heat = ProcessInfo.processInfo.thermalState
                     cont.yield(.status(heat == .serious || heat == .critical ? "Thinking, slower while this device is hot…" : "Thinking…"))

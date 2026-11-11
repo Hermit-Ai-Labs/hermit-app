@@ -191,6 +191,27 @@ public indirect enum Card: Equatable, Sendable, Codable {
     case liveTrade(LiveTrade)
     /// Prompts to try, shown as chips.
     case suggestions([String])
+    /// Something the assistant drafted that one tap confirms and that moves no money (cancel an order, save a contact,
+    /// create an automation, schedule a payment reminder). The tap's work lives in the app, by the card's id.
+    case confirm(ToolCard)
+}
+
+/// What a confirm card shows: a title, key and value rows (a contact's address in full), a warning, and the button's
+/// word. Saved with the chat; the action behind the button is not, so a card read back from a saved chat only shows
+/// what was drafted.
+public struct ToolCard: Equatable, Sendable, Codable, Identifiable {
+    public let id: String
+    /// "cancel_order", "automation", "scheduled_payment" or "contact".
+    public let kind: String
+    public let title: String
+    public let rows: [[String]]
+    /// The button: "Confirm", "Create", "Schedule", "Save".
+    public let confirm: String
+    public let warning: String?
+    public let note: String?
+    public init(id: String = UUID().uuidString, kind: String, title: String, rows: [[String]], confirm: String, warning: String? = nil, note: String? = nil) {
+        self.id = id; self.kind = kind; self.title = title; self.rows = rows; self.confirm = confirm; self.warning = warning; self.note = note
+    }
 }
 
 public struct BarRow: Equatable, Sendable, Identifiable, Codable {

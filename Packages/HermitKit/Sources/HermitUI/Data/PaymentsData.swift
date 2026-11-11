@@ -36,6 +36,9 @@ struct ScheduledPayment: Identifiable, Hashable, Codable {
     var exact: String? = nil
     /// When Pay now last went through for this payment.
     var lastPaid: Date? = nil
+    /// The network to pay on (a chain id, "base"), when it was chosen with the schedule. nil lets Pay now pick it from
+    /// the address and the token, as before.
+    var chain: String? = nil
 
     var due: Bool { !paused && next < Date() }
     /// The decimal string Send is filled in with.

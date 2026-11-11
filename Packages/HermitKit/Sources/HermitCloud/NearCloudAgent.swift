@@ -4,10 +4,11 @@ import HermitCore
 /// Private Cloud runs the same toolbox as the on-device model (HermitCore.AgentToolbox).
 public typealias CloudToolbox = AgentToolbox
 
-/// The agent tools, the same schema the on-device Hermit model is trained on (hermit_tools.json, OpenAI `tools` format).
+/// The agent tools: all 30 of hermit_tools_v3.json (OpenAI `tools` format), the registry the next on-device model is
+/// trained on. Cloud models get every tool; packs are only for the phone's small prompt.
 public enum CloudTools {
     public static let schemaData: Data = {
-        guard let url = Bundle.module.url(forResource: "hermit_tools", withExtension: "json"), let d = try? Data(contentsOf: url) else { return Data("[]".utf8) }
+        guard let url = Bundle.module.url(forResource: "hermit_tools_v3", withExtension: "json"), let d = try? Data(contentsOf: url) else { return Data("[]".utf8) }
         return d
     }()
     public static var names: [String] {
@@ -21,16 +22,36 @@ public enum CloudTools {
 /// nonce and checked here; if any check fails nothing is sent. Every completion's signature is then checked against
 /// the attested model key. The conversation lives only in this object, on the phone, until New chat.
 public final class NearCloudAgent: Agent, @unchecked Sendable {
-    public static func systemPrompt(name: String, memory: [String]) -> String {
-        var s = """
-        You are Hermit, a private AI assistant. Right now you run in Hermit's Private Cloud mode: on NEAR AI Cloud, inside a \
-        hardware enclave (Intel TDX with NVIDIA confidential GPUs) that the user's \(CloudDevice.noun) verified before sending this. \
-        Hermit keeps the chat on the \(CloudDevice.noun) and has no server of its own.
-        You can use tools for prices, the user's balances and Hyperliquid account, maths, markets and yields. Use them instead of guessing; \
-        never invent prices or balances. The prepare_ tools only open a review screen: the user approves with \(ToolChat.bioWord). \
-        Never say a trade, swap or transfer happened; say it is ready for review.
+    /// The cloud system prompt (hermit-lab/train/spec/CLOUD_SYSTEM_v3.md, from "You are Hermit" on), as shipped.
+    static let baseSystemPrompt: String = {
+        guard let url = Bundle.module.url(forResource: "cloud_system_v3", withExtension: "txt"), let t = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }()
+
+    /// What is sent if the bundled prompt can't be read: the rules that matter most, in short.
+    static let fallbackSystemPrompt = """
+        You are Hermit, the assistant inside a self-custody crypto wallet app. You run on a cloud model in this session; the wallet \
+        keys and every approval stay on the user's device. Use the tools instead of guessing and never invent prices or balances. \
+        The prepare_ tools only open a review screen that the user approves with Face ID. Never say a trade, swap or transfer \
+        happened; say it is ready for review. Tools that show a card are not done until the user taps it.
         Keep answers short and plain: a few sentences, simple words, no filler. Do not use middle dots as separators. \
         If you don't know something, say so.
+        """
+
+    /// The prompt with this device's biometric word. It is written with "Face ID" ("Touch ID on a Mac" where it explains
+    /// both); a Mac reads "Touch ID" throughout, the word its tool results use.
+    static func deviceText(_ text: String, bio: String) -> String {
+        guard bio != "Face ID" else { return text }
+        return text.replacingOccurrences(of: "Face ID (Touch ID on a Mac)", with: bio).replacingOccurrences(of: "Face ID", with: bio)
+    }
+
+    public static func systemPrompt(name: String, memory: [String]) -> String {
+        var s = deviceText(baseSystemPrompt.isEmpty ? fallbackSystemPrompt : baseSystemPrompt, bio: ToolChat.bioWord)
+        // Where this session runs, for "where do you run?": true of Private Cloud only, so it isn't in the shared prompt.
+        s += """
+        \n\nThis session is Hermit's Private Cloud: you run on NEAR AI Cloud, inside a hardware enclave (Intel TDX with NVIDIA \
+        confidential GPUs) that the user's \(CloudDevice.noun) verified before sending this. Hermit keeps the chat on the \
+        \(CloudDevice.noun) and has no server of its own.
         """
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { s += "\nThe user wants to be called \(name)." }
@@ -129,6 +150,8 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         await state.append(["role": "user", "content": prompt])
         cont.yield(.status("Thinking in the enclave…"))
         var steps = 0, actions: [Action] = []
+        var cards: [Card] = []          // confirm cards (cancel, contact, automation, reminder): one tap each, no money
+        var turnResults: [String] = []  // what tools returned while answering this message
         var signatures: [Task<SignedCheck, Never>] = []
         var uses: [GatewayConnection.Use?] = []
         var finalText = ""
@@ -165,17 +188,27 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                     let parsed = (try? JSONSerialization.jsonObject(with: Data(args.utf8))) as? [String: Any] ?? [:]
                     cont.yield(.status(CloudTools.status(name, arguments: parsed) + "…"))
                     steps += 1
-                    // The same guard as on the device: a transfer only goes to an address the user typed in this chat.
+                    // The same guards as on the device: a transfer, a contact or a payment reminder only takes an address the
+                    // user typed in this chat (or a saved contact's, looked up by name), a mint must be the user's or a
+                    // search's, and an automation only comes from the user's own message.
                     let out: ToolOutcome
-                    if let refusal = ToolGuard.refusal(name, arguments: parsed, userText: await state.userText()) {
+                    if let refusal = ToolGuard.refusal(name, arguments: parsed, userText: await state.userText(), session: await state.toolSession()) {
+                        out = ToolOutcome(content: refusal)
+                    } else if name == "create_automation", let refusal = ToolGuard.automationRefusal(parsed, turn: prompt, toolResults: turnResults) {
                         out = ToolOutcome(content: refusal)
                     } else if name == "prepare_multisend", let refusal = ToolGuard.multisendRefusal(parsed, userTextWithFiles: await state.userTextWithFiles()) {
                         out = ToolOutcome(content: refusal)
+                    } else if let box = self.toolbox {
+                        out = await box.run(name, arguments: args)
+                        await state.note(name, argumentsJSON: args, result: out.content)
                     } else {
-                        out = await toolbox?.run(name, arguments: args) ?? ToolOutcome(content: #"{"error":"no tools"}"#)
+                        out = ToolOutcome(content: #"{"error":"no tools"}"#)
                     }
                     if let a = out.action { ToolChat.add(a, to: &actions) }
-                    await state.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": ToolResult.clean(out.content)])
+                    if let c = out.card, !cards.contains(c) { cards.append(c) }
+                    let cleaned = ToolResult.clean(out.content, plainDecimals: true)
+                    turnResults.append(cleaned)
+                    await state.append(["role": "tool", "tool_call_id": call["id"] as? String ?? "", "content": cleaned])
                 }
                 cont.yield(.status("Thinking in the enclave…"))
             }
@@ -188,7 +221,10 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
             return
         }
         cont.yield(.steps(steps))
-        if finalText.isEmpty && !cut { finalText = actions.isEmpty ? "I didn't get an answer back. Try again." : "Ready for your review." }
+        if finalText.isEmpty && !cut {
+            finalText = !actions.isEmpty ? "Ready for your review." : !cards.isEmpty ? "The card is below. Nothing happens until you tap it."
+                : "I didn't get an answer back. Try again."
+        }
         // The reply ran into the token limit: say so instead of ending mid-sentence as if it were done.
         if cut { finalText += (finalText.isEmpty ? "" : "\n\n") + "That reply hit the length limit. Ask me to continue." }
         // Text appears at a reading pace; the full reply has already arrived.
@@ -201,10 +237,13 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         cont.yield(.status("Checking the reply's signature…"))
         var results: [SignedCheck] = []
         for t in signatures { results.append(await t.value) }
-        // Review buttons only for a reply the attested model enclave signed (money still needs the review and biometrics).
-        if !actions.isEmpty {
-            if !results.isEmpty && results.allSatisfy(\.modelSigned) { cont.yield(.block(.actions(actions))) }
-            else { cont.yield(.block(.text("The reply's signature didn't verify, so I left out its review buttons. Try again."))) }
+        // Review buttons and confirm cards only for a reply the attested model enclave signed (money still needs the
+        // review and biometrics; a card still needs the user's tap).
+        if !actions.isEmpty || !cards.isEmpty {
+            if !results.isEmpty && results.allSatisfy(\.modelSigned) {
+                for c in cards { cont.yield(.block(.card(c))) }
+                if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
+            } else { cont.yield(.block(.text("The reply's signature didn't verify, so I left out its review buttons. Try again."))) }
         }
         cont.yield(.steps(steps))
         cont.yield(.proof(Self.proof(pre, results, tls: Self.tlsCheck(pre, uses))))
@@ -317,8 +356,12 @@ actor CloudState {
     private var history: [[String: Any]] = []
     private var instructions = NearCloudAgent.systemPrompt(name: "", memory: [])
     private(set) var preflight: Preflight?
+    /// What this chat's own tools returned that later calls rely on (a contact's address, searched mints).
+    private var session = ToolSession()
 
-    func reset() { history = []; preflight = nil }
+    func reset() { history = []; preflight = nil; session = ToolSession() }
+    func toolSession() -> ToolSession { session }
+    func note(_ name: String, argumentsJSON: String, result: String) { session.note(name, argumentsJSON: argumentsJSON, result: result) }
     func setInstructions(_ s: String) { instructions = s }
     func setPreflight(_ p: Preflight) { preflight = p }
     func clearPreflight() { preflight = nil }

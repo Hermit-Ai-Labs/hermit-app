@@ -17,23 +17,45 @@ public actor ToolChat {
         public var family: HermitPrompt.Family
         /// Tool lines for the system prompt. nil runs plain chat with no tools.
         public var tools: [String]?
+        /// The tool set the model was trained on. v2 (Hermit 1.2, 1.1 Lite) is the fixed list in `tools`. v3 starts
+        /// every chat with the core tools and adds the packs its first message asks for (ToolPacks).
+        public var toolSet: HermitPrompt.ToolSet = .v2
         public var maxRounds = 5
         public var maxCallsPerTurn = 6
         /// Older exchanges are dropped once the prompt grows past this (about 6k tokens), so memory stays bounded.
         public var maxPromptChars = 22_000
         public init(family: HermitPrompt.Family, tools: [String]? = HermitPrompt.toolLines) { self.family = family; self.tools = tools }
+        /// For a model trained on `toolSet`: its tool lines (v3: the core ones until a chat's first message picks the
+        /// packs) and its prompt cap.
+        public init(family: HermitPrompt.Family, toolSet: HermitPrompt.ToolSet) {
+            self.family = family
+            self.toolSet = toolSet
+            tools = toolSet == .v3 ? ToolPacks.lines(ToolPacks.core) : HermitPrompt.toolLines
+            maxPromptChars = ToolPacks.maxPromptChars(toolSet, family: family)
+        }
     }
 
     public private(set) var config: Config
     private var system: String
     private var nextSystem: String?
     public private(set) var history: [HermitPrompt.Message] = []
-    private let toolNames: Set<String>
+    private var toolNames: Set<String>
     /// One reply at a time: a cancelled reply finishes its bookkeeping before the next one starts.
     private var busy = false
+    /// The user's name and notes, when the app gave them apart from the prompt text (`setContext`): the system prompt
+    /// is then rebuilt for whichever tool set the loaded model has.
+    private var context: (name: String, memory: [String])?
+    /// A tool set to switch to at the next new chat (the one a model loaded mid-chat was trained on).
+    private var nextToolSet: HermitPrompt.ToolSet?
+    /// What this chat's own tools returned that later calls rely on (a contact's address, searched mints).
+    private var session = ToolSession()
+    /// v3: the packs this chat got from its first message.
+    public private(set) var packs: [String] = []
 
-    public init(system: String = HermitPrompt.system(name: "", memory: []), config: Config) {
-        self.system = system; self.config = config
+    /// `system` nil is the agent prompt of the config's tool set, with no name or notes.
+    public init(system: String? = nil, config: Config) {
+        self.system = system ?? HermitPrompt.system(HermitPrompt.agentSystem(for: config.toolSet), name: "", memory: [])
+        self.config = config
         toolNames = Set(config.tools.map(HermitPrompt.names) ?? [])
     }
 
@@ -48,11 +70,62 @@ public actor ToolChat {
     public func setFamily(_ f: HermitPrompt.Family) {
         guard f != config.family else { return }
         config.family = f
+        if config.toolSet == .v3 { config.maxPromptChars = ToolPacks.maxPromptChars(.v3, family: f) }
+    }
+
+    /// The user's name and hermit.md notes. The system prompt is the agent prompt of the model's tool set with them
+    /// appended; like `setSystem` it applies from the next new chat, or right away if this one hasn't started.
+    public func setContext(name: String, memory: [String]) {
+        context = (name: name, memory: memory)
+        setSystem(HermitPrompt.system(HermitPrompt.agentSystem(for: nextToolSet ?? config.toolSet), name: name, memory: memory))
+    }
+
+    /// The tool set of the model that answers. A model trained on another set than the chat started with takes over
+    /// at the next new chat (the tool block can't change mid-chat), or right away if this one hasn't started.
+    public func setToolSet(_ set: HermitPrompt.ToolSet) {
+        if history.isEmpty { nextToolSet = nil; applyToolSet(set) }
+        else { nextToolSet = set == config.toolSet ? nil : set }
+    }
+
+    private func applyToolSet(_ set: HermitPrompt.ToolSet) {
+        guard set != config.toolSet else { return }
+        let old = config.toolSet
+        config.toolSet = set
+        config.maxPromptChars = ToolPacks.maxPromptChars(set, family: config.family)
+        if config.tools != nil {
+            config.tools = set == .v3 ? ToolPacks.lines(ToolPacks.core) : HermitPrompt.toolLines
+            toolNames = Set(config.tools.map(HermitPrompt.names) ?? [])
+        }
+        packs = []
+        if let c = context {
+            system = HermitPrompt.system(HermitPrompt.agentSystem(for: set), name: c.name, memory: c.memory)
+            nextSystem = nil
+        } else if system == HermitPrompt.system(HermitPrompt.agentSystem(for: old), name: "", memory: []) {
+            system = HermitPrompt.system(HermitPrompt.agentSystem(for: set), name: "", memory: [])
+        }
+    }
+
+    /// v3 models: the chat's tools are the core ones plus the packs its first message asks for, fixed until New chat.
+    private func choosePacks(for first: String) {
+        guard config.toolSet == .v3, config.tools != nil else { return }
+        // The typed text picks the packs; an attached spreadsheet adds to pay. A file's own text never does.
+        let choice = ToolPacks.choose(firstMessage: first, hasAttachment: ToolPacks.sheetAttached(in: first), family: config.family)
+        config.tools = choice.lines
+        toolNames = Set(choice.names)
+        packs = choice.packs
     }
 
     public func reset() {
         history = []
+        session = ToolSession()
         if let s = nextSystem { system = s; nextSystem = nil }
+        if let t = nextToolSet { nextToolSet = nil; applyToolSet(t) }
+        // v3: back to the core tools until the next chat's first message picks its packs.
+        if config.toolSet == .v3, config.tools != nil, !packs.isEmpty {
+            config.tools = ToolPacks.lines(ToolPacks.core)
+            toolNames = Set(ToolPacks.core)
+        }
+        packs = []
     }
 
     /// The full prompt for the next assistant turn. `tools: false` renders it with no tools offered (the last-chance
@@ -124,6 +197,7 @@ public actor ToolChat {
         busy = true
         defer { busy = false }
         if Task.isCancelled { return }
+        if history.isEmpty { choosePacks(for: prompt) }
         history.append(.user(HermitPrompt.neutralize(prompt)))
         if trimHistory() { cont.yield(.status("Setting older messages aside to make room…")) }
 
@@ -138,6 +212,10 @@ public actor ToolChat {
         var blockedReason: String?  // why a money tool refused, for the honesty check
         var executed = false        // a tool result said money actually moved
         var listSent = false        // the attached list of payees already went out as one batch
+        var cards: [Card] = []      // confirm cards (cancel, contact, automation, payment reminder): one tap each, no money
+        var triedCard = false       // the model called a card tool
+        var turnResults: [String] = []  // what tools returned while answering this message
+        let plainNumbers = config.toolSet == .v3
 
         rounds: for round in 0..<config.maxRounds {
             var parser = ToolCallStream(known: toolNames)
@@ -229,25 +307,36 @@ public actor ToolChat {
                 let out: ToolOutcome
                 if !toolNames.contains(call.name) {
                     out = ToolOutcome(content: #"{"error": "Unknown tool \#(call.name)."}"#)
-                } else if let refusal = ToolGuard.refusal(call.name, arguments: args, userText: typed) {
+                } else if let refusal = ToolGuard.refusal(call.name, arguments: args, userText: typed, session: session) {
+                    out = ToolOutcome(content: refusal)
+                } else if call.name == "create_automation", let refusal = ToolGuard.automationRefusal(args, turn: prompt, toolResults: turnResults) {
                     out = ToolOutcome(content: refusal)
                 } else if call.name == "prepare_multisend", let refusal = ToolGuard.multisendRefusal(args, userTextWithFiles: userTextWithFiles()) {
                     out = ToolOutcome(content: refusal)
                 } else if let toolbox {
                     out = await toolbox.run(call.name, arguments: argsJSON)
+                    // Only what a tool itself returned is remembered (a contact's address, the mints of a search).
+                    session.note(call.name, arguments: args, result: out.content)
                 } else {
                     out = ToolOutcome(content: #"{"error": "Tools are off."}"#)
                 }
                 if let a = out.action { Self.add(a, to: &actions) }
+                if let c = out.card, !cards.contains(c) { cards.append(c) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
+                // A card counts as opened like a review: something is waiting for the user's tap.
+                if ToolGuard.cardTools.contains(call.name) {
+                    triedCard = true
+                    if out.card != nil || Self.opened(out.content) { prepared = true }
+                }
                 if out.content.contains("\"executed\":true") || out.content.contains("\"status\":\"sent\"") || out.content.contains("\"status\": \"sent\"") { executed = true }
                 if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
                 if ToolGuard.moneyTools.contains(call.name) {
                     triedMoney = true
                     if let v = JSONValue.parse(out.content), case .array(let r)? = v["reasons"], let first = r.first?.string { blockedReason = first }
                 }
-                let cleaned = ToolResult.clean(out.content)
+                let cleaned = ToolResult.clean(out.content, plainDecimals: plainNumbers)
                 results[key] = cleaned
+                turnResults.append(cleaned)
                 history.append(.tool(cleaned))
             }
             // A model stuck asking the same thing: one more chance, then stop.
@@ -260,7 +349,7 @@ public actor ToolChat {
         // with no tools offered, so the model answers from what it knows instead of the user getting a dead end.
         // It is held back until it ends: no tool answered, so a dollar amount or percent in it must come from a result
         // or a message in this chat, or it is replaced (a small model fills a failed price lookup from memory).
-        if !finalAnswer && actions.isEmpty && !shownAny && !Task.isCancelled {
+        if !finalAnswer && actions.isEmpty && cards.isEmpty && !shownAny && !Task.isCancelled {
             history.append(.tool(Self.answerNowNote))
             var parser = ToolCallStream(known: toolNames)
             var last = OutputFilter()
@@ -284,6 +373,7 @@ public actor ToolChat {
         if !finalAnswer {
             // The model ran out of rounds, or couldn't write a readable call: a plain line instead of anything raw.
             let text = !actions.isEmpty ? "It's ready for your review below. Nothing moves until you approve it with \(Self.bioWord)."
+                : !cards.isEmpty ? Self.cardWaiting
                 : shownAny ? "" : "I couldn't finish that here. Try asking another way."
             if !text.isEmpty {
                 if !shownAny { cont.yield(.steps(steps)) }
@@ -303,7 +393,7 @@ public actor ToolChat {
                 // Only a review that opened counts: a refusal ("Nothing was prepared", "prepared": false) doesn't.
                 if out.action != nil || Self.opened(out.content) { prepared = true }
                 else if let v = JSONValue.parse(out.content), case .array(let r)? = v["reasons"], let first = r.first?.string { blockedReason = first }
-                history.append(.tool(ToolResult.clean(out.content)))
+                history.append(.tool(ToolResult.clean(out.content, plainDecimals: plainNumbers)))
             }
         }
         // Asked plainly for a batch send, a deposit or a withdrawal and the model didn't prepare it: the app opens the
@@ -319,7 +409,7 @@ public actor ToolChat {
                 let out = await toolbox.run(name, arguments: argsJSON)
                 if let a = out.action { Self.add(a, to: &actions) }
                 if out.action != nil || Self.opened(out.content) { prepared = true }
-                history.append(.tool(ToolResult.clean(out.content)))
+                history.append(.tool(ToolResult.clean(out.content, plainDecimals: plainNumbers)))
                 // The model didn't prepare it, so its text may not say why nothing opened: say what the app did.
                 if let note = Self.routeNote(out, tool: name, arguments: parsed) {
                     if !shownAny { cont.yield(.steps(steps)) }
@@ -338,8 +428,46 @@ public actor ToolChat {
         if !executed, triedMoney || prepared || Self.asksMoneyMove(typedNow), Self.claimsDone(said, inMoneyMessage: true) {
             cont.yield(.text("\n\nTo be clear: I can't see approvals or results from here, so I don't know whether that went through. Activity in Wallets shows what actually happened."))
         }
+        // The same for cards: "saved", "created", "scheduled" or "cancelled" while no card (or review) opened this turn.
+        // Only for chats that have the card tools, and only when the message is about one of those things.
+        if !prepared, !toolNames.isDisjoint(with: ToolGuard.cardTools), triedCard || Self.asksCardAction(typedNow), Self.claimsCardDone(said) {
+            cont.yield(.text("\n\n" + Self.noCard))
+        } else if !cards.isEmpty, Self.claimsCardDone(said) {
+            // A card did open, and the reply already calls it done: it isn't until the user taps it.
+            cont.yield(.text("\n\n" + Self.cardNotDone))
+        }
         cont.yield(.steps(steps))
+        for c in cards { cont.yield(.block(.card(c))) }
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
+    }
+
+    /// What the reply says when the model ran out of rounds after a card opened.
+    static let cardWaiting = "The card is below. Nothing happens until you tap it."
+
+    /// Appended when a card opened and the reply already says its work is done.
+    static let cardNotDone = "To be clear: that isn't done yet. It happens when you tap the card below."
+
+    /// Appended when the reply says a contact, automation, reminder or cancel is done while no card opened.
+    static let noCard = "Nothing is waiting for your confirmation yet. Ask me again and the card will open."
+
+    /// The user's message is about something a card confirms: a contact, an automation, a payment reminder, a cancel.
+    static func asksCardAction(_ text: String) -> Bool {
+        text.lowercased().range(of: #"\b(contacts?|payees?|automations?|automate|remind\w*|schedul\w*|recurring|cancel\w*|every (day|week|month|morning|evening|hour))\b"#,
+                                options: .regularExpression) != nil
+    }
+
+    /// "I've saved Alice", "the automation is created", "your reminder is scheduled", "the stop loss is cancelled": a
+    /// claim that a card's work is done. The model never sees the tap, so it can't know. Denials and conditionals
+    /// ("once you tap Save it is saved", "nothing is scheduled yet") are not claims.
+    public static func claimsCardDone(_ text: String) -> Bool {
+        let done = "(saved|added|created|scheduled|cancelled|canceled|set up)"
+        let patterns = [#"\bi(['’]ve| have)? (just |now |already )?"# + done + #"\b"#,
+                        #"\b(is|are|was|were|been|it['’]s) (now |already )?"# + done + #"\b"#,
+                        #"\bsuccessfully "# + done + #"\b"#]
+        let sentences = text.lowercased().components(separatedBy: CharacterSet(charactersIn: ".!?\n")).filter {
+            $0.range(of: #"\b(nothing|not|no|never|once|after|when|if|until|unless|will|would|can|waiting|tap|card|button|below|draft\w*)\b|n['’]t\b"#, options: .regularExpression) == nil
+        }
+        return sentences.contains { s in patterns.contains { s.range(of: $0, options: .regularExpression) != nil } }
     }
 
     /// Adds a button unless the very same one is there. Two different reviews can share a title ("Review send" to two
@@ -458,7 +586,7 @@ public actor ToolChat {
     static let notPrepared = "Nothing is waiting for your approval yet. Ask me to prepare it and the review will open."
 
     static func opened(_ content: String) -> Bool {
-        content.contains("review_opened") || content.contains("prepared_for_review")
+        content.contains("review_opened") || content.contains("prepared_for_review") || content.contains("card_opened")
     }
 
     /// "the sends went through", "your swap is done", "has been sent": a claim that money moved. Bare passives ("was

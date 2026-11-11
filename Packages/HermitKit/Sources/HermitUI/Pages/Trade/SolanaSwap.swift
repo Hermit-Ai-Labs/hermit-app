@@ -33,6 +33,9 @@ final class JupiterTokens {
         let icon: String?
         let verified: Bool
         let row: Row?
+        /// What Jupiter's audit says about it, also for a token with no price (which has no row). Chat's token search and
+        /// buy read it.
+        var check: TokenCheck? = nil
     }
 
     nonisolated static let notSpot: Set<String> = ["stocks", "xstocks", "rwa", "ondo", "prestocks", "pre-ipo", "lst", "jup-lend-earn", "stable", "yb",
@@ -105,7 +108,7 @@ final class JupiterTokens {
             var r = row(t, minLiquidity: 0)
             r?.check = check
             return Found(id: id, symbol: sym, name: t["name"] as? String ?? sym, decimals: dec, icon: t["icon"] as? String,
-                         verified: check.verified, row: r)
+                         verified: check.verified, row: r, check: check)
         }
     }
 

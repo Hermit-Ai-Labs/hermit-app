@@ -48,7 +48,11 @@ public struct HermitToolbox: AgentToolbox {
                 let hl = (args["goal"] as? String) == "hyperliquid"
                 return ToolOutcome(content: #"{"status":"button_shown","screen":"add_funds","goal":"\#(hl ? "hyperliquid" : "wallet")","note":"The user taps it to open Add funds."}"#,
                                    action: Action(hl ? "Add funds to Hyperliquid" : "Add funds", primary: true, symbol: "plus.circle", open: hl ? "fund-hyperliquid" : "fund-wallet"))
-            default: return json(["error": "Unknown tool \(name)"])
+            default:
+                // The v3 tools (HermitToolbox+V3*.swift): buys, sells, closes and stops, positions and portfolio, token
+                // search, addresses and contacts, pages, automations and payment reminders.
+                if let out = try await Self.runV3(name, args, label: label) { return out }
+                return json(["error": "Unknown tool \(name)"])
             }
         } catch {
             return json(["error": Self.message(error)])
@@ -150,7 +154,7 @@ public struct HermitToolbox: AgentToolbox {
             if let token = thousandOf(c.coin) {
                 // kPEPE trades per 1,000 PEPE: one token is the mark / 1,000.
                 return ["symbol": token, "price": c.mark / 1000, "change_24h_pct": change, "market": c.coin, "contract_price": c.mark,
-                        "source": "Hyperliquid mark price of \(c.coin), one contract = 1,000 \(token)"]
+                        "source": "Hyperliquid mark price (per token; the market is \(c.coin), 1,000 \(token))"]
             }
             return ["symbol": c.coin, "price": c.mark, "change_24h_pct": change, "source": "Hyperliquid mark price"]
         }
@@ -225,9 +229,18 @@ public struct HermitToolbox: AgentToolbox {
                      "liquidation": p.liquidation.map { $0 as Any } ?? NSNull(), "unrealised_pnl": p.pnl, "leverage": p.leverage]
                 },
                 "open_orders": a.orders.map { o -> [String: Any] in
-                    ["coin": o.coin, "side": o.isBuy ? "buy" : "sell", "price": o.price, "size": o.size, "order_type": o.orderType,
-                     "is_trigger": o.isTrigger, "trigger_price": o.triggerPx, "trigger_condition": o.triggerCondition,
-                     "whole_position": o.isPositionTpsl || o.size == 0]
+                    // A plain order: its limit price and size. A take profit or stop loss: the price it triggers at (its
+                    // limit price is only a slippage cap) and, when it covers the whole position, that position's size.
+                    guard o.isTrigger else {
+                        return ["coin": o.coin, "side": o.isBuy ? "buy" : "sell", "price": o.price, "size": o.size, "order_type": o.orderType, "is_trigger": false]
+                    }
+                    let whole = o.isPositionTpsl || o.size == 0
+                    let held = a.positions.first { $0.coin == o.coin }.map { abs($0.size) }
+                    var row: [String: Any] = ["coin": o.coin, "side": o.isBuy ? "buy" : "sell", "price": o.triggerPx > 0 ? o.triggerPx : o.price,
+                                              "size": whole ? (held ?? o.size) : o.size, "order_type": o.orderType, "is_trigger": true,
+                                              "trigger_condition": o.triggerCondition]
+                    if whole { row["whole_position"] = true }
+                    return row
                 },
                 "account_mode": a.mode]
     }

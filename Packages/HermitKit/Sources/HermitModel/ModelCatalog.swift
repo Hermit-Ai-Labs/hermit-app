@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 
 /// One model Hermit can run on this device.
 public struct ModelSpec: Identifiable, Hashable, Sendable {
@@ -17,11 +18,15 @@ public struct ModelSpec: Identifiable, Hashable, Sendable {
     public let minMemoryGB: Int
     /// False when the MLX library can't run this architecture yet: listed as "Coming soon".
     public let supported: Bool
+    /// The tool set the model was trained on, which decides its prompt. `.v2` (Hermit 1.2, Hermit 1.1 Lite, and any
+    /// model not marked otherwise) keeps today's system prompt and tool lines byte for byte. Only a model trained on
+    /// the 30 tools with packs is marked `.v3`.
+    public let toolSet: HermitPrompt.ToolSet
 
     public init(id: String, revision: String = "main", name: String, detail: String, approxBytes: Int64, minMemoryGB: Int,
-                supported: Bool = true) {
+                supported: Bool = true, toolSet: HermitPrompt.ToolSet = .v2) {
         self.id = id; self.revision = revision; self.name = name; self.detail = detail; self.approxBytes = approxBytes
-        self.minMemoryGB = minMemoryGB; self.supported = supported
+        self.minMemoryGB = minMemoryGB; self.supported = supported; self.toolSet = toolSet
     }
 
     /// The release's exact files and hashes, when they're built into the app.
@@ -38,6 +43,8 @@ public enum ModelCatalog {
     public static var defaultID: String { deviceMemoryGB >= 7 ? fullID : liteID }
 
     public static let all: [ModelSpec] = [
+        // Both are `toolSet: .v2` (the default). The Hermit 1.3 specs, trained on the v3 tools, are added after training
+        // with `toolSet: .v3`.
         // Hermit 1.2 rev b (get_quote + restraint), HF main as of 2026-11-09.
         ModelSpec(id: fullID, revision: "6183aaf929d66dc50f4b7c547d140fca57be54e6", name: "Hermit 1.2",
                   detail: "Hermit's full model, trained on its trading tools. Private, offline.", approxBytes: 2_270_000_000, minMemoryGB: 7),

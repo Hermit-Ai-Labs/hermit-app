@@ -183,12 +183,32 @@ final class HermitCloudTests: XCTestCase {
         XCTAssertFalse(models.contains { $0.id.contains("abliterated") })
     }
 
-    func testToolSchemaIsHermits() {
-        XCTAssertEqual(Set(CloudTools.names), ["calculator", "get_price", "get_balances", "hyperliquid_account", "position_math", "search_markets",
-                                              "get_yields", "prepare_trade", "prepare_swap", "prepare_send", "open_add_funds", "get_quote",
-                                              "prepare_multisend", "prepare_deposit", "prepare_withdraw"])
-        // The on-device prompt lists the same tools.
-        XCTAssertEqual(Set(CloudTools.names), Set(HermitPrompt.names(HermitPrompt.toolLines)))
+    /// Private Cloud sends all 30 tools of the v3 registry (hermit-lab/train/spec/hermit_tools_v3.json): the same names in
+    /// the same order as the on-device v3 lines, and the lab's file byte for byte.
+    func testToolSchemaIsHermits() throws {
+        XCTAssertEqual(CloudTools.names.count, 30)
+        XCTAssertEqual(CloudTools.names, ToolPacks.allNames)
+        XCTAssertEqual(CloudTools.schemaData, try fixture("hermit_tools_v3", "json"))
+        // Every tool today's on-device model has is still there, so nothing it can do is lost in Private Cloud.
+        XCTAssertTrue(Set(HermitPrompt.names(HermitPrompt.toolLines)).isSubset(of: Set(CloudTools.names)))
+        // Money tools and card tools are all in the list, and every one of them is known to the guard.
+        for name in CloudTools.names where name.hasPrefix("prepare_") { XCTAssertTrue(ToolGuard.moneyTools.contains(name), name) }
+        XCTAssertTrue(ToolGuard.moneyTools.union(ToolGuard.cardTools).isSubset(of: Set(CloudTools.names)))
+    }
+
+    /// The system prompt is the v3 cloud prompt as shipped, then where this session runs, then the name and the notes.
+    func testCloudPromptIsV3() {
+        let p = NearCloudAgent.systemPrompt(name: "Maya", memory: ["Keep answers very short."])
+        XCTAssertTrue(p.hasPrefix("You are Hermit, the assistant inside a self-custody crypto wallet app"), String(p.prefix(80)))
+        XCTAssertGreaterThan(NearCloudAgent.baseSystemPrompt.count, 40_000, "the bundled prompt was read")
+        // It explains every tool it is given.
+        for tool in CloudTools.names { XCTAssertTrue(p.contains("**\(tool)**"), tool) }
+        XCTAssertTrue(p.contains("Never claim money moved."))
+        XCTAssertTrue(p.contains("This session is Hermit's Private Cloud"))
+        XCTAssertTrue(p.hasSuffix("The user wants to be called Maya.\nThe user's standing notes (hermit.md). Follow them:\n- Keep answers very short."))
+        // On a Mac the same text reads Touch ID throughout.
+        XCTAssertEqual(NearCloudAgent.deviceText("with Face ID (Touch ID on a Mac), or Face ID.", bio: "Touch ID"), "with Touch ID, or Touch ID.")
+        XCTAssertEqual(NearCloudAgent.deviceText("with Face ID (Touch ID on a Mac).", bio: "Face ID"), "with Face ID (Touch ID on a Mac).")
     }
 
     func testProofHeadline() throws {

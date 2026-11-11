@@ -99,10 +99,14 @@ public final class WalletTools {
                 rows.append(row)
             }
         }
-        var out: [String: Any] = ["holdings": rows, "wallet": w.name]
-        // Only the selected wallet is read, while the Wallets page totals every wallet: say so, so the two aren't mixed up.
-        let count = service.wallets.count
-        if count > 1 { out["note"] = "These are the holdings of the selected wallet, \(w.name), only. The user has \(count) wallets, and the Wallets page total covers all of them." }
+        var out: [String: Any] = ["holdings": rows]
+        // Only the selected wallet is read, while the Wallets page totals every wallet: with more than one wallet, say
+        // which one this is and name the others, so the two aren't mixed up (the shape the model is trained on).
+        let others = service.wallets.filter { $0.id != w.id }.map(\.name)
+        if !others.isEmpty {
+            out["wallet"] = w.name
+            out["note"] = "Showing the selected wallet (\(w.name)). Other wallets: \(others.joined(separator: ", "))."
+        }
         if w.nearAccount == nil { out["near"] = "No NEAR account on this wallet yet; the user can add one in Wallets." }
         else { out["near_account"] = w.nearAccount! }
         if !r.failed.isEmpty { out["unreachable"] = r.failed.map(\.id) }
