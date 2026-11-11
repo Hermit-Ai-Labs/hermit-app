@@ -52,4 +52,5 @@ They all run on a Mac. The release ones need our signing setup.
 - `bash scripts/agent-check.sh` runs the on-device tool loop against a real model folder, outside the app.
 - `zsh scripts/mac-shots.sh` and `zsh scripts/phone-shots.sh` take screenshots of every screen from Debug builds.
 
-The README's diagram, `docs/architecture.png`, is drawn from [architecture.mmd](architecture.mmd).
+The README's figures are in `docs/img/`. Each one is drawn from `docs/img/src/<name>/figure.html`, and
+`PW=<path to the playwright module> node docs/img/src/render.cjs` renders them all, light and dark.
