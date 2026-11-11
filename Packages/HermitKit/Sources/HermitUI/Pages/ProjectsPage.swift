@@ -62,7 +62,7 @@ struct ProjectTile: View {
                     Text(project.desc).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(chats == 1 ? "1 chat" : "\(chats) chats").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text(chats == 1 ? "1 chat" : "\(chats) chats").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
             .padding(16).frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
             .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radius))
@@ -90,6 +90,8 @@ struct ProjectDetail: View {
     @State private var tab = "chats"
     @State private var renaming = false
     @State private var deleting = false
+    /// A chat waiting for "Delete this chat?" to be answered.
+    @State private var confirmDelete: Conversation?
 
     var body: some View {
         ScrollPage(maxWidth: 760) {
@@ -149,9 +151,16 @@ struct ProjectDetail: View {
             }
             ForEach(list) { c in
                 ListButton(symbol: "bubble.left", title: c.title, subtitle: c.when) { model.openConversation(c.id) }
-                    .contextMenu { Button("Delete", systemImage: "trash", role: .destructive) { model.deleteConversation(c.id) } }
+                    .contextMenu { Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = c } }
                 Divider().overlay(Theme.border)
             }
+        }
+        .confirmationDialog("Delete this chat?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+                            titleVisibility: .visible, presenting: confirmDelete) { c in
+            Button("Delete", role: .destructive) { model.deleteConversation(c.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { c in
+            Text("\"\(c.title)\" and its messages are removed from this device.")
         }
     }
 }
@@ -270,7 +279,7 @@ struct ProjectInstructions: View {
             HStack(spacing: 6) {
                 Image(systemName: "doc.plaintext").font(.system(size: 13))
                 Text("Instructions").font(.system(size: 14, weight: .medium))
-                Text("project.md").font(Theme.mono).foregroundStyle(Theme.faint)
+                Text("project.md").font(Theme.mono).foregroundStyle(Theme.hint)
                 Spacer()
                 Button(editing ? "Close" : "Edit") {
                     if !editing { text = saved }
@@ -296,7 +305,7 @@ struct ProjectInstructions: View {
                 }
             } else if model.projectMD[project.name] == nil {
                 Text("No instructions yet. Add the goal, rules to follow and how Hermit should reply in this project.")
-                    .font(.system(size: 13.5)).foregroundStyle(Theme.faint).lineSpacing(6)
+                    .font(.system(size: 13.5)).foregroundStyle(Theme.hint).lineSpacing(6)
             } else {
                 Text(saved.replacingOccurrences(of: #"(?m)^#+ .*\n+"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines))
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).lineSpacing(6)
@@ -330,7 +339,7 @@ struct NewProjectSheet: View {
                     }
                 }
             }
-            Text("The project gets its own chats, files and instructions.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Text("The project gets its own chats, files and instructions.").font(.system(size: 12)).foregroundStyle(Theme.hint)
         } foot: {
             Button("Create", action: create).buttonStyle(SheetButton(primary: true))
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || taken)
@@ -341,7 +350,7 @@ struct NewProjectSheet: View {
     private func field(_ label: String, _ prompt: String, _ text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-            TextField(text: text, prompt: Text(prompt).foregroundStyle(Theme.faint)) { Text(label) }.textFieldStyle(.plain).font(.system(size: 14))
+            TextField(text: text, prompt: Text(prompt).foregroundStyle(Theme.hint)) { Text(label) }.textFieldStyle(.plain).font(.system(size: 14))
                 .padding(12).background(Theme.bg, in: RoundedRectangle(cornerRadius: 11))
                 .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
                 .onSubmit(create)

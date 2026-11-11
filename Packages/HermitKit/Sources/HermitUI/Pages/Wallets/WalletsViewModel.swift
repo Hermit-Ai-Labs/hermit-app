@@ -42,6 +42,7 @@ final class WalletsViewModel {
         didSet { UserDefaults.standard.set(whitelistOnly, forKey: "hermit.wallet.whitelistOnly") }
     }
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var needsAgain = false
 
     init(service: WalletService) {
         self.service = service
@@ -68,6 +69,8 @@ final class WalletsViewModel {
     struct SendPrefill {
         var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil
         var onSent: (@MainActor (_ to: String, _ amount: String, _ token: String) -> Void)? = nil
+        /// When it was set. Send ignores one older than a minute, so a stale payee never fills a later Send.
+        var made = Date()
     }
     @ObservationIgnored var sendPrefill: SendPrefill?
     /// A swap the assistant prepared (WalletTools.prepare_swap), waiting for Wallets to open its review.
@@ -110,9 +113,16 @@ final class WalletsViewModel {
     }
 
     /// Reloads balances for every wallet on every network, plus prices. Safe to call often: runs one at a time.
+    /// A call that lands while a load is running gets one more pass after it, so a send or a new wallet made
+    /// mid-load still shows (the running pass read wallets and balances before it).
     func refresh() async {
-        if let t = refreshTask { await t.value; return }
-        let t = Task { await load() }
+        if let t = refreshTask { needsAgain = true; await t.value; return }
+        let t = Task {
+            repeat {
+                needsAgain = false
+                await load()
+            } while needsAgain
+        }
         refreshTask = t
         await t.value
         refreshTask = nil
@@ -279,8 +289,22 @@ final class WalletsViewModel {
         let native = token.caseInsensitiveCompare(chain.nativeSymbol) == .orderedSame
         let tok: Token? = native ? nil : chain.token(token)
         guard native || tok != nil else { throw WalletError.unknownToken }
-        let value = try Units.parse(amount, decimals: tok?.decimals ?? chain.nativeDecimals)
-        return try await service.prepareSend(walletID: u, chain: chain, to: to.trimmingCharacters(in: .whitespacesAndNewlines), value: value, token: tok)
+        // Sheets pass text AmountText already cleaned; the assistant writes English numbers. Either way a comma never
+        // just disappears ("1,5" is refused, not read as 15).
+        guard let typed = AmountText.normalize(amount, decimalSeparator: "."), !typed.isEmpty else { throw WalletError.invalidAmount(amount) }
+        let value = try Units.parse(typed, decimals: tok?.decimals ?? chain.nativeDecimals)
+        let dest = to.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Whitelist only covers every send, the assistant's included, not just the Send sheet.
+        if let reason = whitelistBlock(dest) { throw WalletError.blocked(reason) }
+        return try await service.prepareSend(walletID: u, chain: chain, to: dest, value: value, token: tok)
+    }
+
+    /// Why Whitelist only stops a send to this address, or nil when it may go: your own wallets, and saved addresses
+    /// past their 24-hour hold.
+    func whitelistBlock(_ address: String) -> String? {
+        guard whitelistOnly, ownWallet(for: address) == nil else { return nil }
+        guard let s = saved(address) else { return "Whitelist only is on and this address isn't saved. Save it first, or turn off Whitelist only." }
+        return s.hold ? "\(s.label) unlocks 24 hours after it was saved. Whitelist only is on." : nil
     }
 
     /// The approval sheet for a prepared send. Approve unlocks the key (Touch ID / Face ID), signs, sends and waits.
@@ -292,10 +316,12 @@ final class WalletsViewModel {
         var lines = p.lines
         lines.insert(["From", from], at: 0)
         if let own, let i = lines.firstIndex(where: { $0.first == "To" }) { lines[i] = ["To", "\(own.name) (\(shortAddr(p.recipient)))"] }
-        let checks = p.checks.map { $0.status == .warn ? "\($0.title): \($0.detail)" : $0.title }
+        // Only passed checks get a tick; a warning shows as a warning above Approve, never as a passed check.
+        let checks = p.checks.filter { $0.status == .pass }.map(\.title)
+        let warnings = p.checks.filter { $0.status == .warn }.map { "\($0.title): \($0.detail)" }
         return Approval(kind: own != nil ? "Transfer between your wallets" : "Send on \(p.chain.name)",
                         title: "Send \(p.amountText) \(p.symbol)", lines: lines, checks: checks,
-                        success: "Sent \(p.amountText) \(p.symbol)",
+                        success: "Sent \(p.amountText) \(p.symbol)", warnings: warnings,
                         perform: {
                             let r = try await svc.execute(p)
                             await vm.afterSend()
@@ -309,11 +335,60 @@ final class WalletsViewModel {
     }
 }
 
-/// Turns a typed amount into the exact decimal string the engine parses ("1,000.50" -> "1000.50").
+/// Turns a typed amount into the exact decimal string the engine parses ("1,000.50" -> "1000.50", and "1,5" -> "1.5"
+/// where the region writes a comma for decimals). A comma is never just dropped, so a number can't grow ten or a
+/// thousand times: it is the decimal mark where the region says so, a thousands mark only in a clear "1,234" shape,
+/// and anything else is refused.
 enum AmountText {
-    static func clean(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
+    /// ASCII digits and at most one ".", "" for blank text, or nil when the text isn't a clear amount.
+    /// `decimalSeparator` is the region's decimal mark ("," in France, Germany, Brazil; "." in the US).
+    static func normalize(_ raw: String, decimalSeparator: String? = Locale.current.decimalSeparator) -> String? {
+        var s = ""
+        for ch in raw {
+            if ch.isWhitespace { continue }
+            if ch == "." || ch == "," || (ch.isASCII && ch.isNumber) { s.append(ch); continue }
+            // Digits from an Arabic or Devanagari keyboard.
+            if let d = ch.wholeNumberValue, ch.unicodeScalars.count == 1,
+               ch.unicodeScalars.first?.properties.numericType == .decimal { s += String(d); continue }
+            return nil
+        }
+        if s.isEmpty { return "" }
+        let commaIsDecimal = decimalSeparator == ","
+        let commas = s.filter { $0 == "," }.count, dots = s.filter { $0 == "." }.count
+        var decimal: Character?, group: Character?
+        if commas == 0 && dots == 0 {
+            return s
+        } else if commas > 0 && dots > 0 {
+            // Both: the last one is the decimal mark ("1,234.56", "1.234,56"), the other only groups thousands.
+            guard let c = s.lastIndex(of: ","), let d = s.lastIndex(of: ".") else { return nil }
+            decimal = c > d ? "," : "."
+            group = c > d ? "." : ","
+        } else if dots > 0 {
+            // A lone "." is a decimal point (the app writes amounts that way too). Repeated, it can only group
+            // thousands, and only where the region groups with "." ("1.000.000" in Germany).
+            if dots == 1 { decimal = "." } else if commaIsDecimal { group = "." } else { return nil }
+        } else {
+            // A lone "," is the decimal mark where the region says so. Otherwise it must group thousands, which the
+            // shape check below enforces: "1,000" is a thousand, "1,5" is refused.
+            if commas == 1 && commaIsDecimal { decimal = "," } else if !commaIsDecimal { group = "," } else { return nil }
+        }
+        var whole = Substring(s), frac: Substring?
+        if let decimal {
+            let parts = s.split(separator: decimal, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            whole = parts[0]; frac = parts[1]
+        }
+        if let group {
+            let groups = whole.split(separator: group, omittingEmptySubsequences: false)
+            guard groups.count >= 2, (1...3).contains(groups[0].count), groups[0].first != "0",
+                  groups.dropFirst().allSatisfy({ $0.count == 3 }) else { return nil }
+            whole = Substring(groups.joined())
+        }
+        return frac.map { "\(whole).\($0)" } ?? String(whole)
     }
-    /// Strict, like Trade's: digits, one dot, commas. "inf", "nan", "1e3" and "0x10" are nil (Double() takes some of them).
-    static func value(_ s: String) -> Double? { TradeAmount.value(s) }
+
+    /// What the engine parses: "" (which it rejects) when the text isn't a clear amount.
+    static func clean(_ s: String) -> String { normalize(s) ?? "" }
+    /// Strict, like Trade's: "inf", "nan", "1e3", "0x10" and unclear commas are nil (Double() takes some of them).
+    static func value(_ s: String) -> Double? { normalize(s).flatMap { TradeAmount.value($0) } }
 }

@@ -95,7 +95,7 @@ struct ConnectorsPage: View {
             Text("MCP servers").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 22).padding(.bottom, 4)
             // The assistant has no MCP tools yet (HermitToolbox only runs Hermit's own), so say so instead of implying it.
             Text("Coming soon: Hermit using these tools in chat. For now you run a tool yourself from its server.")
-                .font(.system(size: 12.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true).padding(.bottom, 6)
+                .font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true).padding(.bottom, 6)
             if store.servers.isEmpty {
                 Button { sheet = .addMCP } label: {
                     HStack(spacing: 12) {
@@ -182,7 +182,7 @@ struct ConnectorsPage: View {
     private func soon(_ title: String) -> some View {
         VStack(alignment: .trailing, spacing: 3) {
             Button(title) {}.buttonStyle(OutlineButton()).comingSoon()
-            Text("Coming soon").font(.system(size: 11)).foregroundStyle(Theme.faint)
+            Text("Coming soon").font(.system(size: 11)).foregroundStyle(Theme.hint)
         }
     }
 

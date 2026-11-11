@@ -47,6 +47,9 @@ public struct RootView: View {
         .environment(\.compact, compact)
         .foregroundStyle(Theme.text)
         .environment(\.colorScheme, .light)
+        // Text that follows Dynamic Type (`uiFont`, `Font.serif`) grows up to the first accessibility size, where
+        // cards and rows still hold their layout.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .tint(Theme.accent)
         .focusedSceneValue(\.hermitModel, model)
         .overlay(alignment: .bottom) { ToastHost(place: .page, bottom: compact ? 96 : 28) }

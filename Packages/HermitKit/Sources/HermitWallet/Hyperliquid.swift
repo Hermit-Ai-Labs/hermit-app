@@ -65,11 +65,22 @@ public enum Hyperliquid {
         public let leverage: Int
         public let liquidation: Double?
         public let margin: Double
+        /// Cross margin (false: isolated).
+        public var cross: Bool = true
     }
 
     public struct OpenOrder: Sendable, Hashable, Identifiable {
         public var id: Int { oid }
         public let coin: String, oid: Int, isBuy: Bool, price: Double, size: Double, reduceOnly: Bool, time: Date
+        /// "Limit", "Stop Market", "Take Profit Market", … as Hyperliquid names it.
+        public var orderType: String = "Limit"
+        /// A take-profit or stop-loss: it waits for `triggerPx`, and `price` is only its slippage cap.
+        public var isTrigger: Bool = false
+        public var triggerPx: Double = 0
+        /// "Price above 74100", as Hyperliquid words it.
+        public var triggerCondition: String = ""
+        /// Attached to the whole position (size 0 means all of it).
+        public var isPositionTpsl: Bool = false
     }
 
     public struct Account: Sendable, Hashable {
@@ -79,6 +90,11 @@ public enum Hyperliquid {
         public var positions: [Position] = []
         public var orders: [OpenOrder] = []
         public var spotUSDC: Double = 0
+        /// userAbstraction: "default", "disabled", "unifiedAccount", "portfolioMargin", …
+        public var mode: String = "default"
+        /// Unified and portfolio-margin accounts keep every balance in the spot clearinghouse; their per-dex states don't
+        /// hold the USDC.
+        public var isUnified: Bool { mode == "unifiedAccount" || mode == "portfolioMargin" }
     }
 
     /// Margin, positions and open orders for an address, across the main dex and trade.xyz.
@@ -88,29 +104,52 @@ public enum Hyperliquid {
         async let orders = info(["type": "frontendOpenOrders", "user": user])
         async let xyzOrders = try? info(["type": "frontendOpenOrders", "user": user, "dex": "xyz"])
         async let spot = try? info(["type": "spotClearinghouseState", "user": user])
+        async let abstraction = try? info(["type": "userAbstraction", "user": user])
+        let states = [try await main, await xyz].compactMap { $0 as? [String: Any] }
+        let orderLists = [try await orders, await xyzOrders].compactMap { $0 as? [[String: Any]] }
+        return account(states: states, orders: orderLists, spot: await spot as? [String: Any], mode: await abstraction as? String)
+    }
+
+    /// Builds the account from the info answers. For a unified or portfolio-margin account the USDC is read from the
+    /// spot state: available is `tokenToAvailableAfterMaintenance` for USDC (token 0), else total minus hold; value is
+    /// that total plus the positions' unrealized PnL. Otherwise each dex's withdrawable and account value add up.
+    static func account(states: [[String: Any]], orders orderLists: [[[String: Any]]], spot: [String: Any]?, mode: String?) -> Account {
         var a = Account()
-        for state in [try await main, await xyz].compactMap({ $0 as? [String: Any] }) {
+        a.mode = mode ?? "default"
+        for state in states {
             let ms = state["marginSummary"] as? [String: Any]
             a.accountValue += num(ms?["accountValue"]); a.marginUsed += num(ms?["totalMarginUsed"])
             a.withdrawable += num(state["withdrawable"])
             for p in (state["assetPositions"] as? [[String: Any]]) ?? [] {
                 guard let pos = p["position"] as? [String: Any], let coin = pos["coin"] as? String else { continue }
-                let lev = (pos["leverage"] as? [String: Any])?["value"] as? Int ?? 1
+                let lev = pos["leverage"] as? [String: Any]
                 a.positions.append(Position(coin: coin, size: num(pos["szi"]), entry: num(pos["entryPx"]), value: num(pos["positionValue"]),
-                                            pnl: num(pos["unrealizedPnl"]), roe: num(pos["returnOnEquity"]), leverage: lev,
-                                            liquidation: (pos["liquidationPx"] as? String).flatMap(Double.init), margin: num(pos["marginUsed"])))
+                                            pnl: num(pos["unrealizedPnl"]), roe: num(pos["returnOnEquity"]), leverage: lev?["value"] as? Int ?? 1,
+                                            liquidation: (pos["liquidationPx"] as? String).flatMap(Double.init), margin: num(pos["marginUsed"]),
+                                            cross: (lev?["type"] as? String) != "isolated"))
             }
         }
-        for list in [try await orders, await xyzOrders].compactMap({ $0 as? [[String: Any]] }) {
+        for list in orderLists {
             for o in list {
                 guard let coin = o["coin"] as? String, let oid = o["oid"] as? Int else { continue }
                 a.orders.append(OpenOrder(coin: coin, oid: oid, isBuy: (o["side"] as? String) == "B", price: num(o["limitPx"]), size: num(o["sz"]),
                                           reduceOnly: o["reduceOnly"] as? Bool ?? false,
-                                          time: Date(timeIntervalSince1970: num(o["timestamp"]) / 1000)))
+                                          time: Date(timeIntervalSince1970: num(o["timestamp"]) / 1000),
+                                          orderType: o["orderType"] as? String ?? "Limit", isTrigger: o["isTrigger"] as? Bool ?? false,
+                                          triggerPx: num(o["triggerPx"]), triggerCondition: o["triggerCondition"] as? String ?? "",
+                                          isPositionTpsl: o["isPositionTpsl"] as? Bool ?? false))
             }
         }
-        if let s = await spot as? [String: Any], let b = s["balances"] as? [[String: Any]] {
-            a.spotUSDC = b.first { $0["coin"] as? String == "USDC" }.map { num($0["total"]) } ?? 0
+        var hold = 0.0
+        if let b = spot?["balances"] as? [[String: Any]], let usdc = b.first(where: { $0["coin"] as? String == "USDC" }) {
+            a.spotUSDC = num(usdc["total"]); hold = num(usdc["hold"])
+        }
+        if a.isUnified {
+            // [[0, "824.33"]]: token index, then the amount free after maintenance margin.
+            let free = (spot?["tokenToAvailableAfterMaintenance"] as? [[Any]])?
+                .first { ($0.first as? Int) == 0 && $0.count > 1 }.map { num($0[1]) }
+            a.withdrawable = free ?? max(0, a.spotUSDC - hold)
+            a.accountValue = a.spotUSDC + a.positions.reduce(0) { $0 + $1.pnl }
         }
         return a
     }
@@ -136,14 +175,31 @@ public enum Hyperliquid {
         }
     }
 
+    /// A take profit or stop loss sent with an order, and Hyperliquid's answer for it (nil error: it is waiting to trigger).
+    public struct Protection: Sendable, Hashable {
+        public let kind: String           // "Take profit", "Stop loss"
+        public let error: String?
+        public init(kind: String, error: String?) { self.kind = kind; self.error = error }
+    }
+
     public enum OrderResult: Sendable, Hashable {
-        case resting(oid: Int)
-        case filled(oid: Int, size: Double, avgPrice: Double)
+        case resting(oid: Int, protection: [Protection] = [])
+        case filled(oid: Int, size: Double, avgPrice: Double, protection: [Protection] = [])
+        public var protection: [Protection] {
+            switch self { case .resting(_, let p), .filled(_, _, _, let p): p }
+        }
+        /// Take profit or stop loss that Hyperliquid refused.
+        public var protectionFailed: Bool { protection.contains { $0.error != nil } }
         public var summary: String {
-            switch self {
+            let head: String = switch self {
             case .resting: "Order placed"
-            case .filled(_, let s, let p): "Filled \(trimNumber(s)) at $\(trimNumber(p))"
+            case .filled(_, let s, let p, _): "Filled \(trimNumber(s)) at $\(trimNumber(p))"
             }
+            let set = protection.filter { $0.error == nil }.map(\.kind), failed = protection.filter { $0.error != nil }
+            var parts = [head]
+            if !set.isEmpty { parts.append("\(set.joined(separator: " and ")) set") }
+            parts += failed.map { "\($0.kind) not set: \($0.error ?? "")" }
+            return parts.joined(separator: ". ")
         }
     }
 
@@ -258,43 +314,79 @@ public struct HyperliquidTrader: Sendable {
 
     public init(vault: KeyVault, wallet: WalletRecord) { self.vault = vault; self.wallet = wallet }
 
-    public func place(_ o: Hyperliquid.Order, leverage: Int?, cross: Bool = true) async throws -> Hyperliquid.OrderResult {
-        if let leverage {
-            _ = try await send(Hyperliquid.leverageAction(asset: o.asset, leverage: leverage, cross: cross && !o.asset.onlyIsolated),
-                               reason: "Set \(o.asset.coin) leverage to \(leverage)x")
-        }
+    /// Places an order, setting the asset's leverage first when `leverage` is given. Both are signed after one Face ID /
+    /// Touch ID. `current` is the open position in this coin, if any: when it already has this leverage and margin mode,
+    /// the leverage change is skipped.
+    public func place(_ o: Hyperliquid.Order, leverage: Int?, cross: Bool = true, current: Hyperliquid.Position? = nil) async throws -> Hyperliquid.OrderResult {
+        let isCross = cross && !o.asset.onlyIsolated
         let side = o.isBuy ? "Long" : "Short"
-        let r = try await send(Hyperliquid.orderAction(o), reason: "\(o.reduceOnly ? "Close" : side) \(Hyperliquid.wire(o.size)) \(o.asset.coin) on Hyperliquid")
+        var reason = "\(o.reduceOnly ? "Close" : side) \(Hyperliquid.wire(o.size)) \(o.asset.coin) on Hyperliquid"
+        var actions: [MsgPack] = []
+        if let leverage, !(current?.leverage == leverage && current?.cross == isCross) {
+            actions.append(Hyperliquid.leverageAction(asset: o.asset, leverage: leverage, cross: isCross))
+            reason += " at \(leverage)x"
+        }
+        actions.append(Hyperliquid.orderAction(o))
+        let replies = try await send(actions, reason: reason)
+        let r = replies.last ?? [:]
         guard let statuses = ((r["data"] as? [String: Any])?["statuses"]) as? [Any], let first = statuses.first else {
             throw WalletError.badResponse("Hyperliquid order")
         }
+        let protection = Self.protection(o, statuses: Array(statuses.dropFirst()))
         if let s = first as? [String: Any] {
             if let e = s["error"] as? String { throw WalletError.blocked(Self.plain(e)) }
             if let f = s["filled"] as? [String: Any] {
-                return .filled(oid: f["oid"] as? Int ?? 0, size: Hyperliquid.num(f["totalSz"]), avgPrice: Hyperliquid.num(f["avgPx"]))
+                return .filled(oid: f["oid"] as? Int ?? 0, size: Hyperliquid.num(f["totalSz"]), avgPrice: Hyperliquid.num(f["avgPx"]),
+                               protection: protection)
             }
-            if let rest = s["resting"] as? [String: Any] { return .resting(oid: rest["oid"] as? Int ?? 0) }
+            if let rest = s["resting"] as? [String: Any] { return .resting(oid: rest["oid"] as? Int ?? 0, protection: protection) }
         }
         throw WalletError.badResponse("Hyperliquid order")
     }
 
+    /// The take profit and stop loss answers, in the order they were sent (orderAction: take profit, then stop loss).
+    /// Only a resting order or a "waiting" answer counts as set; an error or a missing answer says why not.
+    static func protection(_ o: Hyperliquid.Order, statuses: [Any]) -> [Hyperliquid.Protection] {
+        let kinds: [String] = (o.takeProfit == nil ? [] : ["Take profit"]) + (o.stopLoss == nil ? [] : ["Stop loss"])
+        return kinds.indices.map { (i: Int) -> Hyperliquid.Protection in
+            let kind = kinds[i]
+            guard i < statuses.count else { return Hyperliquid.Protection(kind: kind, error: "Hyperliquid didn't confirm it") }
+            let st = statuses[i]
+            if let d = st as? [String: Any] {
+                if let e = d["error"] as? String { return Hyperliquid.Protection(kind: kind, error: plain(e)) }
+                if d["resting"] != nil { return Hyperliquid.Protection(kind: kind, error: nil) }
+            }
+            if let text = st as? String, text.lowercased().contains("waiting") { return Hyperliquid.Protection(kind: kind, error: nil) }
+            return Hyperliquid.Protection(kind: kind, error: "Hyperliquid didn't confirm it")
+        }
+    }
+
     public func cancel(assetID: Int, coin: String, oid: Int) async throws {
-        let r = try await send(Hyperliquid.cancelAction(assetID: assetID, oid: oid), reason: "Cancel \(coin) order")
+        let r = try await send([Hyperliquid.cancelAction(assetID: assetID, oid: oid)], reason: "Cancel \(coin) order").last ?? [:]
         if let st = ((r["data"] as? [String: Any])?["statuses"] as? [Any])?.first as? [String: Any], let e = st["error"] as? String {
             throw WalletError.blocked(Self.plain(e))
         }
     }
 
-    /// Signs an L1 action with the wallet's EVM key and posts it to /exchange. Returns `response`.
-    private func send(_ action: MsgPack, reason: String) async throws -> [String: Any] {
-        let nonce = UInt64(Date().timeIntervalSince1970 * 1000)
-        let digest = Hyperliquid.agentDigest(connectionID: Hyperliquid.actionHash(action, nonce: nonce))
-        let sig = try await vault.withKey(wallet.id, kind: .evm, reason: reason) { key in try Hyperliquid.signature(digest: digest, key: key) }
-        let body: [String: Any] = ["action": action.json, "nonce": nonce, "signature": sig, "vaultAddress": NSNull()]
-        let out = try await Hyperliquid.post("exchange", body)
-        guard let o = out as? [String: Any] else { throw WalletError.badResponse("Hyperliquid") }
-        if o["status"] as? String != "ok" { throw WalletError.blocked(Self.plain(o["response"] as? String ?? "Hyperliquid refused the order.")) }
-        return o["response"] as? [String: Any] ?? [:]
+    /// Signs L1 actions with the wallet's EVM key, all after one Face ID / Touch ID, then posts them to /exchange in
+    /// order (each needs the one before to succeed). Returns each `response`.
+    private func send(_ actions: [MsgPack], reason: String) async throws -> [[String: Any]] {
+        // Nonces must differ: one millisecond apart, in order.
+        let start = UInt64(Date().timeIntervalSince1970 * 1000)
+        let nonces = actions.indices.map { start + UInt64($0) }
+        let digests = zip(actions, nonces).map { Hyperliquid.agentDigest(connectionID: Hyperliquid.actionHash($0.0, nonce: $0.1)) }
+        let sigs = try await vault.withKey(wallet.id, kind: .evm, reason: reason) { key in
+            try digests.map { try Hyperliquid.signature(digest: $0, key: key) }
+        }
+        var replies: [[String: Any]] = []
+        for (i, action) in actions.enumerated() {
+            let body: [String: Any] = ["action": action.json, "nonce": nonces[i], "signature": sigs[i], "vaultAddress": NSNull()]
+            let out = try await Hyperliquid.post("exchange", body)
+            guard let o = out as? [String: Any] else { throw WalletError.badResponse("Hyperliquid") }
+            if o["status"] as? String != "ok" { throw WalletError.blocked(Self.plain(o["response"] as? String ?? "Hyperliquid refused the order.")) }
+            replies.append(o["response"] as? [String: Any] ?? [:])
+        }
+        return replies
     }
 
     /// Hyperliquid's errors, said plainly.

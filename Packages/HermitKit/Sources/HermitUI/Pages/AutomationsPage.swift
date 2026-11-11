@@ -54,7 +54,7 @@ struct AutomationsPage: View {
                 Divider().overlay(Theme.border)
             }
             Label("Automations run when you press Run now. Schedules are coming soon.", systemImage: "play")
-                .font(.system(size: 12)).foregroundStyle(Theme.faint).padding(.top, 14)
+                .font(.system(size: 12)).foregroundStyle(Theme.hint).padding(.top, 14)
         }
     }
 }
@@ -74,7 +74,7 @@ struct AutomationRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(automation.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(automation.plannedText).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Text(automation.last).font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text(automation.last).font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
             Spacer()
             Button("Run now") { model.runAutomation(automation.name) }.buttonStyle(OutlineButton())
@@ -291,7 +291,7 @@ struct AutomationThread: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(automation?.name ?? "New automation").font(.system(size: 15, weight: .semibold)).lineLimit(1)
                 if let a = automation {
-                    Text(a.plannedText).font(.system(size: 12)).foregroundStyle(Theme.faint).lineLimit(1)
+                    Text(a.plannedText).font(.system(size: 12)).foregroundStyle(Theme.hint).lineLimit(1)
                         .contentTransition(.opacity)
                 }
             }
@@ -363,7 +363,7 @@ struct AutomationThread: View {
                     TxLine(scheduled ? "Planned" : "When", d.trigger)
                     TxLine("Asks Hermit", d.prompt)
                     Text(d.note ?? (scheduled ? "Runs when you press Run now. Schedules are coming soon." : "It runs when you press Run now."))
-                        .font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
+                        .font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
                 }
             } foot: {
                 Button("Edit") { say(Message(role: .assistant, text: "Tell me what to change: the time or what to ask.", note: true), after: 300) }

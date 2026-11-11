@@ -89,7 +89,7 @@ struct LoginView: View {
             Text("What should Hermit call you?").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
                 .padding(.leading, 25)
             HStack(spacing: 8) {
-                TextField(text: $name, prompt: Text("Your name").foregroundStyle(Theme.faint)) { Text("Name") }
+                TextField(text: $name, prompt: Text("Your name").foregroundStyle(Theme.hint)) { Text("Name") }
                     .textFieldStyle(.plain).font(.system(size: 17)).foregroundStyle(Theme.text)
                     .focused($focused)
                     .autocorrectionDisabled()

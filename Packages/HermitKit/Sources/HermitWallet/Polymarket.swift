@@ -26,6 +26,8 @@ public enum Polymarket {
         public let ends: Date?
         public let negRisk: Bool
         public let image: URL?
+        /// The taker fee the CLOB expects in signed orders, in basis points (0 when the market has fees off).
+        public var feeRateBps: Int = 0
     }
 
     public struct Position: Sendable, Hashable, Identifiable {
@@ -58,7 +60,8 @@ public enum Polymarket {
             else { return nil }
             return Market(conditionID: cid, question: q, outcomes: outs, tokenIDs: toks, prices: px.count == 2 ? px : [0.5, 0.5],
                           volume24h: (m["volume24hr"] as? Double) ?? 0, ends: (m["endDate"] as? String).flatMap { iso.date(from: $0) },
-                          negRisk: m["negRisk"] as? Bool ?? false, image: (m["icon"] as? String).flatMap(URL.init))
+                          negRisk: m["negRisk"] as? Bool ?? false, image: (m["icon"] as? String).flatMap(URL.init),
+                          feeRateBps: m["feesEnabled"] as? Bool == true ? (m["takerBaseFee"] as? Int ?? 0) : 0)
         }
     }
 
@@ -70,6 +73,15 @@ public enum Polymarket {
                             size: p["size"] as? Double ?? 0, avgPrice: p["avgPrice"] as? Double ?? 0,
                             currentValue: p["currentValue"] as? Double ?? 0, pnl: p["cashPnl"] as? Double ?? 0)
         }
+    }
+
+    /// The fee rate the CLOB checks signed orders against for a token (GET /fee-rate: {"base_fee": 1000}).
+    public static func feeRate(_ tokenID: String) async throws -> Int {
+        let (d, _) = try await URLSession.shared.data(from: clob.appending(path: "fee-rate").appending(queryItems: [.init(name: "token_id", value: tokenID)]))
+        guard let o = try JSONSerialization.jsonObject(with: d) as? [String: Any], let fee = o["base_fee"] as? Int else {
+            throw WalletError.badResponse("Polymarket fee rate")
+        }
+        return fee
     }
 
     /// Best ask for buying a token (lowest sell order), and its tick size.
@@ -102,6 +114,8 @@ public enum Polymarket {
         public let takerAmount: UInt128   // shares received (6 decimals)
         public let side: Int              // 0 buy, 1 sell
         public let negRisk: Bool
+        /// Signed into the order; must match the market's fee (Polymarket.feeRate) or the CLOB refuses it.
+        public var feeRateBps: Int = 0
     }
 
     static func orderData(_ o: Order) -> EIP712 {
@@ -115,17 +129,20 @@ public enum Polymarket {
                       message: ["salt": .string(String(o.salt)), "maker": .string(o.maker), "signer": .string(o.maker),
                                 "taker": .string("0x0000000000000000000000000000000000000000"), "tokenId": .string(o.tokenID),
                                 "makerAmount": .string(String(o.makerAmount)), "takerAmount": .string(String(o.takerAmount)),
-                                "expiration": .string("0"), "nonce": .string("0"), "feeRateBps": .string("0"),
+                                "expiration": .string("0"), "nonce": .string("0"), "feeRateBps": .string(String(o.feeRateBps)),
                                 "side": .number(Double(o.side)), "signatureType": .number(0)])
     }
 
     /// A market buy of `usdc` worth of one outcome, priced a few ticks past the best ask (fill-or-kill).
-    public static func marketBuy(maker: String, tokenID: String, usdc: Double, bestAsk: Double, tick: Double, negRisk: Bool) -> (Order, Double) {
+    /// `feeRateBps` is the market's taker fee (Market.feeRateBps), signed into the order.
+    public static func marketBuy(maker: String, tokenID: String, usdc: Double, bestAsk: Double, tick: Double, negRisk: Bool,
+                                 feeRateBps: Int = 0) -> (Order, Double) {
         let price = min(0.99, (((bestAsk + tick * 2) / tick).rounded(.up)) * tick)
         let spend = (usdc * 100).rounded(.down) / 100                    // USDC to 2 decimals
         let shares = ((spend / price) * 100).rounded(.down) / 100       // shares to 2 decimals
         let o = Order(salt: Int.random(in: 1..<1_000_000_000), maker: maker, tokenID: tokenID,
-                      makerAmount: UInt128((spend * 1e6).rounded()), takerAmount: UInt128((shares * 1e6).rounded()), side: 0, negRisk: negRisk)
+                      makerAmount: UInt128((spend * 1e6).rounded()), takerAmount: UInt128((shares * 1e6).rounded()), side: 0, negRisk: negRisk,
+                      feeRateBps: feeRateBps)
         return (o, price)
     }
 
@@ -180,13 +197,18 @@ public struct PolymarketTrader: Sendable {
         return creds
     }
 
-    /// Signs the order (Face ID) and posts it fill-or-kill. Returns Polymarket's order id.
+    /// Signs the order (Face ID) and posts it fill-or-kill. Returns Polymarket's order id. The market's fee is read again
+    /// first: when it isn't the one in the order (and on the review), nothing is signed.
     public func place(_ o: Polymarket.Order, reason: String) async throws -> String {
+        let fee = try await Polymarket.feeRate(o.tokenID)
+        guard fee == o.feeRateBps else {
+            throw WalletError.blocked("Polymarket's fee for this market isn't the one on the review. Nothing was signed. Review it again.")
+        }
         let creds = try await credentials()
         let sig = try await vault.withKey(wallet.id, kind: .evm, reason: reason) { key in try Polymarket.orderData(o).sign(key: key) }
         let order: [String: Any] = ["salt": o.salt, "maker": o.maker, "signer": o.maker, "taker": "0x0000000000000000000000000000000000000000",
                                     "tokenId": o.tokenID, "makerAmount": String(o.makerAmount), "takerAmount": String(o.takerAmount),
-                                    "expiration": "0", "nonce": "0", "feeRateBps": "0", "side": o.side == 0 ? "BUY" : "SELL",
+                                    "expiration": "0", "nonce": "0", "feeRateBps": String(o.feeRateBps), "side": o.side == 0 ? "BUY" : "SELL",
                                     "signatureType": 0, "signature": sig]
         let body = try JSONSerialization.safeData(withJSONObject: ["order": order, "owner": creds.apiKey, "orderType": "FOK"])
         let r = try await request("POST", "/order", headers: l2(creds, "POST", "/order", body), body: body)

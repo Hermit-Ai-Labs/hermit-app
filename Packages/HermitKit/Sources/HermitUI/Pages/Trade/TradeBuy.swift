@@ -55,7 +55,7 @@ enum TradeBuy {
         case .site(let u, let dapp, _):
             DappBrowser.shared.open(u, dapp: ExploreData.dapps.first { $0.name == dapp }, model: model)
         case .none(let why):
-            model.toast(why)
+            model.toast(why, kind: .error)
         }
     }
 
@@ -90,7 +90,7 @@ enum TradeBuy {
     /// Jupiter inside Hermit: verified token, live quote, the usual review sheet, signed here. `symbol` form: looks the
     /// token up and pays with USDC when there is enough, else SOL.
     @MainActor static func buyOnSolana(_ symbol: String, usd: Double, model: AppModel) async {
-        model.toast("Getting a quote from Jupiter…")
+        model.toast("Getting a quote from Jupiter…", kind: .progress)
         do {
             let token = try await verifiedToken(symbol)
             let vm = WalletsViewModel.shared
@@ -102,7 +102,7 @@ enum TradeBuy {
             else if price > 0, solHeld > solReserve { buyOnSolana(token: token, payUSDC: false, amount: min(usd / price, solHeld - solReserve), model: model) }
             else { throw WalletError.blocked("Not enough USDC or SOL on Solana to buy with. Add some first.") }
         } catch {
-            model.toast((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            model.toast((error as? LocalizedError)?.errorDescription ?? error.localizedDescription, kind: .error)
         }
     }
 
@@ -135,7 +135,7 @@ enum TradeBuy {
             do {
                 let q = try await Jupiter.quote(from: pay, to: token, amount: base)
                 let verdict = vm.service.policy.evaluate(usd: usdValue, payee: nil, origin: .user)
-                if verdict.decision == .block { model.toast(verdict.blocks.first ?? "Blocked by your spending policy"); return }
+                if verdict.decision == .block { model.toast(verdict.blocks.first ?? "Blocked by your spending policy", kind: .error); return }
                 let impact = q.shownImpactPercent
                 if impact > maxImpact {
                     model.toast("Price impact is \(String(format: "%.1f", impact))%, so Hermit won't send it. Try a smaller amount."); return
@@ -151,7 +151,8 @@ enum TradeBuy {
                 let got = Double(q.outFormatted) ?? 0, paidShown = Double(q.inFormatted) ?? 0
                 let what = "Bought about \(MoneyFmt.amount(got)) \(sym) with \(MoneyFmt.amount(paidShown)) \(pay.symbol)"
                 let approval = Approval(kind: "Buy", title: "Buy \(token.symbol)", lines: lines,
-                                        checks: ["Token is on Jupiter's verified list", "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
+                                        checks: ["Token is on Jupiter's verified list", "Hermit tests Jupiter's transaction on Solana before it's signed",
+                                                 "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
                                         success: "Bought \(token.symbol)", warnings: verdict.warnings + impactWarning) {
                     let sig: String
                     do { sig = try await svc.executeJupiter(q, walletID: wid) } catch WalletError.pending(let h, let explorer) {
@@ -176,7 +177,7 @@ enum TradeBuy {
                 }
                 model.approval = approval
             } catch {
-                model.toast((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                model.toast((error as? LocalizedError)?.errorDescription ?? error.localizedDescription, kind: .error)
             }
         }
     }
@@ -203,7 +204,7 @@ struct TradeBuyButton: View {
         case .site(_, _, let label):
             Button(label) { TradeBuy.start(sym, usd: usd, model: model) }.buttonStyle(TradeSmallButton(kind: .primary))
         case .none(let why):
-            Text(why).font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+            Text(why).font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

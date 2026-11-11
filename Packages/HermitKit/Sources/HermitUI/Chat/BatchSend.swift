@@ -177,7 +177,7 @@ struct BatchRowsList: View {
             LazyVStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, r in
                     HStack(spacing: 10) {
-                        Text("\(r.line)").foregroundStyle(Theme.faint).frame(minWidth: 18, alignment: .leading).monospacedDigit()
+                        Text("\(r.line)").foregroundStyle(Theme.hint).frame(minWidth: 18, alignment: .leading).monospacedDigit()
                         VStack(alignment: .leading, spacing: 1) {
                             Text(r.shortAddress).font(Theme.mono).lineLimit(1)
                             if r.status != .ready { Text(r.stateText).font(.system(size: 11.5)).foregroundStyle(r.tone).lineLimit(2) }
@@ -192,7 +192,7 @@ struct BatchRowsList: View {
                 }
             }
             if let limit, plan.rows.count > limit {
-                Text("+ \(plan.rows.count - limit) more").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text("+ \(plan.rows.count - limit) more").font(.system(size: 12)).foregroundStyle(Theme.hint)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 28).padding(.vertical, 6)
             }
         }
@@ -229,7 +229,7 @@ struct BatchSendCard: View {
                 Image(systemName: "list.bullet.rectangle").foregroundStyle(Theme.text).font(.system(size: 14))
                 CardTitle(p.source ?? "Batch send")
                 Spacer()
-                Text(p.chain?.name ?? "").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text(p.chain?.name ?? "").font(.system(size: 12)).foregroundStyle(Theme.hint)
             } content: {
                 VStack(alignment: .leading, spacing: 12) {
                     KVGrid(pairs: [["Recipients", "\(p.valid.count)"], ["Total", "\(p.total) \(p.symbol)"],

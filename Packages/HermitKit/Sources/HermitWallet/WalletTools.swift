@@ -99,7 +99,10 @@ public final class WalletTools {
                 rows.append(row)
             }
         }
-        var out: [String: Any] = ["holdings": rows]
+        var out: [String: Any] = ["holdings": rows, "wallet": w.name]
+        // Only the selected wallet is read, while the Wallets page totals every wallet: say so, so the two aren't mixed up.
+        let count = service.wallets.count
+        if count > 1 { out["note"] = "These are the holdings of the selected wallet, \(w.name), only. The user has \(count) wallets, and the Wallets page total covers all of them." }
         if w.nearAccount == nil { out["near"] = "No NEAR account on this wallet yet; the user can add one in Wallets." }
         else { out["near_account"] = w.nearAccount! }
         if !r.failed.isEmpty { out["unreachable"] = r.failed.map(\.id) }
@@ -123,7 +126,12 @@ public final class WalletTools {
         let recipient = own ?? (tc == .bitcoin ? IntentsAssets.dryQuoteBitcoinRecipient : nil)
         let req = try service.intentsRequest(walletID: nil, from: from, fromToken: fromToken, to: tc, toSymbol: ts, amount: value,
                                              recipient: recipient, dry: true, tokens: tokens)
-        let q = try await oneClick.quote(req)
+        let q: IntentsQuote
+        do { q = try await oneClick.quote(req) } catch let e as OneClickError {
+            // A route minimum the model can repeat in the token's own units, not base units.
+            if let m = e.minimumText(decimals: decimals, symbol: fromToken?.symbol ?? from.nativeSymbol) { return Self.json(["error": m]) }
+            throw e
+        }
         // Amounts rounded for reading (a 24-decimal NEAR amount was echoed digit for digit); the route is named as the
         // user should hear it, so a NEAR Intents quote is never called Relay.
         let out_ = Units.approx(q.amountOutFormatted)
@@ -139,7 +147,15 @@ public final class WalletTools {
         if let i = q.amountInUSD, let o = q.amountOutUSD {
             out["total_cost_usd"] = (max(i - o, i * Double(q.appFeeBps) / 10_000) * 100).rounded() / 100
         }
+        // A swap that loses more than 3% of its value is flagged; the assistant may not prepare one that loses over 10%.
+        let lossWarnings = q.lossWarning.map { [$0] } ?? []
+        if !lossWarnings.isEmpty { out["warnings"] = lossWarnings }
         guard prepare else { return Self.json(out) }
+        if let loss = q.lossFraction, loss > IntentsQuote.agentMaxLoss {
+            out["status"] = "blocked"; out["reasons"] = lossWarnings
+            out["note"] = "Nothing was prepared. Tell the user why. They can still swap it themselves from the Swap screen."
+            return Self.json(out)
+        }
 
         let verdict = service.policy.evaluate(usd: q.amountInUSD, payee: own == nil ? (recipient ?? "", .evm) : nil, origin: .agent)
         out["policy"] = verdict.decision.rawValue
@@ -152,7 +168,8 @@ public final class WalletTools {
                                 origin: .agent, verdict: verdict)
         presentSwap?(intent)
         out["status"] = "prepared_for_review"
-        if !verdict.warnings.isEmpty { out["warnings"] = verdict.warnings }
+        let warnings = verdict.warnings + lossWarnings
+        if !warnings.isEmpty { out["warnings"] = warnings }
         out["note"] = "Nothing has moved. The Swap review is open with this \(Self.intentsRoute) quote; the user approves it with Face ID or cancels."
         return Self.json(out)
     }

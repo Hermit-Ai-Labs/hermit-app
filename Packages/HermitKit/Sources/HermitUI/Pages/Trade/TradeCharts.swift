@@ -39,7 +39,7 @@ struct TradeCandleChart: View {
                 var p = Path(); p.move(to: CGPoint(x: 0, y: yy)); p.addLine(to: CGPoint(x: w, y: yy))
                 ctx.stroke(p, with: .color(Theme.border), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
                 let label = v.tradePx
-                ctx.draw(Text(label).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.faint),
+                ctx.draw(Text(label).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.hint),
                          at: CGPoint(x: w + 6, y: yy), anchor: .leading)
             }
 

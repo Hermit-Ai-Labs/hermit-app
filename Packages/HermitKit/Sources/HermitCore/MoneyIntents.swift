@@ -64,54 +64,110 @@ extension ToolGuard {
 }
 
 /// A list of payees read from the user's own text or file: one `address, amount` per row (CSV, TSV, XLSX rows,
-/// or "0xabc… 25" lines). A header row and other columns are fine; the address and the amount columns are found by
-/// what they hold.
+/// or "0xabc… 25" lines). A header row and other columns are fine. A header that names the amount column ("Amount",
+/// "USDC", "Total") decides which cell is the amount; without one, a row's amount is its only number, and a row with
+/// two numbers (a row number or an invoice id next to the amount) is left without one, so the review flags it
+/// instead of paying the wrong figure.
 public enum RecipientTable {
     public struct Row: Hashable, Sendable {
         public let address: String
         public let amount: String
         /// 1-based line in the source, for "row 31 is invalid" messages.
         public let line: Int
-        public init(address: String, amount: String, line: Int) { self.address = address; self.amount = amount; self.line = line }
+        /// The amount's column (0-based) when a header row named it; nil when the amount was found by what it holds.
+        public let column: Int?
+        /// The row has an amount Hermit couldn't read ("25,5", two numbers, a cell under the header that isn't one), as
+        /// opposed to no amount at all. A "10 each" from the message never fills such a row: the review flags it.
+        public let unclear: Bool
+        public init(address: String, amount: String, line: Int, column: Int? = nil, unclear: Bool = false) {
+            self.address = address; self.amount = amount; self.line = line; self.column = column; self.unclear = unclear
+        }
     }
 
     /// The most rows one batch takes.
     public static let maxRows = 200
 
-    /// Rows that hold something address-like and a positive amount. Lines with an address but no amount are returned
-    /// with an empty amount (shown as invalid on the review), so nothing the user listed is silently dropped.
+    /// Rows that hold something address-like and a positive amount. Lines with an address but no clear amount are
+    /// returned with an empty amount (shown as invalid on the review), so nothing the user listed is silently dropped.
     public static func parse(_ text: String) -> [Row] {
         var out: [Row] = []
-        for (n, raw) in text.components(separatedBy: .newlines).enumerated() {
+        var header: (column: Int, width: Int)?
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: .newlines)
+        for (n, raw) in lines.enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty else { continue }
-            let cells = split(line)
-            guard let a = cells.first(where: looksLikeAddress) else { continue }
-            let amount = cells.lazy.filter { $0 != a }.compactMap(Self.amount).first ?? ""
-            out.append(Row(address: a, amount: amount, line: n + 1))
+            // A blank line ends a table (sheets of a workbook are separated by one): its header no longer applies.
+            guard !line.isEmpty else { header = nil; continue }
+            let (cells, delimited) = Self.cells(line)
+            guard let ai = cells.firstIndex(where: looksLikeAddress) else {
+                if delimited, let c = amountColumn(cells) { header = (c, cells.count) }
+                // "0xabc… 25,5": the comma split the address from its amount. Listed and flagged, never dropped.
+                else if delimited, let a = cells.flatMap({ $0.components(separatedBy: .whitespaces) }).first(where: looksLikeAddress) {
+                    out.append(Row(address: a, amount: "", line: n + 1, unclear: true))
+                }
+                continue
+            }
+            let a = cells[ai]
+            var amount = ""
+            var column: Int?
+            var unclear = false
+            if delimited, let h = header, h.column != ai {
+                // Cells past the header's width that hold a number mean the row split differently ("25,5" unquoted).
+                let extra = cells.count > h.width && cells[h.width...].contains { Self.amount($0) != nil }
+                if !extra, h.column < cells.count { amount = Self.amount(cells[h.column]) ?? "" }
+                column = h.column
+                if amount.isEmpty { unclear = extra || (h.column < cells.count && !cells[h.column].isEmpty) }
+            } else {
+                let numbers = cells.indices.filter { $0 != ai }.compactMap { Self.amount(cells[$0]) }
+                let fuzzy = cells.indices.contains { $0 != ai && Self.unclearNumber(cells[$0]) }
+                if numbers.count == 1 && !fuzzy { amount = numbers[0] } else { unclear = numbers.count > 1 || fuzzy }
+            }
+            out.append(Row(address: a, amount: amount, line: n + 1, column: column, unclear: unclear))
         }
         return out
     }
 
-    /// Cells of one line: CSV-style (quotes may hold separators: "1,000"), split on , ; tab or |, else on spaces.
-    static func split(_ line: String) -> [String] {
-        let seps: Set<Character> = [",", ";", "\t", "|"]
-        guard line.contains(where: seps.contains) else {
-            return line.components(separatedBy: .whitespaces).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`")) }.filter { !$0.isEmpty }
+    /// The column a header row names as the amount, or nil when the line isn't such a header (a header holds no
+    /// numbers and no address).
+    static func amountColumn(_ cells: [String]) -> Int? {
+        guard cells.count >= 2, !cells.contains(where: { amount($0) != nil }) else { return nil }
+        let named = cells.map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        if let i = named.firstIndex(where: { $0.range(of: #"\bamounts?\b"#, options: .regularExpression) != nil }) { return i }
+        return named.firstIndex { c in
+            c.range(of: #"\b(amt|value|qty|quantity|total|sum|payment|payout|salary)\b"#, options: .regularExpression) != nil
+                || c.range(of: #"^(pay|usd|usdc|usdt|usdt0|dai|eth|sol|near|tokens?)( \(.*\))?$"#, options: .regularExpression) != nil
         }
-        var cells: [String] = [], cur = "", quoted = false
+    }
+
+    /// Cells of one line, without empty ones: CSV-style (quotes may hold separators: "1,000"), split on the separator
+    /// the line uses most (, ; tab or |), else on spaces.
+    static func split(_ line: String) -> [String] { cells(line).cells.filter { !$0.isEmpty } }
+
+    /// Cells of one line and whether it had a separator. Delimited lines keep their empty cells, so columns line up
+    /// with the header. One separator per line: "Alice;0xabc…;25,5" has a decimal comma, not a fourth column.
+    static func cells(_ line: String) -> (cells: [String], delimited: Bool) {
+        let order: [Character] = ["\t", ";", "|", ","]
+        var counts: [Character: Int] = [:], quoted = false
+        for c in line {
+            if c == "\"" { quoted.toggle() } else if !quoted, order.contains(c) { counts[c, default: 0] += 1 }
+        }
+        guard let most = counts.values.max(), let sep = order.first(where: { counts[$0] == most }) else {
+            let words = line.components(separatedBy: .whitespaces).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`")) }
+            return (words.filter { !$0.isEmpty }, false)
+        }
+        var cells: [String] = [], cur = ""
+        quoted = false
         let it = Array(line); var i = 0
         while i < it.count {
             let c = it[i]
             if c == "\"" {
                 if quoted, i + 1 < it.count, it[i + 1] == "\"" { cur.append("\""); i += 1 } else { quoted.toggle() }
-            } else if !quoted, seps.contains(c) {
+            } else if !quoted, c == sep {
                 cells.append(cur); cur = ""
             } else { cur.append(c) }
             i += 1
         }
         cells.append(cur)
-        return cells.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " '`")) }.filter { !$0.isEmpty }
+        return (cells.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " '`")) }, true)
     }
 
     /// 0x + 40 hex, a base58 Solana key, or a NEAR account ("alice.near", 64-hex implicit). ENS names too ("bob.eth").
@@ -123,12 +179,33 @@ public enum RecipientTable {
         return false
     }
 
-    /// "25", "1,000.50", "$25", "25 USDC" -> "25" / "1000.50"; nil for anything else.
-    static func amount(_ s: String) -> String? {
-        var t = s.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
-        if let sp = t.firstIndex(of: " ") { t = String(t[..<sp]) }
-        guard t.range(of: #"^[0-9]*\.?[0-9]+$"#, options: .regularExpression) != nil, let v = Double(t), v > 0 else { return nil }
-        return t.hasPrefix(".") ? "0" + t : t
+    /// "25", "1,000.50", "$25", "25 USDC" -> "25" / "1000.50"; nil for anything else. A comma only counts as a
+    /// thousands separator ("1,000", "12,500.25"): "25,5", "1,25" and "1.000,50" are nil (a decimal comma would
+    /// otherwise read as 255), and so is "1 000" (the digits after the space would be lost).
+    public static func amount(_ s: String) -> String? {
+        var t = s.replacingOccurrences(of: "$", with: "").trimmingCharacters(in: .whitespaces)
+        if let sp = t.firstIndex(of: " ") {
+            if t[sp...].dropFirst().first?.isNumber == true { return nil }
+            t = String(t[..<sp])
+        }
+        guard let plain = ungrouped(t), plain.range(of: #"^[0-9]*\.?[0-9]+$"#, options: .regularExpression) != nil,
+              let v = Double(plain), v > 0 else { return nil }
+        return plain.hasPrefix(".") ? "0" + plain : plain
+    }
+
+    /// A cell that reads like a number with a comma Hermit won't guess at ("25,5", "1.000,50", "$1,25"), or digits split
+    /// by a space ("1 000").
+    static func unclearNumber(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard amount(t) == nil else { return false }
+        return t.range(of: #"^\$?\s*[0-9][0-9.,]*,[0-9]|^\$?\s*[0-9]+ [0-9]"#, options: .regularExpression) != nil
+    }
+
+    /// The number without its thousands commas, or nil when a comma in it isn't one.
+    public static func ungrouped(_ t: String) -> String? {
+        guard t.contains(",") else { return t }
+        guard t.range(of: #"^[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$"#, options: .regularExpression) != nil else { return nil }
+        return t.replacingOccurrences(of: ",", with: "")
     }
 }
 
@@ -165,13 +242,16 @@ public enum MoneyIntent {
         return t.range(of: #"^(please\s+|can you\s+|could you\s+)?(withdraw|redeem|take|pull|remove)\b.*\baave\b"#, options: .regularExpression) != nil
     }
 
-    /// Amount, token and chain from a short request. Chain is only set when the text names one.
+    /// Amount, token and chain from a short request. Chain is only set when the text names one. An amount whose comma
+    /// isn't a thousands separator ("1,5") is left out: see `unclearAmount`.
     public static func parts(_ text: String) -> (amount: String?, symbol: String?, chain: String?, all: Bool) {
         let t = clean(text)
         var amount: String?, symbol: String?
         let re = try! NSRegularExpression(pattern: #"(?<![a-z0-9.])(?:\$\s*)?([0-9][0-9,]*(?:\.[0-9]+)?)\s*(usdc\.e|usdt0|usdc|usdt|eth|weth|dai)?\b"#)
         if let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let r = Range(m.range(at: 1), in: t) {
-            amount = t[r].replacingOccurrences(of: ",", with: "")
+            var n = String(t[r])
+            while n.hasSuffix(",") { n.removeLast() }   // "10, then" is 10
+            amount = RecipientTable.ungrouped(n)
             if let s = Range(m.range(at: 2), in: t) { symbol = String(t[s]) }
         }
         if symbol == nil, let m = t.range(of: #"\b(usdc\.e|usdt0|usdc|usdt|dai)\b"#, options: .regularExpression) { symbol = String(t[m]) }
@@ -179,9 +259,19 @@ public enum MoneyIntent {
         return (amount, symbol.map { $0 == "usdc.e" ? "USDC.e" : $0.uppercased() }, ChainWords.mentioned(in: t).first, all)
     }
 
+    /// The request's first number has a comma that isn't a thousands separator ("withdraw 1,5 USDC"): the app doesn't
+    /// guess (it would otherwise read 15, or no amount, which a withdrawal takes as everything). The model asks.
+    static func unclearAmount(_ text: String) -> Bool {
+        let t = clean(text)
+        guard let r = t.range(of: #"(?<![a-z0-9.])[0-9][0-9,]*(\.[0-9]+)?"#, options: .regularExpression) else { return false }
+        var n = String(t[r])
+        while n.hasSuffix(",") { n.removeLast() }
+        return RecipientTable.ungrouped(n) == nil
+    }
+
     /// prepare_deposit arguments for the request, or nil when it isn't one or the amount is missing.
     public static func depositArguments(_ text: String) -> String? {
-        guard asksToDeposit(text) else { return nil }
+        guard asksToDeposit(text), !unclearAmount(text) else { return nil }
         let p = parts(text)
         guard let amount = p.amount, let sym = p.symbol else { return nil }
         var kv: [(String, JSONValue)] = [("project", .string("aave-v3")), ("symbol", .string(sym))]
@@ -192,7 +282,7 @@ public enum MoneyIntent {
 
     /// prepare_withdraw arguments: amount, or everything when none is given ("withdraw my USDC from Aave").
     public static func withdrawArguments(_ text: String) -> String? {
-        guard asksToWithdraw(text) else { return nil }
+        guard asksToWithdraw(text), !unclearAmount(text) else { return nil }
         let p = parts(text)
         guard let sym = p.symbol else { return nil }
         var kv: [(String, JSONValue)] = [("symbol", .string(sym))]
@@ -215,7 +305,7 @@ public enum MoneyIntent {
         var kv: [(String, JSONValue)] = [("symbol", .string(sym))]
         if let c = ChainWords.mentioned(in: typed).first { kv.append(("chain", .string(c))) }
         kv.append(("recipients", .array(rows.prefix(RecipientTable.maxRows).map { r in
-            let a = r.amount.isEmpty ? each : r.amount
+            let a: String? = r.amount.isEmpty ? (r.unclear ? nil : each) : r.amount
             return .object([("address", .string(r.address)), ("amount", a.map { .number($0) } ?? .null)])
         })))
         return JSONValue.object(kv).pythonText

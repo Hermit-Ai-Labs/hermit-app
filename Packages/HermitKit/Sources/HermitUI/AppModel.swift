@@ -50,7 +50,42 @@ public final class AppModel {
     public var route: Route = .home
     /// The open conversation.
     public var messages: [Message] = []
-    public var approval: Approval?
+    public var approval: Approval? {
+        didSet {
+            guard !settingApproval else { return }
+            // The sheet closed: whatever it signed has reported back.
+            if approval == nil { signing.removeAll(); signingTitles.removeAll(); return }
+            guard let a = approval, a.uid != oldValue?.uid else { return }
+            settingApproval = true; defer { settingApproval = false }
+            // From Approve until the sheet reports back (it locks itself), a new review can't replace it, and the same
+            // move asked again is ignored. A move that failed frees the sheet at once.
+            // The replacements below write the stored value itself: reviews compare by what they show (not uid or
+            // perform), so going through the observed setter could drop an assignment it sees as equal.
+            if let old = oldValue, signing.contains(old.uid) { _approval = old; toast("Wait for the last approval to finish", kind: .info); return }
+            if signingTitles.contains(a.title) { _approval = oldValue; toast("That one is still being signed", kind: .info); return }
+            guard let inner = a.perform else { return }
+            var tracked = a
+            let uid = a.uid, title = a.title
+            tracked.perform = { @Sendable () async throws -> String in
+                await self.markSigning(uid, title, true)
+                do {
+                    return try await inner()
+                } catch {
+                    await self.markSigning(uid, title, false)
+                    throw error
+                }
+            }
+            _approval = tracked
+        }
+    }
+    /// Reviews whose `perform` is running or has finished but not reported back yet, by request and by title.
+    @ObservationIgnored private var signing: Set<UUID> = []
+    @ObservationIgnored private var signingTitles: Set<String> = []
+    /// True while `approval`'s didSet replaces the value it was given, so that assignment isn't checked again.
+    @ObservationIgnored private var settingApproval = false
+    private func markSigning(_ uid: UUID, _ title: String, _ on: Bool) {
+        if on { signing.insert(uid); signingTitles.insert(title) } else { signing.remove(uid); signingTitles.remove(title) }
+    }
     /// The Add funds sheet, opened from anywhere (Trade, Wallets, Earn). RootView presents it.
     var fundGoal: FundGoal?
     public var busy = false
@@ -73,25 +108,26 @@ public final class AppModel {
     /// The saved conversation `messages` belongs to (nil for a new chat until its first message).
     public var currentID: String?
     /// The project a new or open chat belongs to (back link, strip under the chat box, project home cards).
-    public var chatProject: String?
+    /// Its project.md goes into the model's instructions (see `pushContext`).
+    public var chatProject: String? { didSet { if chatProject != oldValue && !switchingChat { pushContext(onlyIfChanged: true) } } }
 
-    // Projects
-    public var projectList: [Project] = Project.seed
+    // Projects, automations, project.md, paused costs and to-dos are saved with the chats (chats.json) on every change.
+    public var projectList: [Project] = Project.seed { didSet { save() } }
     /// The project page open on the Projects route (nil shows the list).
     public var projectOpen: String?
     /// Costs switched off on a project page, "project/what".
-    public var costsOff: Set<String> = []
+    public var costsOff: Set<String> = [] { didSet { save() } }
     /// Edited project.md per project.
-    public var projectMD: [String: String] = [:]
+    public var projectMD: [String: String] = [:] { didSet { save(); pushContext(onlyIfChanged: true) } }
 
     // Automations
-    public var automations: [Automation] = Automation.seed
+    public var automations: [Automation] = Automation.seed { didSet { save() } }
     /// The automation thread open on the Automations route: a name, or a new draft from a sentence.
     public var automationOpen: AutomationOpen?
     public enum AutomationOpen: Hashable { case existing(String), new(String) }
 
     // Everything else
-    public var todos: [Todo] = Todo.seed
+    public var todos: [Todo] = Todo.seed { didSet { save() } }
     /// hermit.md: what Hermit remembers in every chat (edited in Settings > Memory).
     public var memory: [String] { MemoryStore.shared.items }
     /// Titles of approvals that went through, so cards can show their after-state (sent, live, key added).
@@ -115,6 +151,16 @@ public final class AppModel {
 
     private let agent: Agent
     private var replyTask: Task<Void, Never>?
+    /// Goes up with every reply started or dropped, so a cancelled reply's tail never clears `busy` or saves for a newer one.
+    @ObservationIgnored private var replyGen = 0
+    /// What the agent last got for its system prompt, so the same context isn't sent (and prefilled) twice.
+    @ObservationIgnored private var pushedName: String?
+    @ObservationIgnored private var pushedNotes: [String]?
+    /// True while `load()` fills the saved state in, so restoring doesn't write it straight back.
+    @ObservationIgnored private var restoring = false
+    /// True while newChat / openConversation set the project; they push the context themselves once.
+    @ObservationIgnored private var switchingChat = false
+    @ObservationIgnored private var flushObserver: NSObjectProtocol?
     /// Off for snapshots and the Debug Mac tour: nothing is written back.
     var persist: Bool
 
@@ -136,6 +182,15 @@ public final class AppModel {
         if persist {
             user = UserDefaults.standard.string(forKey: Self.nameKey) ?? ""
             load()
+            // Quitting (Mac) or leaving the app (iPhone) writes the open chat at once, so its last reply is never lost.
+            #if os(macOS)
+            let leave = NSApplication.willTerminateNotification
+            #else
+            let leave = UIApplication.didEnterBackgroundNotification
+            #endif
+            flushObserver = NotificationCenter.default.addObserver(forName: leave, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.flush() }
+            }
         }
         #if DEBUG
         applyLaunchArguments()
@@ -168,13 +223,41 @@ public final class AppModel {
     }
     #endif
 
-    /// Hands the name and hermit.md to the model's system prompt (used from the next new chat).
-    public func pushContext() { agent.setContext(name: user, memory: memory) }
+    /// Hands the name, hermit.md and the open project's project.md to the model's system prompt (used from the next
+    /// new chat, or right away if this one hasn't started).
+    public func pushContext() { pushContext(onlyIfChanged: false) }
+
+    /// `onlyIfChanged`: for project and project.md changes, which can fire often; the same context isn't sent twice.
+    private func pushContext(onlyIfChanged: Bool) {
+        var notes = memory
+        if let p = projectNote() { notes.insert(p, at: 0) }
+        if onlyIfChanged && pushedName == user && pushedNotes == notes { return }
+        pushedName = user; pushedNotes = notes
+        agent.setContext(name: user, memory: notes)
+    }
+
+    /// The open project's project.md as one note for the system prompt: nil when there's no project, or its
+    /// instructions are still the placeholder. The heading line is dropped and the text is capped like hermit.md.
+    func projectNote() -> String? {
+        guard let p = project(chatProject), let md = projectMD[p.name] else { return nil }
+        var body = md.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard body != p.defaultInstructions else { return nil }
+        if body.hasPrefix("# ") {
+            let rest = body.firstIndex(of: "\n").map { body[$0...] }
+            body = rest.map(String.init) ?? ""
+        }
+        let text = body.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        guard !text.isEmpty else { return nil }
+        return "This chat is in the user's project \(p.name). Follow its instructions (project.md): " + String(text.prefix(1500))
+    }
 
     public var inChat: Bool { !messages.isEmpty }
 
     /// Shows a toast over whatever is in front (page or sheet). See ToastCenter.
     public func toast(_ text: String) { ToastCenter.shared.show(text) }
+    /// A toast whose kind the caller knows (a failure is `.error`, so it never shows the green check).
+    func toast(_ text: String, kind: ToastCenter.Kind) { ToastCenter.shared.show(text, kind: kind) }
 
     /// Open a page, optionally on a tab (pages read `tabRequest` once on appear).
     public var tabRequest: String?
@@ -189,10 +272,13 @@ public final class AppModel {
 
     /// A fresh chat, optionally inside a project.
     public func newChat(project: String?) {
+        // Stop the reply first, so the chat is saved as it stands and its tail can't touch the new one.
+        replyTask?.cancel(); replyGen &+= 1
         commit()
+        switchingChat = true; chatProject = project; switchingChat = false
         pushContext()
-        replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
-        currentID = nil; chatProject = project; drawerOpen = false; batchFile = nil; pictureInChat = false
+        agent.reset(); messages = []; busy = false; route = .home
+        currentID = nil; drawerOpen = false; batchFile = nil; pictureInChat = false
         focusTick += 1
     }
 
@@ -208,16 +294,24 @@ public final class AppModel {
     /// Reopen a saved conversation.
     public func openConversation(_ id: String) {
         guard let c = conversations.first(where: { $0.id == id }) else { return }
+        replyTask?.cancel(); replyGen &+= 1
         commit()
         // The model starts this one fresh: it doesn't carry the other chat's context in.
-        replyTask?.cancel(); agent.reset(); busy = false
-        messages = c.messages; currentID = id; chatProject = c.project; batchFile = nil; pictureInChat = false
+        agent.reset(); busy = false
+        messages = c.messages; currentID = id; batchFile = nil; pictureInChat = false
+        switchingChat = true; chatProject = c.project; switchingChat = false
+        // Only when the context changed: an unchanged one is already the agent's, and reset() keeps it.
+        pushContext(onlyIfChanged: true)
         route = .home; drawerOpen = false
     }
 
     public func deleteConversation(_ id: String) {
         withAnimation(.snappy) { conversations.removeAll { $0.id == id } }
-        if currentID == id { messages = []; currentID = nil; pictureInChat = false }
+        if currentID == id {
+            // Deleting the open chat stops its reply and clears the model, so the next chat doesn't start inside it.
+            replyTask?.cancel(); replyGen &+= 1; agent.reset(); busy = false
+            messages = []; currentID = nil; batchFile = nil; pictureInChat = false
+        }
         save()
     }
 
@@ -254,6 +348,8 @@ public final class AppModel {
             withAnimation(.snappy) { conversations.insert(c, at: 0) }
         }
         if attachment?.readFromPicture == true { pictureInChat = true }
+        // Read before this message goes in: did Hermit's last reply ask which network?
+        let askedNetwork = Self.asksNetwork(messages.last { $0.role == .assistant })
         messages.append(Message(role: .user, text: text, attachment: attachment))
         let reply = Message(role: .assistant, done: false)
         messages.append(reply)
@@ -269,26 +365,43 @@ public final class AppModel {
             batchFile = (a.name, rows)
             stream = Self.batchFromFile(text, file: a.name, rows: rows)
         } else if let a = attachment {
-            if a.recipients?.isEmpty == false { batchFile = (a.name, a.recipients!) }
+            // A newer file replaces the list: one without rows (a receipt) leaves no list from an older file behind.
+            batchFile = nil
+            if let rows = a.recipients, !rows.isEmpty { batchFile = (a.name, rows) }
             if let body = a.text {
                 stream = agent.reply(to: Self.prompt(text, with: a, body))
             } else {
                 stream = ScriptedAgent(pace: 0).say(Self.unreadable(a))
             }
-        } else if let f = batchFile, MoneyIntent.asksToMultisend(text) || Self.answersNetwork(text) {
-            // The follow-up to "which network?" for the list attached earlier in this chat.
+        } else if let f = batchFile, MoneyIntent.asksToMultisend(text) || (askedNetwork && Self.answersNetwork(text)) {
+            // The follow-up to "which network?" for the list attached earlier in this chat. A bare chain name only
+            // counts as that answer right after Hermit asked for one.
             stream = Self.batchFromFile(text, file: f.name, rows: f.rows)
         } else {
             stream = agent.reply(to: text)
         }
+        replyGen &+= 1
+        let gen = replyGen
         replyTask = Task { [weak self] in
             for await event in stream {
                 self?.apply(event, to: reply.id)
             }
-            self?.update(reply.id) { $0.done = true; $0.status = nil }
-            self?.busy = false
-            self?.commit()
+            // A newer reply (or another chat) took over: this one's tail leaves busy and saving to it.
+            guard let self, self.replyGen == gen else { return }
+            self.update(reply.id) { $0.done = true; $0.status = nil }
+            self.busy = false
+            self.commit()
         }
+    }
+
+    /// Whether a reply asked the user to pick a network (its plain text or its text blocks).
+    static func asksNetwork(_ m: Message?) -> Bool {
+        guard let m else { return false }
+        let texts: [String] = [m.text] + m.blocks.compactMap { (b: Block) -> String? in
+            if case .text(let t) = b { return t }
+            return nil
+        }
+        return texts.contains { $0.lowercased().contains("network") && $0.contains("?") }
     }
 
     /// What the model sees for a message with a readable file: what it is and how much of it is included, the file
@@ -299,7 +412,7 @@ public final class AppModel {
         if let c = a.cutNote { about.append("only \(c) are included, the file is longer") }
         else if a.truncated { about.append("only the first \(Attachment.maxChars) characters, the file is longer") }
         let note = about.isEmpty ? "" : " (" + about.joined(separator: "; ") + ")"
-        let content = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(the file is empty)" : body
+        let content = body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(the file is empty)" : ToolChat.fileSafe(body)
         return "The user attached the file \(a.name)\(note):\n<file>\n\(content)\n</file>\n\n\(question)"
     }
 
@@ -414,12 +527,17 @@ public final class AppModel {
         if let a = action.approval { approval = a }
         else if let o = action.open {
             switch o {
+            case "fund-wallet": fundGoal = .wallet
             case "fund-hyperliquid": fundGoal = .hyperliquid
             case "swap": open(.wallets, tab: "swap")
             case let o where o.hasPrefix("batch:"): BatchStore.shared.review(String(o.dropFirst("batch:".count)), model: self)
             case let o where o.hasPrefix("earn-deposit:"): EarnFlow.open(link: o, model: self)
             case "earn-positions": open(.earn, tab: "positions")
-            default: fundGoal = .wallet
+            case let o where o.hasPrefix("chat:"):
+                let id = String(o.dropFirst("chat:".count))
+                if conversations.contains(where: { $0.id == id }) { openConversation(id) } else { toast("That chat was deleted", kind: .info) }
+            // A link this build doesn't know (a typo, or one saved by an older version) opens nothing.
+            default: toast("That link isn't available anymore", kind: .info)
             }
         }
         else if let q = action.ask { ask(q) }
@@ -438,15 +556,22 @@ public final class AppModel {
         let demoOnly = !SnapshotMode.active && a.perform == nil && hash == nil && a.live != nil
         #endif
         if demoOnly { toast("Trading from chat is coming soon"); return }
+        // A site's request (Dapp browser) is named by the site ("Approve USDC", "Contract call"). It must never mark a
+        // chat card with the same title as done or take its button away, so it is only confirmed with a toast.
+        if Self.fromSite(a) {
+            approvalCount += 1
+            toast(a.success)
+            return
+        }
         approvedIDs.insert(a.title)
         approvalCount += 1
         guard route == .home, inChat else { toast(a.success); return }
         // The button that opened this review is done: take it out of every message it was in.
         for i in messages.indices {
-            messages[i].actions.removeAll { $0.approval?.title == a.title }
+            messages[i].actions.removeAll { $0.approval == a }
             messages[i].blocks = messages[i].blocks.compactMap { b in
                 if case .actions(let list) = b {
-                    let kept = list.filter { $0.approval?.title != a.title }
+                    let kept = list.filter { $0.approval != a }
                     return kept.isEmpty ? nil : .actions(kept)
                 }
                 return b
@@ -464,6 +589,11 @@ public final class AppModel {
             if let live = a.live { messages.append(Message(role: .assistant, blocks: [.card(.liveTrade(live))])) }
         }
         commit()
+    }
+
+    /// Requests from a web page in the Dapp browser (DappProvider's kinds), not from chat or a page of the app.
+    static func fromSite(_ a: Approval) -> Bool {
+        a.kind == "Connect a site" || ["Transaction from ", "Signature request from ", "Sign-in request from "].contains { a.kind.hasPrefix($0) }
     }
 
     // MARK: Projects
@@ -500,8 +630,10 @@ public final class AppModel {
         withAnimation(.snappy) { automations[i].on.toggle() }
     }
 
+    /// Names are ids: saving one that already exists (a card's Save pressed twice) keeps the saved one and its runs.
     public func addAutomation(_ a: Automation) {
-        withAnimation(.snappy) { automations.removeAll { $0.name == a.name }; automations.insert(a, at: 0) }
+        guard !automations.contains(where: { $0.name == a.name }) else { return }
+        withAnimation(.snappy) { automations.insert(a, at: 0) }
     }
 
     // MARK: To-dos
@@ -525,23 +657,41 @@ public final class AppModel {
         return dir.appendingPathComponent("chats.json")
     }
 
-    private struct Saved: Codable { var conversations: [Conversation] }
     /// 2: no more seeded demo chats or memory. Installs from before saved them, so they are dropped once.
     private static let dataVersion = 2
     private static let versionKey = "hermit.dataVersion"
 
+    /// Queues a write of everything saved. Writes go one at a time and always carry the newest state.
     private func save() {
-        guard persist, let url = store else { return }
-        let data = Saved(conversations: conversations)
-        Task.detached(priority: .utility) {
-            if let json = try? JSONEncoder().encode(data) { try? json.write(to: url, options: .atomic) }
-        }
+        guard persist, !restoring, let url = store else { return }
+        let data = SavedChats(conversations: conversations, projects: projectList, projectMD: projectMD, automations: automations,
+                         todos: todos, costsOff: costsOff.sorted())
+        ChatsWriter.shared.write(data, to: url)
+    }
+
+    /// Saves the open chat and waits for the write (quit, or the app going to the background).
+    func flush() {
+        guard persist else { return }
+        commit()
+        ChatsWriter.shared.flushNow()
     }
 
     private func load() {
-        if let url = store, let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+        restoring = true
+        if let url = store, let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(SavedChats.self, from: data) {
             conversations = saved.conversations
+            projectList = saved.projects
+            projectMD = saved.projectMD
+            automations = saved.automations
+            todos = saved.todos
+            costsOff = Set(saved.costsOff)
+            // A chat whose project wasn't saved (files from before projects were) goes back to Recents instead of hiding.
+            let names = Set(projectList.map(\.name))
+            for i in conversations.indices {
+                if let p = conversations[i].project, !names.contains(p) { conversations[i].project = nil }
+            }
         }
+        restoring = false
         let defaults = UserDefaults.standard
         if defaults.integer(forKey: Self.versionKey) < Self.dataVersion {
             // The demo's chats had fixed ids; real ones are UUIDs.
@@ -554,5 +704,65 @@ public final class AppModel {
 
     private func update(_ id: UUID, _ change: (inout Message) -> Void) {
         if let i = messages.firstIndex(where: { $0.id == id }) { change(&messages[i]) }
+    }
+}
+
+/// What chats.json holds. Files from before projects and automations were saved have only `conversations`.
+private struct SavedChats: Codable, @unchecked Sendable {
+    var conversations: [Conversation]
+    var projects: [Project]
+    var projectMD: [String: String]
+    var automations: [Automation]
+    var todos: [Todo]
+    var costsOff: [String]
+
+    enum CodingKeys: String, CodingKey { case conversations, projects, projectMD, automations, todos, costsOff }
+
+    init(conversations: [Conversation], projects: [Project], projectMD: [String: String], automations: [Automation],
+         todos: [Todo], costsOff: [String]) {
+        self.conversations = conversations; self.projects = projects; self.projectMD = projectMD
+        self.automations = automations; self.todos = todos; self.costsOff = costsOff
+    }
+
+    // A part that doesn't decode is left empty instead of losing the chats with it.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversations = try c.decode([Conversation].self, forKey: .conversations)
+        projects = (try? c.decodeIfPresent([Project].self, forKey: .projects)) ?? []
+        projectMD = (try? c.decodeIfPresent([String: String].self, forKey: .projectMD)) ?? [:]
+        automations = (try? c.decodeIfPresent([Automation].self, forKey: .automations)) ?? []
+        todos = (try? c.decodeIfPresent([Todo].self, forKey: .todos)) ?? []
+        costsOff = (try? c.decodeIfPresent([String].self, forKey: .costsOff)) ?? []
+    }
+}
+
+/// Writes chats.json off the main thread, one write at a time and always the newest state: quick saves coalesce, and
+/// an older snapshot can never land after a newer one.
+private final class ChatsWriter: @unchecked Sendable {
+    static let shared = ChatsWriter()
+    private let queue = DispatchQueue(label: "hermit.chats.save", qos: .utility)
+    private let lock = NSLock()
+    private var pending: (url: URL, saved: SavedChats)?
+
+    func write(_ saved: SavedChats, to url: URL) {
+        let idle: Bool = lock.withLock {
+            let wasIdle = pending == nil
+            pending = (url, saved)
+            return wasIdle
+        }
+        if idle { queue.async { self.writePending() } }
+    }
+
+    /// Waits for a write in progress, then writes whatever is still waiting.
+    func flushNow() { queue.sync { writePending() } }
+
+    private func writePending() {
+        let next: (url: URL, saved: SavedChats)? = lock.withLock {
+            let p = pending
+            pending = nil
+            return p
+        }
+        guard let next, let json = try? JSONEncoder().encode(next.saved) else { return }
+        try? json.write(to: next.url, options: .atomic)
     }
 }

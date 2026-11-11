@@ -32,7 +32,7 @@ struct CloudSettings: View {
             Hairline()
             SettingRow(title: "Model", sub: "Open models NEAR runs in TEEs (Intel TDX and NVIDIA confidential GPUs)") {
                 if status.models.isEmpty {
-                    Text(status.model).font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                    Text(status.model).font(.system(size: 12.5)).foregroundStyle(Theme.hint)
                 } else {
                     ValueMenu(selection: $status.model, options: status.models.map(\.id)) { id in
                         status.models.first { $0.id == id }.map { "\($0.name)" } ?? id
@@ -62,13 +62,13 @@ struct CloudSettings: View {
         SettingRow(title: "NEAR AI Cloud API key", sub: keySub) {
             if status.hasOwnKey {
                 HStack(spacing: 8) {
-                    Text("Saved").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
-                    Button("Remove") { status.setKey(nil); model.toast("Key removed") }.buttonStyle(PlainCardButton())
+                    Text("Saved").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
+                    Button("Remove") { model.toast(status.setKey(nil) ? "Key removed" : "Couldn't remove the key. Try again.") }.buttonStyle(PlainCardButton())
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        SecureField(text: $draft, prompt: Text("sk-…").foregroundStyle(Theme.faint)) { Text("API key") }
+                        SecureField(text: $draft, prompt: Text("sk-…").foregroundStyle(Theme.hint)) { Text("API key") }
                             .textFieldStyle(.plain).font(.system(size: 13.5, design: .monospaced)).focused($focused)
                             .autocorrectionDisabled()
                             #if os(iOS)
@@ -128,8 +128,11 @@ struct CloudSettings: View {
             let check = await NearAICloud().checkKey(k)
             checkingKey = false
             if check == .rejected { keyError = "NEAR AI didn't accept this key. Check it and try again."; return }
-            status.setKey(k)
-            guard NearAICloud.ownKey == k else { keyError = "Couldn't save the key in the Keychain. Try again."; return }
+            guard status.setKey(k), NearAICloud.ownKey == k else {
+                keyError = "Couldn't save the key in the Keychain. Try again."
+                model.toast("Couldn't save the key. Try again.")
+                return
+            }
             draft = ""; focused = false
             switch check {
             case .valid: model.toast("Key saved on \(Device.here)")

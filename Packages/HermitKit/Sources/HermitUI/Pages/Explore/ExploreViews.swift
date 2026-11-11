@@ -63,7 +63,7 @@ struct ExploreCard: View {
                 LogoMark(dapp.name, size: 36).frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(dapp.name).font(.system(size: 14, weight: .medium)).lineLimit(1...2).fixedSize(horizontal: false, vertical: true)
-                    Text(dapp.cat).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
+                    Text(dapp.cat).font(.system(size: 12.5)).foregroundStyle(Theme.hint).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -72,7 +72,7 @@ struct ExploreCard: View {
             // Two short lines so a narrow phone card never cuts them: TVL and its week, then the chain.
             VStack(alignment: .leading, spacing: 2) {
                 ExploreTVLText(dapp: dapp).lineLimit(1).minimumScaleFactor(0.85)
-                Text(dapp.chain).foregroundStyle(Theme.faint).lineLimit(1)
+                Text(dapp.chain).foregroundStyle(Theme.hint).lineLimit(1)
             }
             .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
             ExploreConnectButton(dapp: dapp, block: true)
@@ -110,7 +110,7 @@ struct ExploreRow: View {
             }
             Spacer(minLength: 8)
             if !compact {
-                ExploreTVLText(dapp: dapp).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1)
+                ExploreTVLText(dapp: dapp).font(.system(size: 12.5)).foregroundStyle(Theme.hint).lineLimit(1)
                     .frame(width: 170, alignment: .trailing)
             }
             ExploreConnectButton(dapp: dapp)

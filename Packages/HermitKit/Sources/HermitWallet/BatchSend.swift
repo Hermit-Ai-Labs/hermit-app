@@ -1,4 +1,5 @@
 import Foundation
+import HermitCore
 
 /// One recipient of a batch send, and where its transfer is.
 public struct BatchRow: Codable, Sendable, Identifiable, Equatable {
@@ -96,7 +97,9 @@ extension WalletService {
         var total: UInt128 = 0
         for (i, r) in recipients.enumerated() {
             let input = r.address.trimmingCharacters(in: .whitespacesAndNewlines)
-            let amountText = r.amount.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: "")
+            // Thousands commas ("1,000") go; any other comma ("25,5", "1.000,50") makes the row unclear, never a bigger amount.
+            let rawAmount = r.amount.trimmingCharacters(in: .whitespacesAndNewlines)
+            let amountText = RecipientTable.ungrouped(rawAmount) ?? ""
             var problem: String?, address = ""
             if let a = EVMAddress(input) {
                 address = a.checksummed
@@ -108,6 +111,7 @@ extension WalletService {
                 if fromPicture && noChecksum && !known { problem = "Read from a picture without a checksum. Paste this address instead." }
                 else if a == me { problem = "That's this wallet" }
                 else if let first = seen[address.lowercased()] { problem = "Same address as row \(first)" }
+                else if let block = whitelistBlock(chain: chain, to: address) { problem = block }
                 else { seen[address.lowercased()] = i + 1 }
             } else if ENS.looksLikeName(input) {
                 problem = "Names aren't looked up in a batch; use the 0x address"
@@ -118,7 +122,8 @@ extension WalletService {
             }
             var value: UInt128 = 0
             if problem == nil {
-                if amountText.isEmpty { problem = "No amount" }
+                if amountText.isEmpty && !rawAmount.isEmpty { problem = "Unclear amount. Write it with a dot, like 25.5" }
+                else if amountText.isEmpty { problem = "No amount" }
                 else if let v = try? Units.parse(amountText, decimals: decimals), v > 0 { value = v }
                 else { problem = "Amount \(amountText) isn't valid for \(sym)" }
             }

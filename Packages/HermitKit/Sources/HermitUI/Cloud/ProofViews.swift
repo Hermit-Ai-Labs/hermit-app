@@ -150,7 +150,7 @@ struct ProofSheet: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(source(c)).font(.system(size: 11)).foregroundStyle(Theme.faint).multilineTextAlignment(.trailing).fixedSize()
+            Text(source(c)).font(.system(size: 11)).foregroundStyle(Theme.hint).multilineTextAlignment(.trailing).fixedSize()
         }
         .padding(.vertical, 10)
     }

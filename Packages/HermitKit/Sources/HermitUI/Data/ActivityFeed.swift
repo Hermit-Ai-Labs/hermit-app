@@ -48,18 +48,26 @@ struct ActivityItem: Identifiable, Hashable, Sendable, Codable {
 @MainActor
 final class ActivityLedger {
     static let shared = ActivityLedger()
-    private let key = "hermit.activity.events"
+    /// Its own file (Application Support/Hermit), not UserDefaults: the preferences plist loads whole at launch.
+    private let file = "activity.json"
+    /// Where it used to live, read once to move it over.
+    private let oldKey = "hermit.activity.events"
     private(set) var items: [ActivityItem] = []
 
     private init() {
-        if let d = UserDefaults.standard.data(forKey: key), let l = try? JSONDecoder().decode([ActivityItem].self, from: d) { items = l }
+        if let l = LocalJSON.load(file, as: [ActivityItem].self) {
+            items = l
+        } else if let d = UserDefaults.standard.data(forKey: oldKey), let l = try? JSONDecoder().decode([ActivityItem].self, from: d) {
+            items = l
+            if LocalJSON.save(l, file) { UserDefaults.standard.removeObject(forKey: oldKey) }
+        }
     }
 
     func record(_ item: ActivityItem) {
         items.removeAll { $0.id == item.id }
         items.insert(item, at: 0)
         items = Array(items.prefix(300))
-        if let d = try? JSONEncoder().encode(items) { UserDefaults.standard.set(d, forKey: key) }
+        LocalJSON.save(items, file)
         ActivityFeed.shared.rebuild()
     }
 
@@ -131,7 +139,11 @@ final class ActivityFeed {
         var out: [ActivityItem] = [], bad: [String] = []
         await withTaskGroup(of: (String?, [ActivityItem]).self) { g in
             for (name, _, job) in jobs {
-                g.addTask { do { return (nil, try await job()) } catch { return (name, []) } }
+                g.addTask {
+                    do { return (nil, try await job()) }
+                    catch let p as PartialHistory { return (name, p.items) }   // shown, and the notice says some is missing
+                    catch { return (name, []) }
+                }
             }
             for await (err, list) in g { out += list; if let err { bad.append(err) } }
         }
@@ -177,36 +189,65 @@ final class ActivityFeed {
     }
 }
 
+/// Some of a network's history was read: these items show, and the page says the rest couldn't be.
+struct PartialHistory: Error { let items: [ActivityItem] }
+
 /// History straight from the chains.
 enum ChainHistory {
     // MARK: Solana
 
     /// The last 15 transactions touching the address, read in full and reduced to what changed for it.
+    /// Finalized ones never change, so each is read once and then comes from disk. The public node allows about 10
+    /// getTransaction calls per 10 seconds, so the rest are read two at a time. One that can't be read still shows (its
+    /// signature and explorer link), and the whole list comes back as a PartialHistory so the page says so.
     static func solana(address: String, walletID: String) async throws -> [ActivityItem] {
         let chain = Chain.solana
         let rpc = JSONRPCClient(url: chain.rpc)
         let sigs = try await rpc.call("getSignaturesForAddress", [.string(address), .object(["limit": .number(15)])]).array ?? []
-        var out: [ActivityItem] = []
-        for start in stride(from: 0, to: sigs.count, by: 4) {
-            let chunk = Array(sigs[start..<min(start + 4, sigs.count)])
-            let got: [ActivityItem] = await withTaskGroup(of: ActivityItem?.self) { g in
-                for s in chunk {
-                    guard let sig = s["signature"]?.string else { continue }
-                    let when = s["blockTime"]?.double.map { Date(timeIntervalSince1970: $0) } ?? Date()
-                    let failed = !(s["err"]?.isNull ?? true)
+        let cacheName = "sol-history-\(walletID)-\(address)"
+        let cached = MarketDiskCache.load(cacheName, maxAge: 30 * 86_400, as: [String: ActivityItem].self) ?? [:]
+        var keep: [String: ActivityItem] = [:]
+        var out: [ActivityItem] = [], missed = false
+        var todo: [(sig: String, when: Date, failed: Bool, final: Bool)] = []
+        for s in sigs {
+            guard let sig = s["signature"]?.string else { continue }
+            if let hit = cached[sig] { out.append(hit); keep[sig] = hit; continue }
+            todo.append((sig: sig, when: s["blockTime"]?.double.map { Date(timeIntervalSince1970: $0) } ?? Date(),
+                         failed: !(s["err"]?.isNull ?? true), final: s["confirmationStatus"]?.string == "finalized"))
+        }
+        for start in stride(from: 0, to: todo.count, by: 2) {
+            if start > 0 { try? await Task.sleep(for: .milliseconds(150)) }
+            let got: [(Int, JSON?)] = await withTaskGroup(of: (Int, JSON?).self) { g in
+                for k in start..<min(start + 2, todo.count) {
+                    let sig = todo[k].sig
                     g.addTask {
-                        guard let tx = try? await rpc.call("getTransaction", [.string(sig), .object([
-                            "encoding": .string("jsonParsed"), "maxSupportedTransactionVersion": .number(0), "commitment": .string("confirmed")])])
-                        else { return nil }
-                        return solanaItem(tx, sig: sig, when: when, failed: failed, me: address, chain: chain, walletID: walletID)
+                        // Version 1 too: dapps (Jupiter, Kamino) sign v1 transactions, and asking for 0 drops them.
+                        let tx = try? await rpc.call("getTransaction", [.string(sig), .object([
+                            "encoding": .string("jsonParsed"), "maxSupportedTransactionVersion": .number(1), "commitment": .string("confirmed")])])
+                        return (k, tx)
                     }
                 }
-                var r: [ActivityItem] = []
-                for await i in g { if let i { r.append(i) } }
+                var r: [(Int, JSON?)] = []
+                for await x in g { r.append(x) }
                 return r
             }
-            out += got
+            for (k, tx) in got {
+                let t = todo[k]
+                if let tx, !tx.isNull {
+                    guard let item = solanaItem(tx, sig: t.sig, when: t.when, failed: t.failed, me: address, chain: chain, walletID: walletID) else { continue }
+                    out.append(item)
+                    if t.final { keep[t.sig] = item }
+                } else {
+                    missed = true
+                    out.append(ActivityItem(id: t.sig, kind: .contract, chainID: chain.id, walletID: walletID, what: "Transaction",
+                                            detail: "Details couldn't be read", amount: nil, symbol: "", date: t.when, tx: t.sig,
+                                            status: t.failed ? "Failed" : "Confirmed", link: chain.explorerURL(tx: t.sig)))
+                }
+            }
         }
+        // Only the signatures still in the last 15, so the file stays small.
+        if keep != cached { MarketDiskCache.save(cacheName, keep) }
+        if missed { throw PartialHistory(items: out) }
         return out
     }
 
@@ -302,9 +343,13 @@ enum ChainHistory {
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         func when(_ s: Any?) -> Date { (s as? String).flatMap { iso.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } ?? Date() }
         func hash(_ v: Any?) -> String { ((v as? [String: Any])?["hash"] as? String ?? "").lowercased() }
-        let d = try await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/token-transfers?limit=25")
-        if let j = try JSONSerialization.jsonObject(with: d) as? [String: Any], let items = j["items"] as? [[String: Any]] {
-            for t in items {
+        // Blockscout pages are a fixed size and refuse `limit` and `filter` (HTTP 422), so both reads are plain and
+        // trimmed here. Each stands alone: one failing still shows the other, and the page says some is missing.
+        var reads = 0
+        if let d = try? await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/token-transfers"),
+           let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let items = j["items"] as? [[String: Any]] {
+            reads += 1
+            for t in items.prefix(25) {
                 guard let tx = t["transaction_hash"] as? String, let total = t["total"] as? [String: Any], let token = t["token"] as? [String: Any] else { continue }
                 let dec = Int(token["decimals"] as? String ?? "") ?? 18
                 let amt = Double(Units.format(UInt128(total["value"] as? String ?? "") ?? 0, decimals: dec)) ?? 0
@@ -316,8 +361,9 @@ enum ChainHistory {
                                         date: when(t["timestamp"]), tx: tx, status: "Confirmed", link: chain.explorerURL(tx: tx)))
             }
         }
-        let d2 = try await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/transactions?filter=to%20%7C%20from")
-        if let j = try JSONSerialization.jsonObject(with: d2) as? [String: Any], let items = j["items"] as? [[String: Any]] {
+        if let d2 = try? await MarketHTTP.data("https://\(host)/api/v2/addresses/\(address)/transactions"),
+           let j = (try? JSONSerialization.jsonObject(with: d2)) as? [String: Any], let items = j["items"] as? [[String: Any]] {
+            reads += 1
             for t in items.prefix(25) {
                 guard let tx = t["hash"] as? String else { continue }
                 let amt = Double(Units.format(UInt128(t["value"] as? String ?? "") ?? 0, decimals: 18)) ?? 0
@@ -336,6 +382,8 @@ enum ChainHistory {
                 }
             }
         }
+        if reads == 0 { throw MarketError.shape }
+        if reads == 1 { throw PartialHistory(items: out) }
         return out
     }
 

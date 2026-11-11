@@ -22,7 +22,7 @@ struct LevelCandles: View {
                     let v = mn + (mx - mn) * (Double(k) + 0.5) / 4
                     var grid = Path(); grid.move(to: CGPoint(x: 0, y: y(v))); grid.addLine(to: CGPoint(x: plotW, y: y(v)))
                     ctx.stroke(grid, with: .color(Theme.border), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                    ctx.draw(Text(Self.label(v, span: mx - mn)).font(.system(size: 10)).foregroundStyle(Theme.faint),
+                    ctx.draw(Text(Self.label(v, span: mx - mn)).font(.system(size: 10)).foregroundStyle(Theme.hint),
                              at: CGPoint(x: size.width, y: y(v)), anchor: .trailing)
                 }
             }
@@ -105,7 +105,7 @@ struct PriceCard: View {
         } content: {
             VStack(spacing: 6) {
                 LevelCandles(data: Candle.series(seed: seed, count: days * 2, start: 100, vol: 0.025, drift: 0.005), axis: false).frame(height: 150)
-                HStack { Text("\(days) days ago"); Spacer(); Text("Today") }.font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+                HStack { Text("\(days) days ago"); Spacer(); Text("Today") }.font(.system(size: 11.5)).foregroundStyle(Theme.hint)
             }
         }
     }
@@ -124,7 +124,7 @@ struct PnlCard: View {
         } content: {
             VStack(spacing: 6) {
                 LineChart(values: series).frame(height: 110)
-                HStack { Text("\(days) days ago"); Spacer(); Text("Today") }.font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+                HStack { Text("\(days) days ago"); Spacer(); Text("Today") }.font(.system(size: 11.5)).foregroundStyle(Theme.hint)
             }
         }
     }
@@ -211,7 +211,7 @@ struct KolCard: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(k.handle).font(.system(size: 13.5, weight: .medium))
-                                Text(k.followers).font(.system(size: 12)).foregroundStyle(Theme.faint)
+                                Text(k.followers).font(.system(size: 12)).foregroundStyle(Theme.hint)
                             }
                             Text(k.note).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                         }
@@ -377,7 +377,7 @@ struct NewsCard: View {
         ChatCard {
             CardTitle("Top stories")
             Spacer()
-            Text("Last 6 hours").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Text("Last 6 hours").font(.system(size: 12)).foregroundStyle(Theme.hint)
         } content: {
             VStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { i, n in

@@ -78,25 +78,38 @@ public struct ZipArchive {
 /// 0.1 reads 0.1 and not 0.1000000000000000055), booleans. Formulas give their cached value. Empty cells keep their
 /// column so rows line up.
 public enum XLSXText {
-    public struct Sheet: Sendable { public let name: String; public let rows: [[String]] }
+    public struct Sheet: Sendable {
+        public let name: String
+        public let rows: [[String]]
+        /// True when reading stopped at `SheetRows.maxRows`: the sheet has more rows than `rows` holds.
+        public var capped = false
+        public static var maxRows: Int { SheetRows.maxRows }
+    }
 
     public static func sheets(_ data: Data) -> [Sheet]? {
         guard let zip = ZipArchive(data), zip.entry("xl/workbook.xml") != nil else { return nil }
         let shared = zip.read("xl/sharedStrings.xml").map(SharedStrings.parse) ?? []
         // Sheet order and names from workbook.xml, files from its relationships; any worksheet left over after them.
+        // Hidden sheets are skipped: what the user can't see in the file isn't read as theirs (a payee list, say).
         let book = zip.read("xl/workbook.xml").map(Workbook.parse) ?? []
         let rels = zip.read("xl/_rels/workbook.xml.rels").map(Rels.parse) ?? [:]
         var files: [(String, String)] = book.compactMap { s in
-            guard let t = rels[s.rid] else { return nil }
+            guard !s.hidden, let t = rels[s.rid] else { return nil }
             let path = t.hasPrefix("/") ? String(t.dropFirst()) : (t.hasPrefix("xl/") ? t : "xl/" + t)
             return (s.name, path)
         }
-        if files.isEmpty {
+        // No sheet list to go by (a workbook without relationships): every worksheet, unless some are marked hidden.
+        if files.isEmpty && !book.contains(where: { $0.hidden }) {
             files = zip.entries.map(\.name).filter { $0.hasPrefix("xl/worksheets/sheet") && $0.hasSuffix(".xml") }.sorted {
                 $0.localizedStandardCompare($1) == .orderedAscending
             }.map { (String($0.dropFirst("xl/worksheets/".count).dropLast(4)), $0) }
         }
-        return files.compactMap { name, path in zip.read(path).map { Sheet(name: name, rows: SheetRows.parse($0, shared: shared)) } }
+        return files.compactMap { name, path in
+            zip.read(path).map { (d: Data) -> Sheet in
+                let (rows, capped) = SheetRows.read(d, shared: shared)
+                return Sheet(name: name, rows: rows, capped: capped)
+            }
+        }
     }
 
     /// Rows as CSV lines (cells with commas or quotes quoted), trailing empty cells dropped.
@@ -124,11 +137,11 @@ public enum XLSXText {
     }
 
     final class Workbook: NSObject, XMLParserDelegate {
-        var out: [(name: String, rid: String)] = []
-        static func parse(_ d: Data) -> [(name: String, rid: String)] { let s = Workbook(); let p = XMLParser(data: d); p.delegate = s; p.parse(); return s.out }
+        var out: [(name: String, rid: String, hidden: Bool)] = []
+        static func parse(_ d: Data) -> [(name: String, rid: String, hidden: Bool)] { let s = Workbook(); let p = XMLParser(data: d); p.delegate = s; p.parse(); return s.out }
         func parser(_ p: XMLParser, didStartElement e: String, namespaceURI: String?, qualifiedName: String?, attributes a: [String: String] = [:]) {
             guard local(e) == "sheet", let name = a["name"], let rid = a.first(where: { local($0.key) == "id" })?.value else { return }
-            out.append((name, rid))
+            out.append((name, rid, a["state"] == "hidden" || a["state"] == "veryHidden"))
         }
     }
 
@@ -147,9 +160,12 @@ public enum XLSXText {
         /// Stop after this many rows: the text is cut for the model anyway, and a 1M-row sheet shouldn't stall the phone.
         static let maxRows = 5000
         init(shared: [String]) { self.shared = shared }
-        static func parse(_ d: Data, shared: [String]) -> [[String]] {
-            let s = SheetRows(shared: shared); let p = XMLParser(data: d); p.delegate = s; p.parse(); return s.rows
+        static func parse(_ d: Data, shared: [String]) -> [[String]] { read(d, shared: shared).rows }
+        /// The rows, and whether reading stopped at `maxRows` with more rows left.
+        static func read(_ d: Data, shared: [String]) -> (rows: [[String]], capped: Bool) {
+            let s = SheetRows(shared: shared); let p = XMLParser(data: d); p.delegate = s; p.parse(); return (s.rows, s.capped)
         }
+        var capped = false
         func parser(_ p: XMLParser, didStartElement e: String, namespaceURI: String?, qualifiedName: String?, attributes a: [String: String] = [:]) {
             switch local(e) {
             case "row": row = []
@@ -181,8 +197,8 @@ public enum XLSXText {
                     if row.count == col { row.append(text) } else { row[col] = text }
                 }
             case "row":
+                if rows.count >= Self.maxRows { capped = true; p.abortParsing(); return }
                 rows.append(row)
-                if rows.count >= Self.maxRows { p.abortParsing() }
             default: break
             }
         }

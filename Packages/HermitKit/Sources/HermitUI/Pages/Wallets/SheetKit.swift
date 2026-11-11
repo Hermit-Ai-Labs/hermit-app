@@ -45,6 +45,7 @@ struct SheetChrome<Content: View, Foot: View>: View {
                             .frame(width: 28, height: 28).background(Theme.hover, in: Circle())
                     }
                     .buttonStyle(PressStyle()).keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Back")
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -143,7 +144,7 @@ struct FormField<Content: View>: View {
             HStack {
                 Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
-                if let trailing { Text(trailing).font(.system(size: 12.5)).foregroundStyle(Theme.faint).monospacedDigit() }
+                if let trailing { Text(trailing).font(.system(size: 12.5)).foregroundStyle(Theme.hint).monospacedDigit() }
             }
             content()
         }
@@ -191,7 +192,7 @@ struct AmountField: View {
                 .keyboardType(.decimalPad)
                 #endif
                 .focused($focus)
-            if let suffix { Text(suffix).font(.system(size: 13)).foregroundStyle(Theme.faint) }
+            if let suffix { Text(suffix).font(.system(size: 13)).foregroundStyle(Theme.hint) }
         }
         .modifier(FieldBox(focused: focus))
     }
@@ -559,8 +560,10 @@ struct ApprovalHost: ViewModifier {
                 closeSheets()
                 Task { @MainActor in
                     if wait { try? await Task.sleep(for: .milliseconds(450)) }
-                    pending = (a.id, model.approvalCount, then)
                     model.approval = a
+                    // AppModel turns a review away while another one is signing: then this one's follow-up never runs
+                    // when that other sheet closes.
+                    if model.approval?.uid == a.uid { pending = (a.id, model.approvalCount, then) }
                 }
             })
             .onChange(of: model.approval == nil) { _, closed in

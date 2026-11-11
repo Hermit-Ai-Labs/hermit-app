@@ -7,8 +7,9 @@ import HermitWallet
 /// "inf", "nan", "1e3" and "0x10" are rejected (Double() takes some of them), and so is anything from 1e15 up.
 enum TradeAmount {
     static func value(_ s: String) -> Double? {
-        let t = s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
-        guard !t.isEmpty, t != "." else { return nil }
+        // A comma is never just dropped: "1,000" is a thousand, a decimal comma ("0,5" in France) is read as one, and an
+        // unclear one ("1,5" in the US) is nil.
+        guard let t = AmountText.normalize(s), !t.isEmpty, t != "." else { return nil }
         var dots = 0
         for u in t.unicodeScalars {
             if u == "." { dots += 1 } else if u.value < 48 || u.value > 57 { return nil }
@@ -20,7 +21,7 @@ enum TradeAmount {
     /// Exact base units for typed text ("1.5" with 6 decimals -> 1_500_000), through the wallet's own parser.
     /// Nil for junk, zero, more decimals than the token has, or anything that doesn't fit a UInt64.
     static func baseUnits(text: String, decimals: Int) -> UInt64? {
-        guard let v = try? Units.parse(text, decimals: decimals), v > 0 else { return nil }
+        guard let v = try? Units.parse(AmountText.clean(text), decimals: decimals), v > 0 else { return nil }
         return UInt64(exactly: v)
     }
 

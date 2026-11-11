@@ -224,7 +224,12 @@ public struct HermitToolbox: AgentToolbox {
                     ["coin": p.coin, "side": p.size > 0 ? "long" : "short", "size": abs(p.size), "entry": p.entry,
                      "liquidation": p.liquidation.map { $0 as Any } ?? NSNull(), "unrealised_pnl": p.pnl, "leverage": p.leverage]
                 },
-                "open_orders": a.orders.map { o -> [String: Any] in ["coin": o.coin, "side": o.isBuy ? "buy" : "sell", "price": o.price, "size": o.size] }]
+                "open_orders": a.orders.map { o -> [String: Any] in
+                    ["coin": o.coin, "side": o.isBuy ? "buy" : "sell", "price": o.price, "size": o.size, "order_type": o.orderType,
+                     "is_trigger": o.isTrigger, "trigger_price": o.triggerPx, "trigger_condition": o.triggerCondition,
+                     "whole_position": o.isPositionTpsl || o.size == 0]
+                },
+                "account_mode": a.mode]
     }
 
     @MainActor static func yields(asset: String?, chain: String?) async -> [[String: Any]] {
@@ -401,11 +406,18 @@ public struct HermitToolbox: AgentToolbox {
         if let tp = tpIn { lines.append(["Take profit", "$\(tp)"]) }
         if let sl = slIn { lines.append(["Stop loss", "$\(sl)"]) }
         lines.append(["Asked for by", "\(label), from your message"])
+        // Leverage is per coin: changing it also changes an open position in this coin (as on the Trade page).
+        let cur = hl.account?.positions.first { $0.coin == asset.coin }
+        var warnings = verdict.warnings + ["Leveraged trades can lose all their margin"]
+        if !(cur?.leverage == lev && cur?.cross == !asset.onlyIsolated) {
+            lines.insert(["Leverage", "Sets \(coin) to \(lev)x"], at: 4)
+            if cur != nil { warnings.append("This also changes the leverage of your open \(coin) position.") }
+        }
         let spent = Decimal(margin)
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(coin)", lines: lines,
-                                checks: verdict.passed + ["Signed on \(Device.here) with your wallet's key", "Leveraged trades can lose all their margin"],
-                                success: "\(isBuy ? "Long" : "Short") \(coin) sent", warnings: verdict.warnings) {
-            let summary = try await trader.place(order, leverage: lev).summary
+                                checks: verdict.passed + ["Signed on \(Device.here) with your wallet's key"],
+                                success: "\(isBuy ? "Long" : "Short") \(coin) sent", warnings: warnings) {
+            let summary = try await trader.place(order, leverage: lev, current: cur).summary
             policy.limit.record(usd: spent)
             return summary
         }
@@ -425,7 +437,8 @@ public struct HermitToolbox: AgentToolbox {
         guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         // The spending policy for an assistant-prepared send: daily limit, the per-move cap, priced tokens only.
         let sym = symbol.uppercased()
-        let usd: Double? = try await sendValueUSD(symbol: sym, amount: Double(amount))
+        // Read the way prepareSend reads it (English numbers, "1,000" is a thousand), so the policy prices the same amount.
+        let usd: Double? = try await sendValueUSD(symbol: sym, amount: AmountText.normalize(amount, decimalSeparator: ".").flatMap { TradeAmount.value($0) })
         let verdict = vm.service.policy.evaluateAgentSend(usd: usd, payee: (to, chain.kind))
         if verdict.decision == .block {
             return Self.json(["status": "blocked", "reasons": verdict.blocks, "note": "Nothing was prepared. Tell the user why."])

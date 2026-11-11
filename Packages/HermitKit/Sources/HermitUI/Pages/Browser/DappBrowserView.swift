@@ -88,7 +88,7 @@ struct DappBrowserView: View {
                             .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(session.secure && session.warnings.isEmpty ? Theme.muted : Theme.amber)
                         if !session.secure { Text("Not secure").foregroundStyle(Theme.amber).fixedSize() }
-                        Text("\(Text(session.host).foregroundStyle(Theme.text).fontWeight(.medium))\(Text(compact ? "" : pathText).foregroundStyle(Theme.faint))")
+                        Text("\(Text(session.host).foregroundStyle(Theme.text).fontWeight(.medium))\(Text(compact ? "" : pathText).foregroundStyle(Theme.hint))")
                             .lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 4)
                         connection

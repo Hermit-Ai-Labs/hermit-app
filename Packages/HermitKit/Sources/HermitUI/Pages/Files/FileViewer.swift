@@ -131,7 +131,7 @@ struct FileViewer: View {
             VStack(alignment: .leading, spacing: 7 * z) {
                 ForEach(properties(f), id: \.0) { p in
                     HStack(spacing: 0) {
-                        Text(p.0).foregroundStyle(Theme.faint).frame(width: 110 * z, alignment: .leading)
+                        Text(p.0).foregroundStyle(Theme.hint).frame(width: 110 * z, alignment: .leading)
                         Text(p.1)
                     }
                     .font(.system(size: 13.5 * z))
@@ -184,7 +184,7 @@ private struct FileBody: View {
         return LazyVStack(alignment: .leading, spacing: 3 * z) {
             ForEach(Array(lines.enumerated()), id: \.offset) { i, l in
                 HStack(alignment: .firstTextBaseline, spacing: 14 * z) {
-                    Text("\(i + 1)").foregroundStyle(Theme.faint).frame(width: 34 * z, alignment: .trailing)
+                    Text("\(i + 1)").foregroundStyle(Theme.hint).frame(width: 34 * z, alignment: .trailing)
                     Text(l.isEmpty ? " " : l).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -222,7 +222,7 @@ private struct FileTable: View {
             }
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
             if rows.count > shown.count {
-                Text("Showing the first \(shown.count) of \(rows.count) rows.").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text("Showing the first \(shown.count) of \(rows.count) rows.").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
         }
     }

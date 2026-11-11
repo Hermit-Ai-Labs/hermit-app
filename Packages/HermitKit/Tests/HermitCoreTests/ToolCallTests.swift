@@ -105,11 +105,17 @@ final class HermitPromptTests: XCTestCase {
         golden = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
     }
 
+    /// The app's text with the edits Hermit 1.2 wasn't trained on undone (HermitPrompt.untrainedEdits).
+    func trained(_ s: String) -> String {
+        HermitPrompt.untrainedEdits.reduce(s) { $0.replacingOccurrences(of: $1.app, with: $1.trained) }
+    }
+    var trainedTools: [String] { HermitPrompt.trainedToolLines.map(trained) }
+
     /// The same conversation the golden file renders with hermit_fmt.render_text (training's own code).
     func conversation() -> [HermitPrompt.Message] {
         func c(_ s: String) -> ToolCall { ToolCall.parse(s)! }
         return [
-            .system(HermitPrompt.system(name: "Maya", memory: ["Keep answers very short."])),
+            .system(HermitPrompt.system(trained(HermitPrompt.agentSystem), name: "Maya", memory: ["Keep answers very short."])),
             .user("what's HYPE at, and how much is 0.5 ETH?"),
             .assistant("", calls: [c(#"{"name": "get_price", "arguments": {"symbol": "HYPE"}}"#),
                                    c(#"{"name": "calculator", "arguments": {"expression": "0.5 * 3412.55"}}"#)]),
@@ -123,15 +129,30 @@ final class HermitPromptTests: XCTestCase {
     }
 
     func testToolBlockMatchesTraining() {
-        XCTAssertEqual(HermitPrompt.toolsBlock(HermitPrompt.trainedToolLines), golden["tools_block"])
+        XCTAssertEqual(HermitPrompt.toolsBlock(trainedTools), golden["tools_block"])
+    }
+
+    /// Every listed edit is really in the app's prompt, once, so the list can't hide a drift it doesn't name.
+    func testUntrainedEditsAreReal() {
+        let app = HermitPrompt.agentSystem + "\n" + HermitPrompt.trainedToolLines.joined(separator: "\n")
+        for e in HermitPrompt.untrainedEdits {
+            XCTAssertEqual(app.components(separatedBy: e.app).count, 2, e.app)
+        }
     }
 
     func testRenderMatchesTraining4B() {
-        XCTAssertEqual(HermitPrompt.render(conversation(), tools: HermitPrompt.trainedToolLines, family: .instruct, addGenerationPrompt: true), golden["4b"])
+        XCTAssertEqual(HermitPrompt.render(conversation(), tools: trainedTools, family: .instruct, addGenerationPrompt: true), golden["4b"])
     }
 
     func testRenderMatchesTrainingLite() {
-        XCTAssertEqual(HermitPrompt.render(conversation(), tools: HermitPrompt.trainedToolLines, family: .thinking, addGenerationPrompt: true), golden["lite"])
+        XCTAssertEqual(HermitPrompt.render(conversation(), tools: trainedTools, family: .thinking, addGenerationPrompt: true), golden["lite"])
+    }
+
+    /// The fixed part of the on-device prompt (system and the 15 tool lines) is about 9,100 characters of the 22,000
+    /// cap. A new tool or a long new rule shows up here first: raise this on purpose, with the next training run.
+    func testFixedPromptBudget() async {
+        let fixed = await ToolChat(config: .init(family: .instruct)).prompt().count
+        XCTAssertLessThan(fixed, 9_600)
     }
 
     func testRenderWithoutTools() {

@@ -94,6 +94,44 @@ final class NearIntentsTests: XCTestCase {
         XCTAssertTrue(IntentsAssets.symbols(at: .chain(.near), in: list).starts(with: ["NEAR", "USDC", "USDT"]))
     }
 
+    /// Vault shares 1Click prices at $0.000001 (100 USDC quoted about 88 million gtUSDCp), dust, deprecated copies and
+    /// look-alikes of Hermit's own symbols are never offered, and the assistant can't name them either.
+    func testJunkTokensAreNotOffered() async throws {
+        let r = Recorder(); r.answers["/v0/tokens"] = (try fixture("tokens"), 200)
+        var list = try await client(r).tokens(force: true)
+        list.append(IntentsToken(assetId: "nep245:v2_1.omni.hot.tg:56_old", decimals: 18, blockchain: "bsc", symbol: "USDC(DEPRECATED)",
+                                 price: 0.9995, contractAddress: "0x0000000000000000000000000000000000000001"))
+        let base = IntentsAssets.symbols(at: .chain(.base), in: list)
+        XCTAssertTrue(base.starts(with: ["ETH", "USDC"]), "\(base)")
+        for junk in ["gtUSDCp", "sparkUSDC", "mwUSDC", "sUSDC", "laUSDC", "FMS"] { XCTAssertFalse(base.contains(junk), junk) }
+        XCTAssertNil(IntentsAssets.token("gtUSDCp", at: .chain(.base), in: list))
+        let sol = IntentsAssets.symbols(at: .chain(.solana), in: list)
+        XCTAssertFalse(sol.contains("kV-gtSOLb")); XCTAssertTrue(sol.contains("TRUMP"), "\(sol)")
+        let near = IntentsAssets.symbols(at: .chain(.near), in: list)
+        for junk in ["BLACKDRAGON", "ABG", "GNEAR", "nrUsdt", "wNEAR"] { XCTAssertFalse(near.contains(junk), junk) }
+        XCTAssertTrue(near.contains("RHEA"))
+        XCTAssertNotNil(IntentsAssets.token("RHEA", at: .chain(.near), in: list))
+        XCTAssertFalse(IntentsAssets.symbols(at: .chain(.bnb), in: list).contains("USDC(DEPRECATED)"))
+    }
+
+    func testRouteMinimumAndLossInPlainWords() throws {
+        let low = OneClickError(status: 400, message: "Amount is too low for bridge, try at least 6188821")
+        XCTAssertEqual(low.minimum, 6_188_821)
+        XCTAssertEqual(low.minimumText(decimals: 6, symbol: "USDC"), "The minimum for this route is 6.188821 USDC.")
+        // Rounded up to what is shown, never down: 8301 sats is 0.000084 BTC at 6 places.
+        XCTAssertEqual(OneClickError(status: 400, message: "try at least 8301").minimumText(decimals: 8, symbol: "BTC"),
+                       "The minimum for this route is 0.000084 BTC.")
+        XCTAssertNil(OneClickError(status: 400, message: "Amount is too low").minimum)
+        XCTAssertEqual(OneClickError(status: 400, message: "No liquidity available").errorDescription,
+                       "No route for this pair right now. Try a larger or smaller amount, or another token.")
+        let req = IntentsQuoteRequest(dry: true, originAsset: "a", destinationAsset: "b", amount: 100_000_000, recipient: "x", refundTo: "y")
+        let costly = try IntentsQuote(request: req, raw: ["quote": ["amountIn": "100000000", "amountOut": "1", "amountInUsd": "100", "amountOutUsd": "88.5"]])
+        XCTAssertEqual(costly.lossFraction ?? 0, 0.115, accuracy: 0.0001)
+        XCTAssertEqual(costly.lossWarning, "You get about $88.50 for $100.00, a loss of 11.5%.")
+        let fair = try IntentsQuote(request: req, raw: ["quote": ["amountIn": "100000000", "amountOut": "1", "amountInUsd": "100", "amountOutUsd": "99.6"]])
+        XCTAssertNil(fair.lossWarning)
+    }
+
     func testQuoteRequestAndParse() async throws {
         let r = Recorder(); r.answers["/v0/quote"] = (try fixture("quote-dry-base-usdc-to-near"), 200)
         let req = IntentsQuoteRequest(dry: true, originAsset: "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",

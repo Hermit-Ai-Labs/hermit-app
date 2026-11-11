@@ -35,6 +35,15 @@ public enum HermitPrompt {
     If you don't know something, say so.
     """
 
+    /// Where the app's prompt is ahead of what Hermit 1.2 was trained on. The next run's data already has the app's
+    /// text (train/spec/SYSTEM_AGENT_v2.txt and hermit_tools_v2.json). Until that model ships, the tests undo exactly
+    /// these edits and check that everything else is byte for byte training's render (Fixtures/render_golden.json).
+    static let untrainedEdits: [(app: String, trained: String)] = [
+        (" Never ask the user what a price is or what they hold: get_price and the account tools tell you. Asked for a view "
+            + "on a coin, give its live price and 24h move, a short honest take with the risks, then offer to prepare the trade.", ""),
+        ("Prepare a swap or bridge (through NEAR Intents)", "Prepare a swap or bridge (via Relay)"),
+    ]
+
     /// The system prompt plus the user's name and hermit.md notes, appended the way training did (hermit_fmt.with_user).
     public static func system(_ base: String = agentSystem, name: String, memory: [String]) -> String {
         var s = base

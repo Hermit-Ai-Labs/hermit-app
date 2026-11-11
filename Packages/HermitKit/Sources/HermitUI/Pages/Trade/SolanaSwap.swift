@@ -170,7 +170,7 @@ struct SolanaSwapScreen: View {
                 Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Theme.faint)
                 TextField(memes ? "Search verified memes, or paste a mint" : "Search Jupiter-verified tokens, or paste a mint", text: $search)
                     .textFieldStyle(.plain).focused($searching).autocorrectionDisabled()
-                if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }.buttonStyle(.plain) }
+                if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }.buttonStyle(.plain).accessibilityLabel("Clear search") }
             }
             .font(.system(size: 14)).padding(.horizontal, 12).frame(height: 36)
             .background(Theme.hover, in: RoundedRectangle(cornerRadius: 10))
@@ -239,7 +239,7 @@ struct SolanaSwapScreen: View {
                         Text("You pay").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                         Spacer()
                         Text(payUSDC ? "\(MoneyFmt.amount(usdcHeld)) USDC available" : "\(MoneyFmt.amount(solHeld)) SOL available")
-                            .font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit()
+                            .font(.system(size: 12)).foregroundStyle(Theme.hint).monospacedDigit()
                     }
                     HStack(spacing: 8) {
                         TextField("0", text: $amtText).textFieldStyle(.plain).font(.system(size: 24, weight: .semibold)).monospacedDigit()
@@ -258,7 +258,7 @@ struct SolanaSwapScreen: View {
                             .buttonStyle(TradeSmallButton())
                         }
                         Spacer()
-                        if usd > 0 { Text("≈ " + MoneyFmt.usd(usd, digits: 2)).font(.system(size: 12)).foregroundStyle(Theme.faint) }
+                        if usd > 0 { Text("≈ " + MoneyFmt.usd(usd, digits: 2)).font(.system(size: 12)).foregroundStyle(Theme.hint) }
                     }
                 }
                 .padding(12).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
@@ -297,7 +297,7 @@ struct SolanaSwapScreen: View {
                     }
                 }
                 Text("Through Jupiter's API, into your own wallet. Only tokens on Jupiter's verified list. You approve on the review screen.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
             }
         } else {
             Text("Pick a token to buy.").font(.system(size: 13.5)).foregroundStyle(Theme.muted)

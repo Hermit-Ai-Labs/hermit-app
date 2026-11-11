@@ -35,4 +35,65 @@ final class HyperliquidTests: XCTestCase {
         XCTAssertEqual(Hyperliquid.wire(62000), "62000")
         XCTAssertEqual(Hyperliquid.wire(0.0015), "0.0015")
     }
+
+    func object(_ s: String) throws -> [String: Any] { try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any]) }
+
+    /// Shapes from the live info API (2026-11-11). A unified account keeps its USDC in the spot state; the perp dex states
+    /// show almost nothing.
+    func testUnifiedAccountReadsSpotUSDC() throws {
+        let main = try object(#"""
+        {"marginSummary":{"accountValue":"0.0","totalMarginUsed":"0.0"},"withdrawable":"0.0009","assetPositions":[
+          {"position":{"coin":"BTC","szi":"0.01","entryPx":"62000","positionValue":"625","unrealizedPnl":"12.5","returnOnEquity":"0.1",
+           "leverage":{"type":"isolated","value":5},"liquidationPx":"50000","marginUsed":"125"}}]}
+        """#)
+        let xyz = try object(#"{"marginSummary":{"accountValue":"1.43","totalMarginUsed":"0.0"},"withdrawable":"1.43","assetPositions":[]}"#)
+        let spot = try object(#"""
+        {"balances":[{"coin":"USDC","token":0,"total":"21374.99","hold":"3000.0","entryNtl":"0.0"}],"tokenToAvailableAfterMaintenance":[[0,"16982.98"]]}
+        """#)
+        let a = Hyperliquid.account(states: [main, xyz], orders: [], spot: spot, mode: "unifiedAccount")
+        XCTAssertTrue(a.isUnified)
+        XCTAssertEqual(a.withdrawable, 16982.98, accuracy: 0.001)
+        XCTAssertEqual(a.accountValue, 21374.99 + 12.5, accuracy: 0.001)
+        XCTAssertEqual(a.spotUSDC, 21374.99, accuracy: 0.001)
+        XCTAssertEqual(a.positions.first?.cross, false)
+        // Without the available-after-maintenance entry: total minus hold.
+        let bare = try object(#"{"balances":[{"coin":"USDC","token":0,"total":"79.38","hold":"0.0"}]}"#)
+        XCTAssertEqual(Hyperliquid.account(states: [main], orders: [], spot: bare, mode: "portfolioMargin").withdrawable, 79.38, accuracy: 0.001)
+        // A standard account adds each dex's own numbers and leaves spot USDC aside.
+        let std = Hyperliquid.account(states: [main, xyz], orders: [], spot: spot, mode: "default")
+        XCTAssertFalse(std.isUnified)
+        XCTAssertEqual(std.withdrawable, 0.0009 + 1.43, accuracy: 0.0001)
+        XCTAssertEqual(std.accountValue, 1.43, accuracy: 0.0001)
+        XCTAssertEqual(Hyperliquid.account(states: [main], orders: [], spot: nil, mode: nil).mode, "default")
+    }
+
+    func testTriggerOrdersKeepTheirTrigger() throws {
+        let stop = try object(#"""
+        {"coin":"BTC","oid":42,"side":"A","limitPx":"81510.0","sz":"0.0","reduceOnly":true,"timestamp":1762500000000,"orderType":"Stop Market",
+         "isTrigger":true,"triggerPx":"74100.0","triggerCondition":"Price above 74100","isPositionTpsl":true}
+        """#)
+        let limit = try object(#"{"coin":"ETH","oid":43,"side":"B","limitPx":"3000","sz":"0.5","timestamp":1762500000000}"#)
+        let a = Hyperliquid.account(states: [], orders: [[stop, limit]], spot: nil, mode: nil)
+        XCTAssertEqual(a.orders.count, 2)
+        let s = a.orders[0]
+        XCTAssertTrue(s.isTrigger); XCTAssertTrue(s.isPositionTpsl)
+        XCTAssertEqual(s.orderType, "Stop Market"); XCTAssertEqual(s.triggerPx, 74100); XCTAssertEqual(s.triggerCondition, "Price above 74100")
+        XCTAssertFalse(a.orders[1].isTrigger); XCTAssertEqual(a.orders[1].orderType, "Limit")
+    }
+
+    func testTakeProfitAndStopLossAnswersAreRead() {
+        let o = Hyperliquid.Order(asset: btc, isBuy: true, price: 62000, size: 0.001, takeProfit: 65000, stopLoss: 60000)
+        let p = HyperliquidTrader.protection(o, statuses: ["waitingForTrigger", ["error": "Invalid TP/SL price. asset=0"]])
+        XCTAssertEqual(p, [Hyperliquid.Protection(kind: "Take profit", error: nil),
+                           Hyperliquid.Protection(kind: "Stop loss", error: "Invalid TP/SL price. asset=0")])
+        let r = Hyperliquid.OrderResult.filled(oid: 1, size: 0.001, avgPrice: 62000, protection: p)
+        XCTAssertTrue(r.protectionFailed)
+        XCTAssertEqual(r.summary, "Filled 0.001 at $62000. Take profit set. Stop loss not set: Invalid TP/SL price. asset=0")
+        // An answer that's missing never counts as set.
+        let missing = HyperliquidTrader.protection(o, statuses: [["resting": ["oid": 7]]])
+        XCTAssertNil(missing[0].error)
+        XCTAssertEqual(missing[1].error, "Hyperliquid didn't confirm it")
+        XCTAssertEqual(Hyperliquid.OrderResult.resting(oid: 2).summary, "Order placed")
+        XCTAssertTrue(HyperliquidTrader.protection(.init(asset: btc, isBuy: true, price: 62000, size: 0.001), statuses: []).isEmpty)
+    }
 }

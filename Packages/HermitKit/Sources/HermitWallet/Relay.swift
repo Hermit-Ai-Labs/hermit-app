@@ -49,6 +49,12 @@ public enum Relay {
         /// Part of `feeUSD` that is a one-time setup cost on the destination, not the transfer itself: Hyperliquid
         /// charges a brand-new account about 1 USDC to activate it (Relay's "relayerGas" on its first deposit). 0 otherwise.
         public var setupUSD: Double = 0
+        /// The least that arrives within Relay's slippage tolerance, formatted like amountOut ("19.57"). nil when Relay didn't say.
+        public var minAmountOut: String? = nil
+        /// What leaves the wallet, in dollars, as Relay prices it (details.currencyIn). Counted toward the daily limit.
+        public var amountInUSD: Double? = nil
+        /// The spend the daily limit counts: what goes in, else what comes out plus fees.
+        public var spendUSD: Double? { amountInUSD ?? amountOutUSD.map { $0 + feeUSD } }
     }
 
     public static func quote(from: Place, fromToken: Token?, to: Place, toToken: Token?, amount: UInt128,
@@ -94,6 +100,7 @@ public enum Relay {
             }
         }
         guard !steps.isEmpty else { throw WalletError.badResponse("Relay returned nothing to sign") }
+        try check(steps, from: from, fromToken: fromToken, amount: amount, user: user)
         let det = j["details"] as? [String: Any]
         let out = det?["currencyOut"] as? [String: Any]
         let fees = (j["fees"] as? [String: [String: Any]] ?? [:]).filter { ["gas", "relayer", "app"].contains($0.key) }
@@ -103,7 +110,127 @@ public enum Relay {
                       amountOutUSD: Double(out?["amountUsd"] as? String ?? ""), feeUSD: fees,
                       seconds: det?["timeEstimate"] as? Int ?? 30, requestID: requestID)
         if case .hyperliquid = to, relayerGas >= 0.5 { q.setupUSD = relayerGas }
+        q.amountInUSD = Double((det?["currencyIn"] as? [String: Any])?["amountUsd"] as? String ?? "")
+        // The minimum out, in base units: currencyOut's minimumAmount, else the amount less slippage's destination
+        // value (that value is the tolerance itself, not the minimum: 39956000 of 1997800000 at 2%), else the amount less
+        // the total tolerance in bps. Integer maths only.
+        let outDecimals = (out?["currency"] as? [String: Any])?["decimals"] as? Int
+        let slip = det?["slippageTolerance"] as? [String: Any]
+        let expected = (out?["amount"] as? String).flatMap { UInt128($0) }
+        if let dec = outDecimals {
+            if let v = (out?["minimumAmount"] as? String).flatMap({ UInt128($0) }) {
+                q.minAmountOut = Units.format(v, decimals: dec)
+            } else if let amount = expected, let tol = ((slip?["destination"] as? [String: Any])?["value"] as? String).flatMap({ UInt128($0) }),
+                      tol <= amount {
+                q.minAmountOut = Units.format(amount - tol, decimals: dec)
+            } else if let amount = expected,
+                      let bps = (slip?["total"] as? Int) ?? (slip?["total"] as? String).flatMap({ Int($0) }), (0...10_000).contains(bps),
+                      amount <= UInt128.max / 10_000 {
+                q.minAmountOut = Units.format(amount * UInt128(10_000 - bps) / 10_000, decimals: dec)
+            }
+        }
         return q
+    }
+
+    // MARK: Checking the steps
+
+    /// Relay's deposit program on Solana.
+    static let solanaProgram = "99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2"
+    static let solanaPrograms: Set<String> = [solanaProgram, SolanaPrograms.system, SolanaPrograms.token, SolanaPrograms.token2022,
+                                              SolanaPrograms.ata, SolanaPrograms.computeBudget, SolanaPrograms.memo]
+    /// Calls that move or unlock tokens. Only approve and transfer of the token being moved are allowed, under the rules below.
+    static let tokenSelectors: [[UInt8]] = [
+        "transfer(address,uint256)", "approve(address,uint256)", "transferFrom(address,address,uint256)",
+        "increaseAllowance(address,uint256)", "setApprovalForAll(address,bool)",
+        "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)", "safeTransferFrom(address,address,uint256)",
+        "safeTransferFrom(address,address,uint256,bytes)", "safeTransferFrom(address,address,uint256,uint256,bytes)",
+        "safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)",
+    ].map { ERC20.selector($0) }
+
+    /// Checks every step against what the user asked for before anything is shown or signed. EVM: the origin network
+    /// only; never a call to the user's own address; native value at most `amount` in all (none for a token); on the
+    /// token being moved only `approve` (spender = a later call's contract) or `transfer`, each for at most `amount`;
+    /// no other token-moving call on any contract. Solana: only Relay's program and the standard ones, SOL and token
+    /// transfers within `amount`, closed accounts paid back to the user. Throws `WalletError.blocked` on any mismatch.
+    static func check(_ steps: [Step], from: Place, fromToken: Token?, amount: UInt128, user: String) throws {
+        func refuse(_ why: String) -> WalletError {
+            .blocked("Relay returned a transaction that doesn't match this swap: \(why). Nothing was signed.")
+        }
+        let native = fromToken == nil
+        let budget: UInt128 = native ? amount : 0
+        let sym = fromToken?.symbol ?? "funds"
+        let calls = steps.flatMap { s -> [ContractCall] in
+            if case .evm(_, let c) = s { return c }
+            return []
+        }
+        let approve = ERC20.selector("approve(address,uint256)"), transfer = ERC20.selector("transfer(address,uint256)")
+        let me = EVMAddress(user), token = fromToken.flatMap { EVMAddress($0.address) }
+        /// A uint256 argument that fits in UInt128, or nil.
+        func arg(_ d: [UInt8], _ i: Int) -> UInt128? {
+            let s = 4 + 32 * i
+            guard d.count >= s + 32, d[s..<s + 16].allSatisfy({ $0 == 0 }) else { return nil }
+            return UInt128(bigEndianWord: Array(d[s..<s + 32]))
+        }
+        var sent: UInt128 = 0
+        for step in steps {
+            guard case .evm(let cid, _) = step else { continue }
+            guard cid == from.relayID else { throw refuse("it runs on another network") }
+        }
+        for (i, c) in calls.enumerated() {
+            guard c.to != me else { throw refuse("it sends to your own address") }
+            let (sum, over) = sent.addingReportingOverflow(c.value)
+            guard !over, sum <= budget else { throw refuse("it sends more than you asked") }
+            sent = sum
+            let sel = c.data.count >= 4 ? Array(c.data[0..<4]) : []
+            if let token, c.to == token {
+                guard c.value == 0, sel == approve || sel == transfer, c.data.count == 68, let n = arg(c.data, 1), n <= amount,
+                      c.data[4..<16].allSatisfy({ $0 == 0 }) else {
+                    throw refuse("it uses your \(sym) in a way a swap doesn't")
+                }
+                if sel == approve {
+                    let spender = EVMAddress(bytes: Array(c.data[16..<36]))
+                    guard calls[(i + 1)...].contains(where: { $0.to == spender }) else { throw refuse("it lets an unknown address spend your \(sym)") }
+                }
+            } else if tokenSelectors.contains(sel) {
+                throw refuse("it moves or unlocks tokens it shouldn't")
+            }
+        }
+        let solanaSteps = steps.compactMap { s -> [SolanaInstruction]? in
+            if case .solana(let ins) = s { return ins }
+            return nil
+        }
+        guard !solanaSteps.isEmpty else { return }
+        guard case .chain(let origin) = from, origin.kind == .solana else { throw refuse("it runs on another network") }
+        guard let solMe = SolanaPublicKey(user) else { throw refuse("it isn't for your Solana wallet") }
+        var lamports: UInt128 = 0, tokensOut: UInt128 = 0
+        for ins in solanaSteps {
+            for ix in ins {
+                let p = ix.program.description, d = ix.data
+                guard solanaPrograms.contains(p) else { throw refuse("it calls a program a swap doesn't use (\(SolanaDecoder.short(p)))") }
+                switch p {
+                case SolanaPrograms.system:
+                    guard SolanaDecoder.u32(d, 0) == 2, let l = SolanaDecoder.u64(d, 4) else { throw refuse("it does more than a transfer with your SOL") }
+                    lamports += UInt128(l)
+                case SolanaPrograms.token, SolanaPrograms.token2022:
+                    switch d.first {
+                    case 3?, 12?:   // Transfer, TransferChecked: the amount follows the tag
+                        guard let n = SolanaDecoder.u64(d, 1) else { throw refuse("it has a token transfer Hermit can't read") }
+                        tokensOut += UInt128(n)
+                    case 17?: break   // SyncNative
+                    case 9?:
+                        guard ix.accounts.count >= 2, ix.accounts[1].key == solMe else { throw refuse("it closes a token account into another wallet") }
+                    default:
+                        throw refuse("it changes a token account in a way a swap doesn't")
+                    }
+                case SolanaPrograms.ata:
+                    guard d.isEmpty || d == [0] || d == [1] else { throw refuse("it changes a token account in a way a swap doesn't") }
+                default:
+                    break   // Relay's program, compute budget, memo
+                }
+            }
+        }
+        guard lamports <= budget else { throw refuse("it sends more SOL than you asked") }
+        guard tokensOut <= (native ? 0 : amount) else { throw refuse("it sends more \(sym) than you asked") }
     }
 
     static func solanaInstruction(_ i: [String: Any]) throws -> SolanaInstruction {
@@ -123,21 +250,48 @@ public enum Relay {
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
         return o["status"] as? String
     }
+
+    /// Statuses after which nothing more happens on its own.
+    public static let finalStatuses: Set<String> = ["success", "failure", "refund", "refunded"]
+
+    /// Follows a request after the last signature: reads its status every 4 seconds for up to 3 minutes and returns the
+    /// first final one ("success", "failure", "refund"), or the last one read ("waiting", "pending", nil) when it hasn't
+    /// settled by then. Only "success" means it arrived.
+    public static func settle(_ requestID: String, every: Duration = .seconds(4), timeout: Duration = .seconds(180)) async -> String? {
+        let clock = ContinuousClock(); let deadline = clock.now + timeout
+        var last: String?
+        while clock.now < deadline, !Task.isCancelled {
+            if let s = await status(requestID) {
+                last = s
+                if finalStatuses.contains(s) { return s }
+            }
+            try? await Task.sleep(for: every)
+        }
+        return last
+    }
 }
 
 extension WalletService {
     /// Runs a Relay quote's steps in order: EVM transactions through executeCalls, Solana instructions as one transaction.
+    /// The move counts toward the daily limit once it's sent (also when it's sent but not confirmed yet), so callers
+    /// don't record it again.
     public func execute(_ q: Relay.Quote, walletID: UUID) async throws -> String {
         var last = ""
-        for step in q.steps {
-            switch step {
-            case .evm(let cid, let calls):
-                guard let chain = Chain.mainnets.first(where: { $0.chainId == UInt64(cid) }) else { throw WalletError.blocked("Unknown network \(cid)") }
-                last = try await executeCalls(walletID: walletID, chain: chain, calls).last ?? last
-            case .solana(let ins):
-                last = try await executeSolana(walletID: walletID, chain: .solana, instructions: ins, reason: "Move funds with Relay")
+        do {
+            for step in q.steps {
+                switch step {
+                case .evm(let cid, let calls):
+                    guard let chain = Chain.mainnets.first(where: { $0.chainId == UInt64(cid) }) else { throw WalletError.blocked("Unknown network \(cid)") }
+                    last = try await executeCalls(walletID: walletID, chain: chain, calls).last ?? last
+                case .solana(let ins):
+                    last = try await executeSolana(walletID: walletID, chain: .solana, instructions: ins, reason: "Move funds with Relay")
+                }
             }
+        } catch WalletError.pending(let hash, let explorer) {
+            if let usd = q.spendUSD { spendLimit.record(usd: Decimal(usd)) }
+            throw WalletError.pending(hash: hash, explorer: explorer)
         }
+        if let usd = q.spendUSD { spendLimit.record(usd: Decimal(usd)) }
         return last
     }
 

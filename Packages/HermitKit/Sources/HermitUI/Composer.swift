@@ -121,7 +121,7 @@ struct Composer: View {
                 AttachmentChip(file: f) { withAnimation(.snappy) { file = nil } }
                     .transition(.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
             }
-            TextField(text: $text, prompt: Text(placeholder).foregroundStyle(Theme.faint), axis: .vertical) { Text(placeholder) }
+            TextField(text: $text, prompt: Text(placeholder).foregroundStyle(Theme.hint), axis: .vertical) { Text(placeholder) }
                 .textFieldStyle(.plain).font(.system(size: 15)).lineLimit(minLines...8)
                 .focused($focused)
                 .onSubmit(submit)
@@ -133,7 +133,7 @@ struct Composer: View {
                 tool("paperclip", "Attach a file") { importing = true }
                 Spacer(minLength: 8)
                 if let label, !label.isEmpty {
-                    Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.faint).lineLimit(1).padding(.trailing, 6)
+                    Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.hint).lineLimit(1).padding(.trailing, 6)
                 } else if label == nil {
                     ModeMenu { showModels = true }
                 }

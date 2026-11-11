@@ -53,7 +53,7 @@ struct BarsCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 6) {
                             Text(r.label).foregroundStyle(Theme.text).lineLimit(1)
-                            if let sub = r.sub { Text(sub).foregroundStyle(Theme.faint).lineLimit(1) }
+                            if let sub = r.sub { Text(sub).foregroundStyle(Theme.hint).lineLimit(1) }
                             Spacer(minLength: 8)
                             Text(r.display).font(.system(size: 12.5, weight: .medium)).monospacedDigit()
                         }
@@ -265,7 +265,7 @@ struct QuestCard: View {
                             if let d = q.detail { Text(d).font(.system(size: 12)).foregroundStyle(Theme.muted) }
                         }
                         Spacer()
-                        Text(q.points).font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit()
+                        Text(q.points).font(.system(size: 12)).foregroundStyle(Theme.hint).monospacedDigit()
                     }
                     .padding(.vertical, 9)
                     if i < quests.count - 1 { Rectangle().fill(Theme.border).frame(height: 1) }
@@ -309,7 +309,7 @@ struct InboxCard: View {
                             Button(paid ? "Paid" : "Pay $\(pay)") { model.approval = approval }
                                 .buttonStyle(BlackButton()).disabled(paid)
                         } else if let w = item.when {
-                            Text(w).font(.system(size: 12)).foregroundStyle(Theme.faint)
+                            Text(w).font(.system(size: 12)).foregroundStyle(Theme.hint)
                         }
                     }
                     .padding(.vertical, 9)

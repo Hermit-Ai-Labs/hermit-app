@@ -16,11 +16,15 @@ public struct Binance: Sendable {
         guard let k = Secrets.get("binance.key"), let s = Secrets.get("binance.secret") else { return nil }
         return Binance(key: k, secret: s)
     }
-    /// Keeps this key on the phone (Keychain).
-    public func save() { Self.save(key: key, secret: secret) }
+    /// Keeps this key on the phone (Keychain). False when the Keychain refused it.
+    @discardableResult
+    public func save() -> Bool { Self.save(key: key, secret: secret) }
 
-    public static func save(key: String?, secret: String?) {
-        Secrets.set(key, for: "binance.key"); Secrets.set(secret, for: "binance.secret")
+    @discardableResult
+    public static func save(key: String?, secret: String?) -> Bool {
+        let a = Secrets.set(key, for: "binance.key")
+        let b = Secrets.set(secret, for: "binance.secret")
+        return a && b
     }
 
     public struct Balance: Sendable, Hashable, Identifiable {

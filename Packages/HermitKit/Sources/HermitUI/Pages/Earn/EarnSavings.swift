@@ -82,7 +82,7 @@ struct EarnSavings: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(EarnPoolRow.pct(rate(p))).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.green)
-                Text("a year").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text("a year").font(.system(size: 12)).foregroundStyle(Theme.hint)
             }
             .monospacedDigit()
             if EarnRoute.aave(p) != nil {

@@ -13,6 +13,8 @@ struct WalletsPage: View {
     @State private var removing: WalletAccount?
     @State private var allTab: AllWalletsTab = .tokens
     @State private var width: CGFloat = 900
+    /// The sheet waiting for the current one to close. A newer request replaces it, so the last one asked for wins.
+    @State private var pendingOpen: Task<Void, Never>?
 
     var body: some View {
         Page(title: "Wallets", tabs: [(0, "Wallets")], tab: .constant(0)) {
@@ -88,11 +90,20 @@ struct WalletsPage: View {
     /// Opens a sheet; if one is up already, swaps to the new one after it closes. Money sheets need a wallet first.
     private func open(_ s: WalletSheet) {
         var s = s
-        if !vm.hasWallet, s.needsWallet { s = .addWallet(.local, start: nil) }
+        pendingOpen?.cancel(); pendingOpen = nil
+        if !vm.hasWallet, s.needsWallet {
+            // Send won't open, so a Pay now prefill must not wait around for a later, unrelated Send.
+            if case .send = s { vm.sendPrefill = nil }
+            s = .addWallet(.local, start: nil)
+        }
         if case .receive = s { sheet = nil; model.fundGoal = .wallet; return }
         if sheet == nil { sheet = s; return }
         sheet = nil
-        Task { @MainActor in try? await Task.sleep(for: .milliseconds(380)); sheet = s }
+        pendingOpen = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(380))
+            guard !Task.isCancelled else { return }
+            sheet = s
+        }
     }
 
     @ViewBuilder private func sheetView(_ s: WalletSheet) -> some View {

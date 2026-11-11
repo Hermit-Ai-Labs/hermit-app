@@ -147,7 +147,7 @@ struct EarnDepositSheet: View {
         busy = true; error = nil
         defer { busy = false }
         do {
-            let amt = try Units.parse(amount, decimals: token.decimals)
+            let amt = try Units.parse(AmountText.clean(amount), decimals: token.decimals)
             // No code at the pool address (a wrong network or RPC): say so before anything else.
             let code = try await vm.service.evm(chain).getCode(pool)
             guard !code.isEmpty else { throw WalletError.blocked("Aave pool not found on this network.") }

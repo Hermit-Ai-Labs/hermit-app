@@ -34,6 +34,34 @@ public struct Message: Identifiable, Equatable, Sendable, Codable {
         self.card = card; self.blocks = blocks; self.actions = actions; self.done = done
         self.attachment = attachment; self.note = note; self.run = run; self.proof = proof
     }
+
+    enum CodingKeys: String, CodingKey { case id, role, text, status, steps, tools, card, blocks, actions, done, attachment, note, run, proof }
+
+    /// A saved message comes back without its money buttons: a review's closure (what signs and sends) is never saved,
+    /// so after a relaunch such a button would open a review with nothing behind it. Everything else is as saved.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        role = try c.decode(Role.self, forKey: .role)
+        text = try c.decode(String.self, forKey: .text)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        steps = try c.decode(Int.self, forKey: .steps)
+        tools = try c.decode([String].self, forKey: .tools)
+        card = try c.decodeIfPresent(Card.self, forKey: .card)
+        blocks = try c.decode([Block].self, forKey: .blocks)
+        actions = try c.decode([Action].self, forKey: .actions)
+        done = try c.decode(Bool.self, forKey: .done)
+        attachment = try c.decodeIfPresent(Attachment.self, forKey: .attachment)
+        note = try c.decode(Bool.self, forKey: .note)
+        run = try c.decodeIfPresent(String.self, forKey: .run)
+        proof = try c.decodeIfPresent(CloudProof.self, forKey: .proof)
+        actions.removeAll { $0.approval != nil }
+        blocks = blocks.compactMap { (b: Block) -> Block? in
+            guard case .actions(let list) = b else { return b }
+            let kept = list.filter { $0.approval == nil }
+            return kept.isEmpty ? nil : .actions(kept)
+        }
+    }
 }
 
 /// One piece of a rich reply.
@@ -62,8 +90,20 @@ public struct Attachment: Equatable, Sendable, Codable, Hashable, Identifiable {
     public var detail: String? = nil
     /// Address and amount rows found in the whole file (not only the part in `text`), for a batch send. Not saved.
     public var recipients: [RecipientTable.Row]? = nil
+    /// True for a file read back from a saved chat: only its name, kind and size were saved, so Hermit no longer has
+    /// its text or rows. The chip says so, and the user attaches it again.
+    public private(set) var restored = false
 
     enum CodingKeys: String, CodingKey { case name, kind, size, source }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decode(Kind.self, forKey: .kind)
+        size = try c.decode(String.self, forKey: .size)
+        source = try c.decode(String.self, forKey: .source)
+        restored = true
+    }
 
     public init(_ name: String, kind: Kind? = nil, size: String = "", source: String = "Device", text: String? = nil, truncated: Bool = false) {
         self.name = name; self.kind = kind ?? Attachment.kind(of: name); self.size = size; self.source = source
@@ -314,11 +354,23 @@ public struct Action: Equatable, Sendable, Identifiable, Codable {
         self.title = title; self.approval = approval; self.reply = reply; self.ask = ask; self.toast = toast
         self.primary = primary || approval != nil; self.symbol = symbol; self.open = open
     }
+
+    /// The same button: same title, same screen and the same review (reviews compare by what they show).
+    public func isSame(as other: Action) -> Bool {
+        title == other.title && open == other.open && approval == other.approval
+    }
+
+    /// This button under another title; everything else (the review with its closure and warnings) comes along.
+    public func titled(_ newTitle: String) -> Action {
+        Action(newTitle, approval: approval, reply: reply, ask: ask, toast: toast, primary: primary, symbol: symbol, open: open)
+    }
 }
 
 /// Everything the approval sheet shows before money moves.
 public struct Approval: Equatable, Sendable, Identifiable, Codable {
     public var id: String { title }
+    /// Identity of this one request: the sheet, DappBrowser.present and AppModel compare it. Not saved and not part of ==.
+    public let uid = UUID()
     public let kind: String
     public let title: String
     public let lines: [[String]]
@@ -332,6 +384,9 @@ public struct Approval: Equatable, Sendable, Identifiable, Codable {
     public var perform: (@Sendable () async throws -> String)?
     /// Spending-policy warnings shown above Approve (a new address, a token with no price). Not saved with the chat.
     public var warnings: [String] = []
+    /// True for a review read back from a saved chat. It has no `perform` (nothing can be signed from it), so the sheet
+    /// must never report it as done: it asks the user to start the move again. Not saved and not part of equality.
+    public private(set) var restored = false
     public init(kind: String, title: String, lines: [[String]], checks: [String], success: String, receipt: Card? = nil,
                 live: LiveTrade? = nil, warnings: [String] = [], perform: (@Sendable () async throws -> String)? = nil) {
         self.kind = kind; self.title = title; self.lines = lines; self.checks = checks; self.success = success; self.receipt = receipt
@@ -339,6 +394,18 @@ public struct Approval: Equatable, Sendable, Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey { case kind, title, lines, checks, success, receipt, live }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decode(String.self, forKey: .kind)
+        title = try c.decode(String.self, forKey: .title)
+        lines = try c.decode([[String]].self, forKey: .lines)
+        checks = try c.decode([String].self, forKey: .checks)
+        success = try c.decode(String.self, forKey: .success)
+        receipt = try c.decodeIfPresent(Card.self, forKey: .receipt)
+        live = try c.decodeIfPresent(LiveTrade.self, forKey: .live)
+        restored = true
+    }
 
     public static func == (a: Approval, b: Approval) -> Bool {
         a.kind == b.kind && a.title == b.title && a.lines == b.lines && a.checks == b.checks && a.success == b.success

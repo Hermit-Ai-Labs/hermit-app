@@ -28,7 +28,12 @@ public struct NearAICloud: Sendable {
     /// The user's own key from cloud.near.ai, in the Keychain on this device only.
     public static var ownKey: String? {
         get { Secrets.get(keyName).flatMap { $0.isEmpty ? nil : $0 } }
-        set { Secrets.set(newValue?.trimmingCharacters(in: .whitespacesAndNewlines), for: keyName) }
+        set { saveOwnKey(newValue) }
+    }
+
+    /// Saves (nil or "" removes) the user's own key. False when the Keychain refused: the old key is still there.
+    @discardableResult public static func saveOwnKey(_ key: String?) -> Bool {
+        Secrets.set(key?.trimmingCharacters(in: .whitespacesAndNewlines), for: keyName)
     }
 
     /// Hermit's shared key, so anyone can try Private Cloud without signing up. It is added to the app at build time

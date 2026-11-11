@@ -48,7 +48,13 @@ public enum Jupiter {
         var c = URLComponents(string: "\(api)/tokens/v2/search")!
         c.queryItems = [URLQueryItem(name: "query", value: symbol)]
         let d = try await get(c.url!)
-        guard let list = try JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { throw Error.bad("token search") }
+        let body = try JSONSerialization.jsonObject(with: d)
+        // An object instead of a list is Jupiter saying why (a rate limit, usually), not "no such token".
+        guard let list = body as? [[String: Any]] else {
+            let o = body as? [String: Any]
+            if let m = (o?["error"] as? String) ?? (o?["message"] as? String), m.lowercased().contains("rate") { throw Error.rateLimited }
+            throw Error.bad((o?["error"] as? String) ?? (o?["message"] as? String) ?? "token search")
+        }
         let verified = list.filter { ($0["symbol"] as? String)?.caseInsensitiveCompare(symbol) == .orderedSame }
             .filter { ($0["isVerified"] as? Bool) == true || (($0["tags"] as? [String]) ?? []).contains("verified") }
         let ranked: [(t: [String: Any], score: Double, liquidity: Double)] = verified.map { t in
@@ -95,6 +101,107 @@ public enum Jupiter {
         return [UInt8](bytes)
     }
 
+    // MARK: Checking Jupiter's transaction
+
+    /// Jupiter's swap program (v6).
+    static let program = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    /// The programs a Jupiter swap calls directly. Anything else and Hermit doesn't sign.
+    static let allowedPrograms: Set<String> = [program, SolanaPrograms.computeBudget, SolanaPrograms.system, SolanaPrograms.token,
+                                               SolanaPrograms.token2022, SolanaPrograms.ata]
+    /// SOL the transaction may send by itself beyond a SOL input, and the most it may set as priority fee: 0.01 SOL each.
+    static let maxExtraLamports: UInt64 = 10_000_000
+    /// How far the wallet's SOL may fall beyond the quote in the test run: network and priority fees plus rent for new
+    /// token accounts (0.015 SOL).
+    static let feeSlackLamports: Int128 = 15_000_000
+
+    /// Reads Jupiter's transaction before anything is signed. This wallet pays the fee and is the only signer, every
+    /// program is one a swap uses, no token account's owner or delegate changes, closed accounts pay back to this wallet,
+    /// and the SOL it sends or spends on priority stays within the quote. Throws `WalletError.blocked` otherwise.
+    static func checkTransaction(_ m: SolanaWireMessage, wallet: SolanaPublicKey, quote q: Quote) throws {
+        func refuse(_ why: String) -> WalletError {
+            .blocked("Jupiter's transaction doesn't match this swap: \(why). Nothing was signed.")
+        }
+        guard m.feePayer == wallet else { throw refuse("another account pays its fee") }
+        guard m.numRequiredSignatures == 1 else { throw refuse("it needs another signer") }
+        var sent: UInt128 = 0
+        var cuLimit: UInt64? = nil, cuPrice: UInt64 = 0
+        for ix in m.instructions {
+            let p = m.staticKeys[ix.programIndex].description
+            guard allowedPrograms.contains(p) else { throw refuse("it calls a program a swap doesn't use (\(SolanaDecoder.short(p)))") }
+            let d = ix.data
+            switch p {
+            case SolanaPrograms.computeBudget:
+                if d.first == 2, let v = SolanaDecoder.u32(d, 1) { cuLimit = UInt64(v) }
+                if d.first == 3, let v = SolanaDecoder.u64(d, 1) { cuPrice = v }
+            case SolanaPrograms.system:
+                // Only Transfer (2) and CreateAccount (0), both with the lamports at byte 4. Assign and the rest never.
+                guard let kind = SolanaDecoder.u32(d, 0), kind == 0 || kind == 2, let lamports = SolanaDecoder.u64(d, 4) else {
+                    throw refuse("it does more than a swap (System instruction \(SolanaDecoder.u32(d, 0).map { String($0) } ?? "?"))")
+                }
+                sent += UInt128(lamports)
+            case SolanaPrograms.token, SolanaPrograms.token2022:
+                switch d.first {
+                case 17?: break   // SyncNative: wrapped SOL catches up with its lamports
+                case 9?:          // CloseAccount: account, destination, owner
+                    guard ix.accounts.count >= 2, ix.accounts[1] == 0 else { throw refuse("it closes a token account into another wallet") }
+                default:
+                    throw refuse("it does more than a swap (SPL Token instruction \(d.first.map { String($0) } ?? "?"))")
+                }
+            case SolanaPrograms.ata:
+                // Create (no data or 0) and CreateIdempotent (1) only.
+                guard d.isEmpty || d == [0] || d == [1] else { throw refuse("it does more than a swap (token account instruction)") }
+            default:
+                break   // Jupiter's own route; the test run checks what it does
+            }
+        }
+        let solIn: UInt128 = q.input.mint == solMint ? UInt128(q.inAmount) : 0
+        guard sent <= solIn + UInt128(maxExtraLamports) else { throw refuse("it sends more SOL than the swap needs") }
+        let priority: UInt128
+        if m.version == .v1 {
+            priority = UInt128(m.config?.priorityFeeLamports ?? 0)
+        } else {
+            let nonBudget = m.instructions.filter { m.staticKeys[$0.programIndex].description != SolanaPrograms.computeBudget }.count
+            let limit = cuLimit ?? UInt64(min(200_000 * max(nonBudget, 1), 1_400_000))
+            priority = (UInt128(limit) * UInt128(cuPrice) + 999_999) / 1_000_000
+        }
+        guard priority <= UInt128(maxExtraLamports) else { throw refuse("its priority fee is over 0.01 SOL") }
+    }
+
+    /// Compares a test run (simulation) of the transaction with the quote. The wallet gives at most `inAmount` of the input,
+    /// gets at least the quote's minimum (after slippage) of the output, and no other token leaves it. SOL and wrapped SOL
+    /// count as one balance, with `feeSlackLamports` of room. Returns false when the node reported no balances to compare.
+    static func checkSimulation(_ s: SolanaSimResult, keys: [SolanaPublicKey], wallet: SolanaPublicKey, quote q: Quote) throws -> Bool {
+        if let e = s.error { throw WalletError.blocked("The swap would fail on Solana: \(plainChainError(e)). Nothing was signed.") }
+        guard s.hasBalances else { return false }
+        var native: Int128 = 0
+        var tokens: [String: Int128] = [:]
+        for c in SolanaDecoder.changes(s, keys: keys, wallet: wallet, chain: .solana) {
+            if let mint = c.mint, mint != SolanaPrograms.wsol { tokens[mint, default: 0] += c.delta } else { native += c.delta }
+        }
+        let inAmount = Int128(q.inAmount)
+        let keep = UInt128(10_000 - min(max(q.slippageBps, 0), 10_000))
+        let minOut = Int128(UInt128(q.outAmount) * keep / 10_000)
+        let solIn = q.input.mint == solMint, solOut = q.output.mint == solMint
+        func mismatch(_ why: String) -> WalletError {
+            .blocked("A test run of Jupiter's transaction doesn't match the quote: \(why). Nothing was signed.")
+        }
+        let nativeFloor: Int128 = (solIn ? -inAmount : 0) + (solOut ? minOut : 0) - feeSlackLamports
+        guard native >= nativeFloor else { throw mismatch(solOut ? "you'd get less SOL than quoted" : "it takes more SOL than quoted") }
+        if !solOut { guard (tokens[q.output.mint] ?? 0) >= minOut else { throw mismatch("you'd get less \(q.output.symbol) than quoted") } }
+        for (mint, delta) in tokens {
+            let floor: Int128 = mint == q.input.mint ? -inAmount : mint == q.output.mint ? minOut : 0
+            guard delta >= floor else {
+                throw mismatch(mint == q.input.mint ? "it takes more \(q.input.symbol) than quoted" : "another token would leave your wallet")
+            }
+        }
+        return true
+    }
+
+    /// A Solana error in plain words. Custom error 6001 (0x1771) is Jupiter's slippage check.
+    static func plainChainError(_ e: String) -> String {
+        (e.contains("Custom") && e.contains("6001")) || e.contains("0x1771") ? "the price moved past the slippage limit, try again" : e
+    }
+
     private static func get(_ url: URL) async throws -> Data {
         var r = URLRequest(url: url, timeoutInterval: 20)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -115,24 +222,38 @@ public enum Jupiter {
 }
 
 extension WalletService {
-    /// Runs a Jupiter quote: Jupiter builds the transaction, Hermit parses it, signs it with the wallet's key (Touch ID
-    /// or Face ID on this device) and sends it. Returns the signature once it's confirmed.
+    /// Runs a Jupiter quote: Jupiter builds the transaction, Hermit reads it and runs it once on Solana as a test
+    /// (Jupiter.checkTransaction, Jupiter.checkSimulation), then signs it with the wallet's key (Touch ID or Face ID on
+    /// this device) and sends it. Returns the signature once it's confirmed. A transaction that does anything but this
+    /// swap is never signed.
     /// The caller records the spend toward the daily limit (TradeBuy does, after this returns), so this doesn't.
     /// Sent but not confirmed in time throws `WalletError.pending`, so the user doesn't buy twice.
     public func executeJupiter(_ q: Jupiter.Quote, walletID: UUID) async throws -> String {
         guard allowMainnetSends else { throw WalletError.blocked("Mainnet transactions are off in this build.") }
-        guard let w = wallets.first(where: { $0.id == walletID }), !w.solanaAddress.isEmpty else { throw WalletError.vault("That wallet is gone.") }
+        guard let w = wallets.first(where: { $0.id == walletID }), let me = SolanaPublicKey(w.solanaAddress) else {
+            throw WalletError.vault("That wallet is gone.")
+        }
         let raw = try await Jupiter.transaction(for: q, user: w.solanaAddress)
         let tx = try SolanaWireTransaction.parse(raw)
-        let signed = try await dappSolanaSign(walletID: walletID, tx, reason: "Buy \(q.output.symbol) on Solana")
+        try Jupiter.checkTransaction(tx.message, wallet: me, quote: q)
         let client = SolanaClient(url: Chain.solana.rpc)
+        let sim: SolanaSimResult
+        do { sim = try await client.simulateDapp(tx) } catch {
+            throw WalletError.blocked("Hermit couldn't test the swap on Solana, so it wasn't signed. Try again in a moment.")
+        }
+        // The wallet is the fee payer (checked above), so it is static key 0 and the static keys are enough here.
+        // A node that reports no balances leaves only the checks on the transaction itself.
+        _ = try Jupiter.checkSimulation(sim, keys: tx.message.staticKeys, wallet: me, quote: q)
+        let signed = try await dappSolanaSign(walletID: walletID, tx, reason: "Buy \(q.output.symbol) on Solana")
         let sig = try await client.sendRaw(signed, skipPreflight: false)
         let status: (Bool, UInt64, String?)
         do { status = try await client.waitForConfirmation(sig) } catch WalletError.timeout {
             throw WalletError.pending(hash: sig, explorer: Chain.solana.explorerURL(tx: sig)?.absoluteString)
         }
-        let ok = status.0, err = status.2
-        guard ok else { throw WalletError.blocked("The swap failed on Solana (\(err ?? sig)). Nothing was taken.") }
+        // Confirmed as failed: a Solana transaction is all or nothing, so only the network fee was paid.
+        guard status.0 else {
+            throw WalletError.blocked("The swap failed on Solana, so nothing was swapped. Only the network fee was paid. Transaction \(SolanaDecoder.short(sig)).")
+        }
         Task { await refreshBalances(chains: [.solana]) }
         return sig
     }

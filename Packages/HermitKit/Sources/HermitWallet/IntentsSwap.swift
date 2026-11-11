@@ -81,7 +81,8 @@ extension WalletService {
             throw WalletError.blocked("NEAR Intents doesn't list \(fromToken?.symbol ?? from.nativeSymbol) on \(from.name).")
         }
         guard let d = IntentsAssets.token(toSymbol, at: to, in: tokens, hermitToken: to.chain?.token(toSymbol)) else {
-            throw WalletError.blocked("NEAR Intents doesn't list \(toSymbol) on \(to.name).")
+            // Also when the token is listed but hidden (no reliable price, deprecated or a look-alike): IntentsAssets.listable.
+            throw WalletError.blocked("Hermit can't swap to \(toSymbol) on \(to.name). NEAR Intents doesn't list it, or it has no reliable price.")
         }
         guard let refund = ownAddress(.chain(from), walletID: walletID) else {
             throw WalletError.blocked(from.kind == .near ? "Add a NEAR account to this wallet first." : "Create or import a wallet first.")
@@ -101,7 +102,11 @@ extension WalletService {
         if let dl = quote.deadline, dl < Date().addingTimeInterval(60) { throw WalletError.blocked("The quote is about to expire. Get a new one.") }
         let verdict = policy.evaluate(usd: quote.amountInUSD, payee: payee, origin: origin)
         if verdict.decision == .block { throw WalletError.blocked(verdict.blocks.joined(separator: " ")) }
-        let p = try await prepareSend(walletID: walletID, chain: from, to: deposit, value: quote.amountIn, token: fromToken)
+        // The assistant may not put a swap that loses over 10% of its value in front of the user.
+        if origin == .agent, let f = quote.lossFraction, f > IntentsQuote.agentMaxLoss {
+            throw WalletError.blocked((quote.lossWarning ?? "This swap loses too much of its value.") + " Hermit's assistant won't prepare it.")
+        }
+        let p = try await prepareTransfer(walletID: walletID, chain: from, to: deposit, value: quote.amountIn, token: fromToken)
         var checks = p.checks.filter { !$0.title.contains("payment to this address") && !$0.title.contains("Address matches") && !$0.title.lowercased().contains("daily limit") }
         checks.append(HazardCheck(title: "One-time 1Click deposit address", status: .pass,
                                   detail: "Made for this quote only. 1Click watches it and swaps what arrives."))
@@ -110,6 +115,9 @@ extension WalletService {
             : HazardCheck(title: "Quote signature not confirmed", status: .warn,
                           detail: "Fetched from 1Click over HTTPS, but its signature didn't check out here. Check the amount and the deposit address before you approve."))
         checks.append(HazardCheck(title: "Refunds come back to you", status: .pass, detail: "If solvers can't fill it, 1Click refunds \(Self.short(quote.request.refundTo))."))
+        if let loss = quote.lossWarning {
+            checks.append(HazardCheck(title: "Costly swap", status: .warn, detail: loss + " Check the amount you get before you approve."))
+        }
         if quote.request.originAsset == IntentsAssets.wrappedNear || quote.request.destinationAsset == IntentsAssets.wrappedNear {
             checks.append(HazardCheck(title: "Moves as wNEAR", status: .pass,
                                       detail: "NEAR Intents carries NEAR as the token wNEAR (wrap.near), so 1Click and the explorer name it that."))

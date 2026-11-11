@@ -84,7 +84,7 @@ struct TokenSheet: View {
                 Spacer()
                 if let p = group.price {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("Price").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                        Text("Price").font(.system(size: 12)).foregroundStyle(Theme.hint)
                         Text(p < 0.01 ? "$" + p.formatted(.number.precision(.significantDigits(3))) : MoneyFmt.usd(p, digits: 2))
                             .font(.system(size: 13.5)).monospacedDigit()
                     }
@@ -111,7 +111,7 @@ struct TokenSheet: View {
                 }
                 .padding(.vertical, 8)
             }
-            Text("Prices from CoinGecko.").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+            Text("Prices from CoinGecko.").font(.system(size: 11.5)).foregroundStyle(Theme.hint)
         }
     }
 }
@@ -130,7 +130,7 @@ struct PhraseGrid: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns), spacing: 8) {
             ForEach(Array(words.enumerated()), id: \.offset) { i, w in
                 HStack(spacing: 8) {
-                    Text("\(i + 1)").font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit().frame(width: 20, alignment: .trailing)
+                    Text("\(i + 1)").font(.system(size: 12)).foregroundStyle(Theme.hint).monospacedDigit().frame(width: 20, alignment: .trailing)
                     Text(w).font(.system(size: 15, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
                 }
@@ -152,6 +152,8 @@ struct RecoveryPhraseSheet: View {
     @State private var words: [String] = []
     @State private var busy = false
     @State private var error: String?
+    /// The reveal in flight. Closing the sheet cancels it, so words approved as it closes never land in memory.
+    @State private var revealing: Task<Void, Never>?
 
     var body: some View {
         let w = vm.wallet(walletID)
@@ -176,13 +178,21 @@ struct RecoveryPhraseSheet: View {
                 Button("Done") { words = []; dismiss() }.buttonStyle(WideButton()).keyboardShortcut(.defaultAction)
             }
         }
-        .onDisappear { words = [] }
+        .onDisappear { revealing?.cancel(); revealing = nil; words = [] }
     }
 
     private func reveal() {
         busy = true; error = nil
-        Task {
-            do { words = try await vm.recoveryPhrase(walletID) } catch { self.error = error.localizedDescription }
+        revealing?.cancel()
+        revealing = Task {
+            do {
+                let got = try await vm.recoveryPhrase(walletID)
+                guard !Task.isCancelled else { return }
+                words = got
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+            }
             busy = false
         }
     }
@@ -241,7 +251,7 @@ struct AddWalletSheet: View {
             option("plus", "Create a new wallet", "12 new words, made on \(Device.here)") { step = .create; name = "Wallet \(vm.wallets.count + 1)" }
             option("key.horizontal", "Import a recovery phrase", "12 or 24 words, typed on \(Device.here) only") { step = .importPhrase; name = "Imported" }
             HStack(spacing: 6) {
-                Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.hint)
                 ChainStack(chains: Chain.mainnets, size: 16)
             }
         }

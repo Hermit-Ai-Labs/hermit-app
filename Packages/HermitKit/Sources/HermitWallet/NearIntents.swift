@@ -77,10 +77,29 @@ public struct OneClickError: Error, LocalizedError, Equatable {
         let m = message.lowercased()
         if status == 401 && m.contains("confidential") { return "Confidential swaps need a 1Click partner key. Add one in Settings." }
         if m.contains("amount is too low") || m.contains("too small") || m.contains("minimum") { return "That amount is too small for this route. Try a little more." }
+        if m.contains("liquidity") { return "No route for this pair right now. Try a larger or smaller amount, or another token." }
         if m.contains("no quotes") || m.contains("failed to get quote") || m.contains("no route") { return "No solver quoted this route right now. Try another amount or token." }
         if status == 404 { return "1Click doesn't know this deposit." }
         if status == 429 { return "1Click is busy. Try again in a moment." }
         return message
+    }
+
+    /// The smallest amount the route takes, in the origin token's base units, when 1Click names it
+    /// ("Amount is too low for bridge, try at least 6188821").
+    public var minimum: UInt128? {
+        guard let r = message.range(of: #"try at least \d+"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
+        return UInt128(String(message[r].filter(\.isNumber)))
+    }
+
+    /// "The minimum for this route is 6.188821 USDC.", rounded up to what is shown, so that amount is enough.
+    /// nil when 1Click didn't name a minimum.
+    public func minimumText(decimals: Int, symbol: String) -> String? {
+        guard let m = minimum, m < UInt128(UInt64.max), decimals >= 0 else { return nil }
+        let shown = min(decimals, 6)
+        var step: UInt128 = 1
+        for _ in 0..<(decimals - shown) { step *= 10 }
+        let up = (m / step + (m % step == 0 ? 0 : 1)) * step
+        return "The minimum for this route is \(Units.format(up, decimals: decimals, maxFraction: shown)) \(symbol)."
     }
 }
 
@@ -197,19 +216,43 @@ public enum IntentsAssets {
                     ?? here.first { $0.contractAddress == nil && c.nativeSymbol == "ETH" && $0.symbol == "ETH" }
             }
             if let t = c.token(sym) { return here.first { $0.contractAddress?.caseInsensitiveCompare(t.address) == .orderedSame } }
-            return here.first { $0.symbol.caseInsensitiveCompare(sym) == .orderedSame }
+            // Any other token by symbol only when it's one Hermit offers (see `listable`), so the assistant can't name junk.
+            return here.first { $0.symbol.caseInsensitiveCompare(sym) == .orderedSame && listable($0, beside: ownSymbols(c)) }
         }
     }
 
-    /// Symbols you can receive at a place: Hermit's tokens first (balances are tracked), then the rest 1Click lists there.
+    /// The least a token outside Hermit's own list must be worth, per whole token, to be offered.
+    public static let minimumPrice = 0.0001
+
+    /// Hermit's own symbols at a chain (native coin and tokens), the ones `listable` guards against copies of.
+    static func ownSymbols(_ c: Chain) -> [String] { [c.nativeSymbol] + c.tokens.map(\.symbol).filter { $0 != "wNEAR" } }
+
+    /// Whether a token Hermit doesn't track is offered at all. Hidden: no price or under $0.0001 (vault shares
+    /// mispriced at $0.000001, so 100 USDC "buys" 88 million of them, and dust), marked deprecated, or a look-alike whose
+    /// symbol contains one of Hermit's own (sUSDC, laUSDC, nrUsdt, kV-gtSOLb).
+    static func listable(_ t: IntentsToken, beside own: [String]) -> Bool {
+        guard let p = t.price, p.isFinite, p >= minimumPrice else { return false }
+        let plain = t.symbol.lowercased().filter { $0.isLetter || $0.isNumber }
+        if t.symbol.lowercased().contains("deprecated") { return false }
+        for o in own {
+            let mine = o.lowercased().filter { $0.isLetter || $0.isNumber }
+            if mine.count >= 3, plain != mine, plain.contains(mine) { return false }
+        }
+        return true
+    }
+
+    /// Symbols you can receive at a place: Hermit's tokens first (balances are tracked), then the other tokens 1Click
+    /// lists there that pass `listable`.
     public static func symbols(at place: IntentsPlace, in list: [IntentsToken]) -> [String] {
         guard let code = place.blockchain else { return [] }
         if case .hyperliquid = place { return ["USDC"] }
         if case .bitcoin = place { return ["BTC"] }
         var out: [String] = []
-        if let c = place.chain { out = [c.nativeSymbol] + c.tokens.map(\.symbol).filter { $0 != "wNEAR" } }
+        if let c = place.chain { out = ownSymbols(c) }
+        let own = out
         for t in list where t.blockchain == code && !out.contains(where: { $0.caseInsensitiveCompare(t.symbol) == .orderedSame }) {
             if place.chain?.kind == .near && t.symbol == "wNEAR" { continue }
+            guard listable(t, beside: own) else { continue }
             out.append(t.symbol)
         }
         return out
@@ -279,6 +322,23 @@ public struct IntentsQuote: Sendable {
 
     /// What the user gives up in dollars between in and out (fees, spread, slippage), when both are priced.
     public var costUSD: Double? { amountInUSD.flatMap { i in amountOutUSD.map { max(0, i - $0) } } }
+
+    /// Above this share of the input lost to the swap, the review warns.
+    public static let warnLoss = 0.03
+    /// Above this, the assistant may not prepare the swap at all.
+    public static let agentMaxLoss = 0.10
+
+    /// The share of the input's dollar value the swap loses (0.05 is 5%), when both sides are priced.
+    public var lossFraction: Double? {
+        guard let i = amountInUSD, i > 0, let c = costUSD else { return nil }
+        return c / i
+    }
+
+    /// "You get about $90.00 for $100.00, a loss of 10.0%." when the loss is over `warnLoss`; nil otherwise.
+    public var lossWarning: String? {
+        guard let f = lossFraction, f > Self.warnLoss, let i = amountInUSD, let o = amountOutUSD else { return nil }
+        return "You get about $\(String(format: "%.2f", o)) for $\(String(format: "%.2f", i)), a loss of \(String(format: "%.1f", f * 100))%."
+    }
 
     init(request: IntentsQuoteRequest, raw j: JSON) throws {
         guard let q = j["quote"], let ai = q["amountIn"]?.string.flatMap({ UInt128($0) }),

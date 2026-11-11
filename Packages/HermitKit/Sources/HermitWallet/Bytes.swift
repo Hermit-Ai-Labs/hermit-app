@@ -144,7 +144,10 @@ extension UInt128 {
 public enum Units {
     /// "1.5" with 6 decimals -> 1_500_000. Rejects more decimals than the token has, negatives and junk.
     public static func parse(_ text: String, decimals: Int) throws -> UInt128 {
-        let t = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
+        // A comma is refused, never dropped: "1,5" meant one and a half in much of the world, not 15. Callers hand over
+        // canonical text (HermitUI's AmountText, RecipientTable.ungrouped).
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard !t.contains(",") else { throw WalletError.invalidAmount(text) }
         let parts = t.split(separator: ".", omittingEmptySubsequences: false)
         guard !t.isEmpty, parts.count <= 2, parts.allSatisfy({ $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }),
               !(parts[0].isEmpty && (parts.count == 1 || parts[1].isEmpty)) else { throw WalletError.invalidAmount(text) }

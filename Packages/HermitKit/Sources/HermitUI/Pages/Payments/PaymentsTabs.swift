@@ -143,7 +143,7 @@ struct PayNext7Card: View {
             .frame(height: 70, alignment: .bottom)
             .padding(.top, 14)
             if leavesOut {
-                Text("USDC and USDT only").font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(.top, 8)
+                Text("USDC and USDT only").font(.system(size: 11.5)).foregroundStyle(Theme.hint).padding(.top, 8)
             }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading).card()
@@ -168,7 +168,7 @@ struct PayStatusCard: View {
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(due.isEmpty ? Theme.text : Theme.amber)
             if fill { Spacer(minLength: 0) }
             Text("Scheduled payments show on your calendar. Open one and tap Pay now. Once it's sent, it moves to its next date.")
-                .font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
         }
         .padding(18).frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .topLeading).card()
     }

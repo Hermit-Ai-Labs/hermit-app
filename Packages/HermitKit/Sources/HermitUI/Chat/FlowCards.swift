@@ -24,7 +24,7 @@ struct InAppTab<Content: View>: View {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         .frame(width: 26, height: 26).background(Theme.hover, in: Circle())
                 }
-                .buttonStyle(.plain).keyboardShortcut(.cancelAction)
+                .buttonStyle(.plain).keyboardShortcut(.cancelAction).accessibilityLabel("Close")
             }
             .padding(12)
             Rectangle().fill(Theme.border).frame(height: 1)
@@ -46,7 +46,7 @@ struct BuildProgressCard: View {
         ChatCard {
             CardTitle("Budgeting app")
             Spacer()
-            Text("2 of 4 done").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Text("2 of 4 done").font(.system(size: 12)).foregroundStyle(Theme.hint)
         } content: {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
@@ -153,7 +153,7 @@ struct ApiCheckoutCard: View {
                     Task { try? await Task.sleep(for: .milliseconds(350)); model.approval = a }
                 } label: { Label("Pay $\(plan) with Hermit", systemImage: "touchid") }
                     .buttonStyle(BrandButton(full: true))
-                Text("USDC via x402. No card, no account.").font(.system(size: 12)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
+                Text("USDC via x402. No card, no account.").font(.system(size: 12)).foregroundStyle(Theme.hint).frame(maxWidth: .infinity)
             }
         }
     }
@@ -260,7 +260,7 @@ struct FlapLaunchCard: View {
                     } label: { Label("Deploy", systemImage: "touchid") }
                         .buttonStyle(BrandButton(full: true))
                 }
-                Text("Details filled in by Hermit. Signed with your passkey.").font(.system(size: 12)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
+                Text("Details filled in by Hermit. Signed with your passkey.").font(.system(size: 12)).foregroundStyle(Theme.hint).frame(maxWidth: .infinity)
             }
         }
     }

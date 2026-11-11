@@ -185,11 +185,16 @@ struct HomeBalanceCard: View {
             } else {
                 Button { model.open(.wallets) } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(MoneyFmt.usdSmart(wallets.total())).font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                            .contentTransition(.numericText())
+                        // Only a known total: a price that didn't load never shows as $0.
+                        Group {
+                            if let t = wallets.totalUSD { Text(MoneyFmt.usdSmart(t)) }
+                            else if wallets.loaded { Text("Unavailable").foregroundStyle(Theme.muted) }
+                            else { Text(MoneyFmt.usdSmart(0)).redacted(reason: .placeholder) }
+                        }
+                        .font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                        .contentTransition(.numericText())
                         Text(wallets.wallets.count == 1 ? "1 wallet" : "\(wallets.wallets.count) wallets").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                     }
-                    .redacted(reason: wallets.loaded ? [] : .placeholder)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
@@ -226,7 +231,7 @@ struct MoodDial: View, Animatable {
             n.addLine(to: CGPoint(x: c.x + cos(a) * (r - 16), y: c.y + sin(a) * (r - 16)))
             ctx.stroke(n, with: .color(Theme.accent), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)), with: .color(Theme.accent))
-            let label = { (s: String) in Text(s).font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(Theme.faint) }
+            let label = { (s: String) in Text(s).font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(Theme.hint) }
             ctx.draw(label("FEAR"), at: CGPoint(x: c.x - r - 4, y: c.y - 4), anchor: .trailing)
             ctx.draw(label("GREED"), at: CGPoint(x: c.x + r + 4, y: c.y - 4), anchor: .leading)
         }
@@ -278,39 +283,47 @@ struct TodayCard: View {
     var project: String? = nil
     var hide: () -> Void = {}
 
-    static func rows(_ model: AppModel, project: String?) -> [Todo] {
-        if let project {
-            return model.todos.filter { $0.project == project && $0.day >= 0 }.sorted { $0.day < $1.day }
+    /// Tasks from the Calendar page: today's, or for a project everything from today on.
+    static func rows(_ model: AppModel, project: String?) -> [CalItem] {
+        let tasks = CalendarStore.shared.items.filter { !$0.event && (project == nil || $0.project == project) }
+        if project != nil {
+            let today = CalendarData.cal.startOfDay(for: Date())
+            return tasks.filter { $0.date >= today }.sorted { ($0.date, $0.time ?? -1) < ($1.date, $1.time ?? -1) }
         }
-        return model.todos.filter { $0.day == 0 }
+        return tasks.filter { CalendarData.same($0.date, Date()) }.sorted { ($0.time ?? -1) < ($1.time ?? -1) }
     }
-    private var rows: [Todo] { Self.rows(model, project: project) }
+    private var rows: [CalItem] { Self.rows(model, project: project) }
+
+    private func open(_ t: CalItem) {
+        if let q = t.ask { model.newChat(project: t.project); model.send(q) }
+        else if let to = t.to, let r = Route(rawValue: to) { model.open(r) }
+        else if let p = t.project { model.openProject(p) }
+        else { model.open(.calendar) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(project != nil && !rows.contains { $0.day == 0 } ? "Up next" : "Today").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text(project != nil && !rows.contains { CalendarData.same($0.date, Date()) } ? "Up next" : "Today").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
                 hideButton(hide)
             }
             ForEach(rows.prefix(5)) { t in
+                let done = t.status == .done
                 HStack(spacing: 9) {
-                    if t.event {
-                        RoundedRectangle(cornerRadius: 3).fill(Theme.hover).frame(width: 13, height: 13)
-                    } else {
-                        Button { model.toggleTodo(t.id) } label: {
-                            Image(systemName: t.done ? "checkmark.square.fill" : "square")
-                                .foregroundStyle(t.done ? Theme.accent : Theme.faint).font(.system(size: 13))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .buttonStyle(.plain)
+                    Button { CalendarStore.shared.setStatus(t.id, done ? .todo : .done) } label: {
+                        Image(systemName: done ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(done ? Theme.accent : Theme.faint).font(.system(size: 13))
+                            .contentTransition(.symbolEffect(.replace))
                     }
-                    Button { model.openTodo(t) } label: {
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(done ? "Mark not done" : "Mark done")
+                    Button { open(t) } label: {
                         HStack(spacing: 8) {
-                            Text(t.title).font(.system(size: 13)).strikethrough(t.done, color: Theme.faint)
-                                .foregroundStyle(t.done ? Theme.faint : Theme.text).lineLimit(1)
+                            Text(t.t).font(.system(size: 13)).strikethrough(done, color: Theme.faint)
+                                .foregroundStyle(done ? Theme.hint : Theme.text).lineLimit(1)
                             Spacer()
-                            if let time = t.time { Text(time).font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit() }
+                            if let time = t.timeText { Text(time).font(.system(size: 12)).foregroundStyle(Theme.hint).monospacedDigit() }
                             Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.faint)
                         }
                         .contentShape(Rectangle())

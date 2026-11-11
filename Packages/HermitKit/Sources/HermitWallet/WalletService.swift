@@ -213,8 +213,11 @@ public final class WalletService {
             guard let c = solana else { return [] }
             guard let a = SolanaPublicKey(address) else { throw WalletError.invalidAddress(address) }
             var out = [Balance(chain: chain, token: nil, amount: UInt128(try await c.balance(a)))]
-            for t in chain.tokens {
-                out.append(Balance(chain: chain, token: t, amount: try await c.tokenBalance(owner: a, mint: SolanaPublicKey(t.address)!)))
+            // Every token in two calls (one per token program), not one call per mint.
+            let mints = chain.tokens.map { SolanaPublicKey($0.address)! }
+            let held = try await c.tokenBalances(owner: a, mints: mints)
+            for (t, m) in zip(chain.tokens, mints) {
+                out.append(Balance(chain: chain, token: t, amount: held[m] ?? 0))
             }
             return out
         case .near:
@@ -247,8 +250,30 @@ public final class WalletService {
         return t
     }
 
+    /// Why Whitelist only (the Wallets setting) stops a send to this address, or nil when it may go: your own wallets,
+    /// and saved addresses past their 24-hour hold. The engine's copy of the rule, so batches and every other path get it.
+    public func whitelistBlock(chain: Chain, to: String) -> String? {
+        guard UserDefaults.standard.bool(forKey: "hermit.wallet.whitelistOnly") else { return nil }
+        let a = to.trimmingCharacters(in: .whitespacesAndNewlines)
+        let own = wallets.contains { $0.evmAddress.caseInsensitiveCompare(a) == .orderedSame || $0.solanaAddress == a
+            || ($0.nearAccount != nil && $0.nearAccount == a.lowercased()) }
+        guard !own else { return nil }
+        guard let e = addressBook.entry(for: a, kind: chain.kind), let label = e.label else {
+            return "Whitelist only is on and this address isn't saved. Save it first, or turn off Whitelist only."
+        }
+        let hold = e.payments == 0 && (e.added.map { Date().timeIntervalSince($0) < 86_400 } ?? false)
+        return hold ? "\(label) unlocks 24 hours after it was saved. Whitelist only is on." : nil
+    }
+
     /// The same, for an exact amount in the token's smallest unit, from a given wallet (nil = the selected one).
     public func prepareSend(walletID: UUID?, chain: Chain, to: String, value: UInt128, token tok: Token?) async throws -> PreparedSend {
+        if let block = whitelistBlock(chain: chain, to: to) { throw WalletError.blocked(block) }
+        return try await prepareTransfer(walletID: walletID, chain: chain, to: to, value: value, token: tok)
+    }
+
+    /// The send without the Whitelist only rule, for a deposit address a swap's quote gave (NEAR Intents): the user
+    /// isn't paying someone there, and the swap has its own review.
+    func prepareTransfer(walletID: UUID?, chain: Chain, to: String, value: UInt128, token tok: Token?) async throws -> PreparedSend {
         guard let w = walletID.flatMap({ id in wallets.first { $0.id == id } }) ?? selected else { throw WalletError.vault("Create or import a wallet first.") }
         guard chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Sends on \(chain.name) are off during the beta. Use \(Chain.defaultSend.name).") }
         guard value > 0 else { throw WalletError.invalidAmount("0") }

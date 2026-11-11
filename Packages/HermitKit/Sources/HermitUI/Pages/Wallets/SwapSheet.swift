@@ -25,6 +25,8 @@ struct SwapSheet: View {
     @State private var tokens: [IntentsToken] = []
     @State private var intents: IntentsQuote?
     @State private var relay: Relay.Quote?
+    /// What the Relay quote on screen was asked for, and when, so Review can ask again with the same inputs.
+    @State private var relayAsk: RelayAsk?
     @State private var intentsError: String?
     @State private var relayError: String?
     @State private var quoting = false
@@ -79,6 +81,11 @@ struct SwapSheet: View {
     private var btcValid: Bool { BitcoinAddress.looksValid(btcAddress) }
     private var overBalance: Bool { !preview && value > (held?.amount ?? 0) }
     private var quoteKey: String { "\(walletID)|\(fromChain.id)|\(fromSym)|\(to.id)|\(toSym)|\(amount)|\(btcAddress)|\(confidential)|\(tokens.count)" }
+
+    struct RelayAsk {
+        let from: Chain, fromToken: Token?, to: Relay.Place, toToken: Token?, amount: UInt128, user: String, recipient: String
+        let at: Date
+    }
 
     enum Route { case intents, relay }
     /// The bigger output wins; Intents when only it quoted.
@@ -169,6 +176,7 @@ struct SwapSheet: View {
         .onChange(of: tokens.count) { _, _ in if !toSymbols.contains(toSym) { toSym = toSymbols.first ?? toSym } }
         .task { await loadTokens() }
         .task(id: quoteKey) { await requote() }
+        .sensoryFeedback(.error, trigger: error) { _, new in new != nil }
     }
 
     private var flipButton: some View {
@@ -191,7 +199,9 @@ struct SwapSheet: View {
             other = relay.map { "Relay: \(IntentsFmt.amount($0.amountOut)) \(toSym)" } ?? relayError.map { _ in "Relay: no route" }
         case .relay:
             if let r = relay {
-                lines = [("Route", "via Relay"), ("Fees", MoneyFmt.usd(r.feeUSD, digits: 2) + " incl. network"), ("Time", IntentsFmt.seconds(r.seconds))]
+                lines = [("Route", "via Relay")]
+                if let m = r.minAmountOut { lines.append(("You get at least", "\(IntentsFmt.amount(m)) \(toSym)")) }
+                lines += [("Fees", MoneyFmt.usd(r.feeUSD, digits: 2) + " incl. network"), ("Time", IntentsFmt.seconds(r.seconds))]
             }
             other = intents.map { "NEAR Intents: \(IntentsFmt.amount($0.amountOutFormatted)) \(toSym)" }
         }
@@ -274,7 +284,7 @@ struct SwapSheet: View {
     private var recipient: String? { to == .bitcoin ? (btcValid ? btcAddress.trimmingCharacters(in: .whitespaces) : IntentsAssets.dryQuoteBitcoinRecipient) : nil }
 
     private func requote() async {
-        intents = nil; relay = nil; intentsError = nil; relayError = nil; error = nil
+        intents = nil; relay = nil; relayAsk = nil; intentsError = nil; relayError = nil; error = nil
         let tok = token(fromSym, fromChain)
         guard value > 0, !tokens.isEmpty, !(to.chain == fromChain && fromSym == toSym), let w = wallet, !needsNear,
               let amt = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? fromChain.nativeDecimals), amt > 0 else { return }
@@ -310,8 +320,22 @@ struct SwapSheet: View {
         }
         guard !Task.isCancelled else { return }
         withAnimation(.smooth(duration: 0.2)) {
-            switch i { case .success(let q): intents = q; case .failure(let e): intentsError = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription }
-            switch r { case .success(let q)?: relay = q; case .failure(let e)?: relayError = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription; case nil: break }
+            switch i {
+            case .success(let q): intents = q
+            case .failure(let e):
+                // A route minimum is said as an amount ("The minimum for this route is 6.188821 USDC."), not "too small".
+                intentsError = (e as? OneClickError)?.minimumText(decimals: tok?.decimals ?? fc.nativeDecimals, symbol: tok?.symbol ?? fc.nativeSymbol)
+                    ?? (e as? LocalizedError)?.errorDescription ?? e.localizedDescription
+            }
+            switch r {
+            case .success(let q)?:
+                relay = q
+                if let dest = relayDest {
+                    relayAsk = RelayAsk(from: fc, fromToken: tok, to: dest, toToken: tt, amount: amt, user: user, recipient: relayRecipient, at: Date())
+                }
+            case .failure(let e)?: relayError = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription
+            case nil: break
+            }
         }
     }
 
@@ -323,7 +347,7 @@ struct SwapSheet: View {
 
     private func review() {
         guard let b = best, let w = wallet else { return }
-        if b == .relay, let q = relay { reviewRelay(q, w); return }
+        if b == .relay, let q = relay { reviewRelayFresh(q, w); return }
         let svc = vm.service, wid = w.record.id, tok = token(fromSym, fromChain)
         let (fc, tp, ts, rcpt, conf, list, origin, amountText, fs) = (fromChain, to, toSym, recipient, confidential, tokens, origin, amount, fromSym)
         guard let dryOut = intents?.amountOut, let amt = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? fromChain.nativeDecimals) else { return }
@@ -345,6 +369,10 @@ struct SwapSheet: View {
                                          ["Cost", costText(q)], ["Network fee", "up to \(p.feeText)"], ["Time", IntentsFmt.seconds(q.seconds)],
                                          ["Refunds to", shortAddr(q.request.refundTo)]]
                 if tp == .bitcoin { lines.insert(["BTC to", shortAddr(q.request.recipient)], at: 2) }
+                // A token Hermit doesn't list: show which contract arrives, so a look-alike can be spotted.
+                if let c = tp.chain, c.token(ts) == nil, ts != c.nativeSymbol {
+                    lines.insert(["Token contract", shortAddr(IntentsAssets.token(ts, at: tp, in: list)?.contractAddress ?? "none listed")], at: 2)
+                }
                 if conf { lines.append(["Privacy", "Confidential"]) }
                 if origin == .agent { lines.insert(["Prepared by", "Hermit assistant"], at: 0) }
                 let checks = ["Requested by \(origin == .agent ? "the assistant, approved by you" : "you")"] + verdict.passed
@@ -364,20 +392,63 @@ struct SwapSheet: View {
         }
     }
 
+    /// Relay quotes go stale fast. One older than 20 seconds is asked for again with the same inputs before the approval
+    /// sheet opens, and blocked when it now gives more than 1% less than the screen showed (as the Intents path does).
+    private func reviewRelayFresh(_ shown: Relay.Quote, _ w: WalletAccount) {
+        guard let a = relayAsk, Date().timeIntervalSince(a.at) > 20 else { reviewRelay(shown, w); return }
+        reviewing = true; error = nil
+        Task {
+            defer { reviewing = false }
+            do {
+                let fresh = try await Relay.quote(from: .chain(a.from), fromToken: a.fromToken, to: a.to, toToken: a.toToken, amount: a.amount,
+                                                  user: a.user, recipient: a.recipient)
+                guard let now = Decimal(string: fresh.amountOut), let was = Decimal(string: shown.amountOut) else {
+                    throw WalletError.blocked("Relay didn't say how much you'd get. Try again.")
+                }
+                // The screen shows the new quote either way, so "check the new amount" points at a real number.
+                withAnimation(.smooth(duration: 0.2)) {
+                    relay = fresh
+                    relayAsk = RelayAsk(from: a.from, fromToken: a.fromToken, to: a.to, toToken: a.toToken, amount: a.amount,
+                                        user: a.user, recipient: a.recipient, at: Date())
+                }
+                guard now >= was - was / 100 else { throw WalletError.blocked("The price moved since the preview. Check the new amount and try again.") }
+                reviewRelay(fresh, w)
+            } catch {
+                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
     private func reviewRelay(_ q: Relay.Quote, _ w: WalletAccount) {
         let svc = vm.service, wid = w.record.id
         let txs = q.steps.reduce(0) { n, s in if case .evm(_, let c) = s { return n + c.count }; return n + 1 }
         let verdict = svc.policy.evaluate(usd: q.amountOutUSD.map { $0 + q.feeUSD }, payee: nil, origin: origin)
         if verdict.decision == .block { error = verdict.blocks.joined(separator: " "); return }
+        var lines: [[String]] = [["You pay", "\(amount) \(fromSym) on \(fromChain.name)"], ["You get", "about \(IntentsFmt.amount(q.amountOut)) \(toSym) on \(to.name)"],
+                                 ["Fee", MoneyFmt.usd(q.feeUSD, digits: 2)], ["Time", IntentsFmt.seconds(q.seconds)],
+                                 ["Steps", txs > 1 ? "\(txs) transactions, one \(Device.bio) each" : "One transaction"], ["Route", "Relay"]]
+        if let m = q.minAmountOut { lines.insert(["You get at least", "\(IntentsFmt.amount(m)) \(toSym)"], at: 2) }
         ask(Approval(kind: bridging ? "Bridge" : "Swap on \(fromChain.name)",
                      title: "\(amount) \(fromSym) to \(toSym)",
-                     lines: [["You pay", "\(amount) \(fromSym) on \(fromChain.name)"], ["You get", "about \(IntentsFmt.amount(q.amountOut)) \(toSym) on \(to.name)"],
-                             ["Fee", MoneyFmt.usd(q.feeUSD, digits: 2)], ["Time", IntentsFmt.seconds(q.seconds)],
-                             ["Steps", txs > 1 ? "\(txs) transactions, one \(Device.bio) each" : "One transaction"], ["Route", "Relay"]],
+                     lines: lines,
                      checks: ["Every step is simulated before it's signed", "Signed on \(Device.here) with your wallet's key"] + verdict.passed,
                      success: bridging ? "On its way to \(to.name)" : "Swapped \(fromSym) to \(toSym)", warnings: verdict.warnings) {
             try await svc.execute(q, walletID: wid)
-        }) { Task { try? await Task.sleep(for: .seconds(3)); await vm.refresh() } }
+        }) {
+            // The approval only says it's on its way; Relay's own status says when it arrived (or was refunded).
+            let dest = to.name, requestID = q.requestID
+            Task {
+                try? await Task.sleep(for: .seconds(3)); await vm.refresh()
+                guard let requestID else { return }
+                switch await Relay.settle(requestID) ?? "" {
+                case "success": model.toast("Arrived on \(dest)", kind: .success)
+                case "refund", "refunded": model.toast("Relay refunded it to your wallet", kind: .info)
+                case "failure": model.toast("Relay couldn't fill it. Check Activity.", kind: .error)
+                default: return
+                }
+                await vm.refresh()
+            }
+        }
     }
 }
 

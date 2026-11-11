@@ -78,7 +78,7 @@ struct BinanceSheet: View {
     private var balances: [Binance.Balance] { (store.binanceAccount?.balances ?? []).sorted { usd($0) > usd($1) } }
     private var usdt: Double { store.binanceAccount?.balances.first { $0.asset == "USDT" }?.free ?? 0 }
     private var held: Double { store.binanceAccount?.balances.first { $0.asset == asset }?.free ?? 0 }
-    private var value: Double { Double(amount).flatMap { $0.isFinite ? $0 : nil } ?? 0 }
+    private var value: Double { AmountText.value(amount) ?? 0 }
 
     var body: some View {
         SheetChrome(title: "Binance", subtitle: store.binanceAccount.map { $0.canTrade ? "Spot trading on" : "Read-only key" } ?? "Loading") {

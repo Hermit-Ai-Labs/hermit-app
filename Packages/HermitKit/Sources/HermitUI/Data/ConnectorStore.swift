@@ -27,7 +27,7 @@ final class ConnectorStore {
     func connectBinance(key: String, secret: String) async throws {
         let b = Binance(key: key.trimmingCharacters(in: .whitespacesAndNewlines), secret: secret.trimmingCharacters(in: .whitespacesAndNewlines))
         let acct = try await b.account()   // proves the key works before saving it
-        b.save()
+        guard b.save() else { throw MCPError.server("Couldn't save the key in the Keychain. Try again.") }
         binanceAccount = acct; binanceConnected = true; binanceError = nil
     }
 
@@ -57,8 +57,12 @@ final class ConnectorStore {
         let info = try await c.connect()
         let list = try await c.tools()
         var s = MCPServer(name: info.name, url: u.absoluteString, hasToken: !token.isEmpty)
-        if servers.contains(where: { $0.url == s.url }) { s.id = servers.first { $0.url == s.url }!.id; servers.removeAll { $0.url == s.url } }
-        Secrets.set(token.isEmpty ? nil : token, for: s.tokenKey)
+        if let old = servers.first(where: { $0.url == s.url }) { s.id = old.id }
+        // Saved before the list changes, so a Keychain refusal leaves the server as it was.
+        guard Secrets.set(token.isEmpty ? nil : token, for: s.tokenKey) else {
+            throw MCPError.server("Couldn't save the access token in the Keychain. Try again.")
+        }
+        servers.removeAll { $0.url == s.url }
         servers.append(s); tools[s.id] = list
         save()
         return s

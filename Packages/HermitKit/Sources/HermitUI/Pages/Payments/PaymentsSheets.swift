@@ -191,7 +191,7 @@ struct PayScheduleSheet: View {
                     }
                     .buttonStyle(PayPillButton(kind: .accent))
                     .disabled(!PayAddress.valid(f.addr) || PayAmount.exact(amount) == nil || !routable)
-                    Text("Opens Send with this filled in.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                    Text("Opens Send with this filled in.").font(.system(size: 12)).foregroundStyle(Theme.hint)
                 }
             }
         } foot: {
@@ -278,7 +278,7 @@ struct PayeeSheet: View {
                      : "\(linkedCount) scheduled payments use this payee and follow your changes.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
-            Text(savedNote).font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+            Text(savedNote).font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
         } foot: {
             if !isNew {
                 Button { store.removePayee(p.id); dismiss(); model.toast("Payee deleted") } label: {
@@ -358,7 +358,7 @@ struct PayExploreSheet: View {
                                     Text(item.sub).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                                 }
                                 Spacer(minLength: 8)
-                                if let tag = item.tag { Text(tag).font(.system(size: 12)).foregroundStyle(Theme.faint) }
+                                if let tag = item.tag { Text(tag).font(.system(size: 12)).foregroundStyle(Theme.hint) }
                                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
                             }
                             .padding(.vertical, 11)

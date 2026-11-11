@@ -112,7 +112,7 @@ struct WalletMenu: View {
     private func header(_ title: String, _ sub: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title).font(.system(size: 12.5, weight: .semibold))
-            Text(sub).font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+            Text(sub).font(.system(size: 11.5)).foregroundStyle(Theme.hint)
         }
         .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 6)
     }

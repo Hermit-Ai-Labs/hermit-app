@@ -130,9 +130,9 @@ final class CryptoVectorTests: XCTestCase {
     func testUnits() throws {
         XCTAssertEqual(try Units.parse("1.5", decimals: 6), 1_500_000)
         XCTAssertEqual(try Units.parse("0.000001", decimals: 6), 1)
-        XCTAssertEqual(try Units.parse("1,000", decimals: 18), 1_000_000_000_000_000_000_000)
+        XCTAssertEqual(try Units.parse("1000", decimals: 18), 1_000_000_000_000_000_000_000)
         XCTAssertEqual(try Units.parse(".5", decimals: 9), 500_000_000)
-        for bad in ["", "-1", "1.0000001", "1e5", "abc", "1.2.3", "."] { XCTAssertThrowsError(try Units.parse(bad, decimals: 6), bad) }
+        for bad in ["", "-1", "1.0000001", "1e5", "abc", "1.2.3", ".", "1,000", "1,5", "25,5"] { XCTAssertThrowsError(try Units.parse(bad, decimals: 6), bad) }
         XCTAssertEqual(Units.format(1_500_000, decimals: 6), "1.5")
         XCTAssertEqual(Units.format(1, decimals: 18), "0.000000000000000001")
         XCTAssertEqual(Units.format(1, decimals: 18, maxFraction: 6), "0")

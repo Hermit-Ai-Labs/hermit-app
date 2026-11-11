@@ -155,7 +155,7 @@ struct TradeTerminal: View {
 
     private func stat(_ s: (String, String, Color)) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(s.0).font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+            Text(s.0).font(.system(size: 11.5)).foregroundStyle(Theme.hint)
             Text(s.1).font(.system(size: 13.5, weight: .medium)).monospacedDigit().foregroundStyle(s.1 == "—" ? Theme.faint : s.2).lineLimit(1)
                 .contentTransition(.numericText())
         }
@@ -316,7 +316,7 @@ struct TradeTerminal: View {
                         HStack(spacing: 6) {
                             Text(px > 0 ? px.tradePx : "—").font(.system(size: 14, weight: .semibold)).monospacedDigit()
                             if let a = ob.asks.first, let b = ob.bids.first, b.px > 0 {
-                                Text("spread " + String(format: "%.3f%%", (a.px - b.px) / b.px * 100)).font(.system(size: 12)).foregroundStyle(Theme.faint)
+                                Text("spread " + String(format: "%.3f%%", (a.px - b.px) / b.px * 100)).font(.system(size: 12)).foregroundStyle(Theme.hint)
                             }
                             Spacer()
                         }
@@ -331,7 +331,7 @@ struct TradeTerminal: View {
                             HStack {
                                 Text(t.px.tradeGrouped(dp)).foregroundStyle(t.buy ? Theme.green : Theme.red).frame(maxWidth: .infinity, alignment: .leading)
                                 Text(Self.size(t.sz)).frame(maxWidth: .infinity, alignment: .trailing)
-                                Text(t.time, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute().second()).foregroundStyle(Theme.faint)
+                                Text(t.time, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute().second()).foregroundStyle(Theme.hint)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                             .font(.system(size: 12.5)).monospacedDigit().padding(.horizontal, 6).padding(.vertical, 3)
@@ -360,7 +360,7 @@ struct TradeTerminal: View {
                 Text(c).frame(maxWidth: .infinity, alignment: i == 0 ? .leading : .trailing)
             }
         }
-        .font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(.horizontal, 6).padding(.vertical, 3)
+        .font(.system(size: 11.5)).foregroundStyle(Theme.hint).padding(.horizontal, 6).padding(.vertical, 3)
     }
 
     private func bookRow(_ l: TradeData.BookLevel, sell: Bool, max: Double, dp: Int) -> some View {
@@ -545,10 +545,19 @@ struct TradeTerminal: View {
         if let tp { lines.append(["Take profit", "$" + tp.tradePx]) }
         if let sl { lines.append(["Stop loss", "$" + sl.tradePx]) }
         lines.append(["Fees", "Hyperliquid's taker fee, about 0.045%"])
+        // Leverage is set per coin on Hyperliquid, so the order changes it for an open position in this coin too. The
+        // same test as `place`: skipped only when the position already has this leverage and margin mode.
+        let cur = hl.account?.positions.first { $0.coin == asset.coin }
+        var warnings = ["Leveraged trades can lose all their margin"]
+        if !(cur?.leverage == leverage && cur?.cross == !asset.onlyIsolated) {
+            lines.insert(["Leverage", "Sets \(sym) to \(leverage)x"], at: 4)
+            if cur != nil { warnings.append("This also changes the leverage of your open \(sym) position.") }
+        }
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(sym)", lines: lines,
-                                checks: ["Signed on \(Device.here) with your wallet's key", "Leveraged trades can lose all their margin"],
-                                success: "\(isBuy ? "Long" : "Short") \(sym) sent") {
-            let r = try await trader.place(order, leverage: leverage)
+                                checks: ["Signed on \(Device.here) with your wallet's key"],
+                                success: "\(isBuy ? "Long" : "Short") \(sym) sent", warnings: warnings) {
+            // The summary says whether each take profit and stop loss was set ("Stop loss not set: <reason>").
+            let r = try await trader.place(order, leverage: leverage, current: cur)
             return r.summary
         }
         askApproval(approval) { Task { try? await Task.sleep(for: .seconds(1.5)); await hl.refresh() } }
@@ -682,7 +691,7 @@ struct TradeMarketMenu: View {
             .overlay(alignment: .bottom) { if !sheet { Rectangle().fill(Theme.border).frame(height: 1) } }
             .padding(.bottom, sheet ? 10 : 4)
             .padding(.top, sheet ? 14 : 0)
-            row(cells: [Text("Market"), Text("Price"), Text("24h"), Text("Funding")]).font(.system(size: 12)).foregroundStyle(Theme.faint)
+            row(cells: [Text("Market"), Text("Price"), Text("24h"), Text("Funding")]).font(.system(size: 12)).foregroundStyle(Theme.hint)
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(list) { m in
@@ -722,7 +731,7 @@ struct TradeMarketMenu: View {
                     HStack(spacing: 8) {
                         MarketLogo(key: TradeData.logo(m.sym), name: m.sym, size: sheet ? 24 : 18)
                         Text(m.sym).foregroundStyle(Theme.text)
-                        if m.coin.hasPrefix("xyz:") { Text("trade.xyz").font(.system(size: 11.5)).foregroundStyle(Theme.faint) }
+                        if m.coin.hasPrefix("xyz:") { Text("trade.xyz").font(.system(size: 11.5)).foregroundStyle(Theme.hint) }
                     }
                 } else { cells[0] }
             }
@@ -863,9 +872,8 @@ struct TradeTypedValue: View {
     }
 
     private func commit() {
-        let t = text.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "").replacingOccurrences(of: "x", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        if let v = TradeAmount.value(t) { value = min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step)) }
+        let t = text.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: "x", with: "").trimmingCharacters(in: .whitespaces)
+        if let v = AmountText.value(t) { value = min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step)) }
         text = shown
     }
 }

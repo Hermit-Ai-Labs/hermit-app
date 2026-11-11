@@ -119,9 +119,8 @@ struct IntentsActiveList: View {
                         .buttonStyle(RowButtonStyle())
                         .contextMenu {
                             let st = act.state(s.depositAddress)?.status ?? s.status
-                            if st == .pendingDeposit {
-                                Button("Cancel this swap", systemImage: "xmark.circle", role: .destructive) { act.remove(s.depositAddress) }
-                            } else if st.isFinal {
+                            // A waiting swap is only hidden: Hermit can't know nothing was sent, and 1Click can't cancel it.
+                            if st.isFinal {
                                 Button("Remove from list", systemImage: "trash", role: .destructive) { act.remove(s.depositAddress) }
                             }
                             Button("Hide from list", systemImage: "eye.slash") { act.hide(s.depositAddress) }

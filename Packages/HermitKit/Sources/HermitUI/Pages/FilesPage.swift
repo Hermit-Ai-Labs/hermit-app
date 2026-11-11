@@ -38,7 +38,7 @@ struct FilesPage: View {
                             Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(Theme.faint)
                             TextField("Search files", text: $query).textFieldStyle(.plain).font(.system(size: 14)).focused($searching)
                             if !query.isEmpty {
-                                Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }.buttonStyle(.plain)
+                                Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }.buttonStyle(.plain).accessibilityLabel("Clear search")
                             }
                         }
                         .modifier(FieldBox(focused: searching))
@@ -81,7 +81,7 @@ struct FileRow: View {
                         .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Text(file.whenText).font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text(file.whenText).font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
             .padding(.vertical, 10)
         }

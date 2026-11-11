@@ -48,7 +48,7 @@ public actor MCPClient {
                 let props = schema?["properties"] as? [String: [String: Any]] ?? [:]
                 let req = Set(schema?["required"] as? [String] ?? [])
                 let params = props.keys.sorted { (req.contains($0) ? 0 : 1, $0) < (req.contains($1) ? 0 : 1, $1) }.map { k in
-                    MCPTool.Param(name: k, type: props[k]?["type"] as? String ?? "string", description: props[k]?["description"] as? String,
+                    MCPTool.Param(name: k, type: Self.paramType(props[k]), description: props[k]?["description"] as? String,
                                   required: req.contains(k))
                 }
                 out.append(MCPTool(name: name, description: t["description"] as? String, params: params))
@@ -111,19 +111,45 @@ public actor MCPClient {
         }
         if data.isEmpty { return nil }
         let type = http.value(forHTTPHeaderField: "Content-Type") ?? ""
-        if type.contains("text/event-stream") {
-            // The reply is the last JSON-RPC message carrying an id in the stream's data lines.
-            var found: [String: Any]?
-            for event in String(decoding: data, as: UTF8.self).components(separatedBy: "\n\n") {
-                let payload = event.split(separator: "\n").filter { $0.hasPrefix("data:") }
-                    .map { $0.dropFirst(5).trimmingCharacters(in: .whitespaces) }.joined()
-                if let d = payload.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], o["id"] != nil {
-                    found = o
-                }
-            }
-            return found
-        }
+        if type.contains("text/event-stream") { return Self.lastReply(inEventStream: data) }
         return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /// The reply in a server-sent-events body: the last JSON-RPC message carrying an id in the stream's data lines.
+    /// Servers end lines with LF or CRLF (DeepWiki uses CRLF, which Swift reads as one Character, so it is normalised
+    /// first), and the last event may have no blank line after it.
+    static func lastReply(inEventStream data: Data) -> [String: Any]? {
+        let text = String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var found: [String: Any]?
+        for event in text.components(separatedBy: "\n\n") {
+            let payload = event.components(separatedBy: "\n").filter { $0.hasPrefix("data:") }
+                .map { $0.dropFirst(5).trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+            if let d = payload.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], o["id"] != nil {
+                found = o
+            }
+        }
+        return found
+    }
+
+    /// The type to show for one parameter of a tool's input schema. Servers write it as "type": "string", as a list
+    /// (["string", "null"]), as anyOf / oneOf (DeepWiki's repoName is a string or a list of strings), or leave it out
+    /// and only give "items" or "properties". A union that includes an array or object reads as that, so the test sheet
+    /// sends JSON when the text is JSON (and the text as it is when it isn't). Plain string only when nothing is declared.
+    static func paramType(_ schema: [String: Any]?) -> String {
+        guard let schema else { return "string" }
+        var types: [String] = []
+        if let t = schema["type"] as? String { types.append(t) }
+        if let list = schema["type"] as? [String] { types += list }
+        for key in ["anyOf", "oneOf"] {
+            for alt in (schema[key] as? [[String: Any]]) ?? [] { types.append(paramType(alt)) }
+        }
+        types = types.filter { $0 != "null" }
+        if let structured = types.first(where: { $0 == "array" || $0 == "object" }) { return structured }
+        if let first = types.first { return first }
+        if schema["items"] != nil { return "array" }
+        if schema["properties"] != nil { return "object" }
+        return "string"
     }
 }
 

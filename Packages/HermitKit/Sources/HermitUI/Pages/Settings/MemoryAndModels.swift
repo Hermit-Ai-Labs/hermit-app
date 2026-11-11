@@ -63,7 +63,7 @@ struct MemoryEditor: View {
             HStack {
                 Label("Long-term memory", systemImage: "book.closed").font(.system(size: 13.5, weight: .medium))
                 Spacer()
-                Text("hermit.md").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.faint)
+                Text("hermit.md").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.hint)
             }
             Text("Hermit follows this in every new chat. Add to it here, or say \"remember …\" in chat. It stays on this device.")
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
@@ -79,13 +79,13 @@ struct MemoryEditor: View {
                 .overlay(alignment: .topLeading) {
                     if draft.isEmpty {
                         Text("Empty. One note per line, for example:\n- Keep answers short\n- I live in Berlin, show prices in euros")
-                            .font(.system(size: 13.5, design: .monospaced)).lineSpacing(4).foregroundStyle(Theme.faint)
+                            .font(.system(size: 13.5, design: .monospaced)).lineSpacing(4).foregroundStyle(Theme.hint)
                             .padding(.horizontal, 17).padding(.vertical, 12).allowsHitTesting(false)
                     }
                 }
                 .accessibilityLabel("Long-term memory")
             HStack(spacing: 8) {
-                Text(MemoryStore.lines(draft) == 1 ? "1 note" : "\(MemoryStore.lines(draft)) notes").font(.system(size: 12)).foregroundStyle(Theme.faint).monospacedDigit()
+                Text(MemoryStore.lines(draft) == 1 ? "1 note" : "\(MemoryStore.lines(draft)) notes").font(.system(size: 12)).foregroundStyle(Theme.hint).monospacedDigit()
                 Spacer()
                 if dirty {
                     Button("Discard") { withAnimation(.snappy) { draft = store.text } }.buttonStyle(OutlineButton())

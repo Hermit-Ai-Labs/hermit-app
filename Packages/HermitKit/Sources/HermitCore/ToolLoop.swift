@@ -58,11 +58,15 @@ public actor ToolChat {
     /// The full prompt for the next assistant turn. `tools: false` renders it with no tools offered (the last-chance
     /// plain answer below).
     public func prompt(tools: Bool = true) -> String {
-        let text = HermitPrompt.render(messages, tools: tools ? config.tools : [], family: config.family, addGenerationPrompt: true)
+        // No tools renders no tool block at all, as training does (an empty <tools></tools> never occurs there).
+        let text = HermitPrompt.render(messages, tools: tools ? config.tools : nil, family: config.family, addGenerationPrompt: true)
         return Self.bioWord == "Face ID" ? text : text.replacingOccurrences(of: "Face ID", with: Self.bioWord)
     }
 
-    static let answerNowNote = #"{"note": "No more tools for this message. Answer the user now, in a few plain sentences, from what you know and any results above. If a tool couldn't help, say so in one short clause and answer anyway."}"#
+    static let answerNowNote = #"{"note": "No more tools for this message. If a live price, balance or position was needed and no result above has it, say you couldn't get it right now and say nothing about its value. Otherwise answer in a few plain sentences."}"#
+
+    /// What the last-chance answer says instead when it states a dollar amount or a percent no result or message had.
+    static let noLiveNumber = "I couldn't get a live number just now. Try again in a moment."
 
     /// What the user typed in this chat, without attached files (an address inside a file doesn't count as typed).
     public func userText() -> String {
@@ -74,21 +78,38 @@ public actor ToolChat {
         history.compactMap { if case .user(let s) = $0 { return s }; return nil }.joined(separator: "\n")
     }
 
+    /// The message without its attached file. The app writes "The user attached the file NAME:", the file between
+    /// <file> and </file>, then the question. A file can hold "</file>" itself, so the file runs to the LAST closing
+    /// tag, never the first (text after a fake closing tag would otherwise count as typed). The line naming the file
+    /// goes too: a file's name isn't typed by the user either.
     public static func withoutFiles(_ s: String) -> String {
         var t = s
-        while let a = t.range(of: "<file>") {
-            if let b = t.range(of: "</file>", range: a.upperBound..<t.endIndex) { t.removeSubrange(a.lowerBound..<b.upperBound) }
-            else { t.removeSubrange(a.lowerBound..<t.endIndex) }
+        while let a = t.range(of: "<file>", options: .caseInsensitive) {
+            let from = t.range(of: "The user attached the file", options: [.anchored, .caseInsensitive])?.lowerBound ?? a.lowerBound
+            if let b = t.range(of: "</file>", options: [.caseInsensitive, .backwards], range: a.upperBound..<t.endIndex) { t.removeSubrange(from..<b.upperBound) }
+            else { t.removeSubrange(from..<t.endIndex) }
         }
         return t
     }
 
-    private func trimHistory() {
-        // Keep the newest user message and what follows it; drop whole exchanges from the front.
-        while prompt().count > config.maxPromptChars {
-            guard let next = history.dropFirst().firstIndex(where: { if case .user = $0 { return true }; return false }) else { return }
-            history.removeSubrange(0..<next)
+    /// A file's text made safe to put between the app's <file> markers: tags inside it can't end the block early.
+    public static func fileSafe(_ body: String) -> String {
+        body.replacingOccurrences(of: "</file>", with: "</ file>", options: .caseInsensitive)
+            .replacingOccurrences(of: "<file>", with: "< file>", options: .caseInsensitive)
+    }
+
+    /// Keeps the newest user message and what follows it; drops whole exchanges from the front. Once over the cap it
+    /// trims to about 70 percent, so the model's cache is rebuilt now and then rather than on every message.
+    /// True when something was dropped.
+    private func trimHistory() -> Bool {
+        guard prompt().count > config.maxPromptChars else { return false }
+        let target = config.maxPromptChars * 7 / 10
+        var dropped = false
+        while prompt().count > target {
+            guard let next = history.dropFirst().firstIndex(where: { if case .user = $0 { return true }; return false }) else { break }
+            history.removeSubrange(0..<next); dropped = true
         }
+        return dropped
     }
 
     /// "Face ID" on a phone, "Touch ID" on a Mac; the app sets it at launch.
@@ -104,7 +125,7 @@ public actor ToolChat {
         defer { busy = false }
         if Task.isCancelled { return }
         history.append(.user(HermitPrompt.neutralize(prompt)))
-        trimHistory()
+        if trimHistory() { cont.yield(.status("Setting older messages aside to make room…")) }
 
         var filter = OutputFilter()
         var steps = 0, actions: [Action] = [], shownAny = false, malformedTurns = 0
@@ -188,8 +209,11 @@ public actor ToolChat {
                 var call = original
                 // A spreadsheet of payees is one batch send, whatever the model did with it: it tends to split the list
                 // into single sends (and invent a network). The app builds the batch from the user's own rows instead.
-                if call.name == "prepare_send", let (n, a) = Self.appRoute(prompt), n == "prepare_multisend", Self.recipientCount(a) >= 2 {
-                    if listSent { continue }
+                // Only a send to one of those rows (or to no one yet): a send to someone else stays a send.
+                if call.name == "prepare_send", let (n, a) = Self.appRoute(prompt), n == "prepare_multisend", Self.recipientCount(a) >= 2,
+                   Self.isPayee(original.arguments["to_address"]?.string, of: a) {
+                    // Every call gets a result, so the history has one per call.
+                    if listSent { history.append(.tool(Self.inBatchNote)); continue }
                     call = ToolCall(name: n, arguments: JSONValue.parse(a) ?? .object([])); listSent = true
                 }
                 // The same call again in this message: answer from the first run (a repeated prepare_ never opens a
@@ -214,7 +238,7 @@ public actor ToolChat {
                 } else {
                     out = ToolOutcome(content: #"{"error": "Tools are off."}"#)
                 }
-                if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
+                if let a = out.action { Self.add(a, to: &actions) }
                 if ToolGuard.moneyTools.contains(call.name), out.action?.approval != nil || Self.opened(out.content) { prepared = true }
                 if out.content.contains("\"executed\":true") || out.content.contains("\"status\":\"sent\"") || out.content.contains("\"status\": \"sent\"") { executed = true }
                 if call.name == "get_quote", !out.content.contains("\"error\"") { quoteArgs = call.argumentsJSON }
@@ -234,6 +258,8 @@ public actor ToolChat {
 
         // Tools got nowhere (a failed lookup, a repeated call, an unreadable one) and nothing was said yet: one more turn
         // with no tools offered, so the model answers from what it knows instead of the user getting a dead end.
+        // It is held back until it ends: no tool answered, so a dollar amount or percent in it must come from a result
+        // or a message in this chat, or it is replaced (a small model fills a failed price lookup from memory).
         if !finalAnswer && actions.isEmpty && !shownAny && !Task.isCancelled {
             history.append(.tool(Self.answerNowNote))
             var parser = ToolCallStream(known: toolNames)
@@ -241,12 +267,19 @@ public actor ToolChat {
             var plain = ""
             do {
                 for try await chunk in generator.generate(self.prompt(tools: false)) {
-                    for p in parser.push(chunk) { if case .text(let t) = p { let v = last.push(t); if !v.isEmpty { if !shownAny { cont.yield(.steps(steps)) }; cont.yield(.text(v)); plain += v; said += v; shownAny = true } } }
+                    for p in parser.push(chunk) { if case .text(let t) = p { plain += last.push(t) } }
                     if last.finished { break }
                 }
             } catch {}
-            let content = plain.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !content.isEmpty { history.append(.assistant(content, calls: [])); finalAnswer = true }
+            if Task.isCancelled { return }
+            plain += last.flush()
+            var content = plain.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty, !Self.numbersBacked(content, by: history) { content = Self.noLiveNumber }
+            if !content.isEmpty {
+                if !shownAny { cont.yield(.steps(steps)) }
+                cont.yield(.text(content)); said += content; shownAny = true
+                history.append(.assistant(content, calls: [])); finalAnswer = true
+            }
         }
         if !finalAnswer {
             // The model ran out of rounds, or couldn't write a readable call: a plain line instead of anything raw.
@@ -266,8 +299,10 @@ public actor ToolChat {
                 cont.yield(.status(ToolStatus.label("prepare_swap", arguments: args) + "…"))
                 steps += 1
                 let out = await toolbox.run("prepare_swap", arguments: q)
-                if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
-                if out.action != nil || Self.opened(out.content) || out.content.contains("prepared") { prepared = true }
+                if let a = out.action { Self.add(a, to: &actions) }
+                // Only a review that opened counts: a refusal ("Nothing was prepared", "prepared": false) doesn't.
+                if out.action != nil || Self.opened(out.content) { prepared = true }
+                else if let v = JSONValue.parse(out.content), case .array(let r)? = v["reasons"], let first = r.first?.string { blockedReason = first }
                 history.append(.tool(ToolResult.clean(out.content)))
             }
         }
@@ -282,7 +317,7 @@ public actor ToolChat {
                 cont.yield(.status(ToolStatus.label(name, arguments: parsed) + "…"))
                 steps += 1
                 let out = await toolbox.run(name, arguments: argsJSON)
-                if let a = out.action, !actions.contains(where: { $0.title == a.title }) { actions.append(a) }
+                if let a = out.action { Self.add(a, to: &actions) }
                 if out.action != nil || Self.opened(out.content) { prepared = true }
                 history.append(.tool(ToolResult.clean(out.content)))
                 // The model didn't prepare it, so its text may not say why nothing opened: say what the app did.
@@ -292,16 +327,95 @@ public actor ToolChat {
                 }
             }
         }
+        // Both checks below only run when this message is about moving money, so an email "prepared below" or a
+        // history answer ("the first bitcoin was sent in 2009") gets no money note.
+        let typedNow = Self.withoutFiles(prompt)
         // A model can say "prepared for review" without calling the tool. Nothing is waiting then, so say so.
-        if !prepared, Self.claimsPrepared(said) {
+        if !prepared, triedMoney || Self.asksMoneyMove(typedNow) || Self.namesMoneyMove(said), Self.claimsPrepared(said, inMoneyMessage: true) {
             cont.yield(.text("\n\n" + (blockedReason.map { "Nothing was prepared: \($0)" } ?? Self.notPrepared)))
         }
         // And it can't know money moved unless a tool said so: approvals happen on the review screen, out of its sight.
-        if !executed, Self.claimsDone(said) {
+        if !executed, triedMoney || prepared || Self.asksMoneyMove(typedNow), Self.claimsDone(said, inMoneyMessage: true) {
             cont.yield(.text("\n\nTo be clear: I can't see approvals or results from here, so I don't know whether that went through. Activity in Wallets shows what actually happened."))
         }
         cont.yield(.steps(steps))
         if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
+    }
+
+    /// Adds a button unless the very same one is there. Two different reviews can share a title ("Review send" to two
+    /// people): both stay, and their titles say who each one pays (or get a number), so every button has its own id.
+    public static func add(_ action: Action, to actions: inout [Action]) {
+        guard !actions.contains(where: { $0.isSame(as: action) }) else { return }
+        let base = action.title
+        guard actions.contains(where: { $0.title == base || $0.title.hasPrefix(base + " to ") || $0.title.hasPrefix(base + " (") }) else {
+            actions.append(action); return
+        }
+        if let i = actions.firstIndex(where: { $0.title == base }), let named = recipientTitle(actions[i]), !actions.contains(where: { $0.title == named }) {
+            actions[i] = actions[i].titled(named)
+        }
+        let wanted = recipientTitle(action) ?? base
+        var title = wanted, n = 2
+        while actions.contains(where: { $0.title == title }) { title = "\(wanted) (\(n))"; n += 1 }
+        actions.append(action.titled(title))
+    }
+
+    /// "Review send to 0x5aAe…eAed": the title with the review's "To" line, or nil when it has none.
+    static func recipientTitle(_ a: Action) -> String? {
+        guard let to = a.approval?.lines.first(where: { $0.first == "To" }), to.count > 1 else { return nil }
+        let t = to[1].trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return nil }
+        var short = t
+        if !t.contains(" "), t.count > 16 { short = String(t.prefix(6)) + "…" + String(t.suffix(4)) }
+        else if t.count > 28 { short = String(t.prefix(27)) + "…" }
+        return a.title + " to " + short
+    }
+
+    static let inBatchNote = #"{"note": "This payee is already in the batch send above. Nothing else was prepared."}"#
+
+    /// The send's recipient is one of the batch's rows, or it names none: the model split the user's list.
+    static func isPayee(_ address: String?, of argumentsJSON: String) -> Bool {
+        guard let a = address?.trimmingCharacters(in: .whitespacesAndNewlines), !a.isEmpty else { return true }
+        guard let v = JSONValue.parse(argumentsJSON), case .array(let rows)? = v["recipients"] else { return false }
+        return rows.contains { r in
+            guard let to = r["address"]?.string else { return false }
+            return to.hasPrefix("0x") ? to.lowercased() == a.lowercased() : to == a
+        }
+    }
+
+    /// Every dollar amount and percent in `text` is near a number the user wrote or a tool returned in this chat.
+    static func numbersBacked(_ text: String, by history: [HermitPrompt.Message]) -> Bool {
+        let claimed = numbers(in: text, pattern: #"\$\s?([0-9][0-9,]*(?:\.[0-9]+)?)|([0-9][0-9,]*(?:\.[0-9]+)?)\s?(?:%|percent\b|usd\b|dollars\b)"#)
+        guard !claimed.isEmpty else { return true }
+        let source = history.compactMap { (m: HermitPrompt.Message) -> String? in
+            switch m {
+            case .user(let s), .tool(let s): return s
+            default: return nil
+            }
+        }.joined(separator: "\n")
+        let known = numbers(in: source, pattern: #"([0-9][0-9,]*(?:\.[0-9]+)?)"#)
+        return claimed.allSatisfy { c in known.contains { k in abs(k - c) <= max(0.01, abs(k) * 0.01) } }
+    }
+
+    /// The numbers the pattern's groups capture, commas dropped.
+    static func numbers(in text: String, pattern: String) -> [Double] {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        return re.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { m -> Double? in
+            for g in 1..<max(m.numberOfRanges, 1) {
+                if let r = Range(m.range(at: g), in: text) { return Double(text[r].replacingOccurrences(of: ",", with: "")) }
+            }
+            return nil
+        }
+    }
+
+    /// The user's message asks for (or about) a money move: a send, swap, trade, deposit or withdrawal.
+    static func asksMoneyMove(_ text: String) -> Bool {
+        text.lowercased().range(of: #"\b(send|sending|sent|pay|paying|paid|transfer\w*|swap\w*|bridg\w*|convert|trade\w*|buy|sell|long|short|deposit\w*|withdraw\w*|multisend|batch|stake|supply|lend|order|position|leverage)\b"#,
+                                options: .regularExpression) != nil
+    }
+
+    /// The reply talks about a money move ("the swap", "your send"), not about an email or a plan.
+    static func namesMoneyMove(_ text: String) -> Bool {
+        text.lowercased().range(of: #"\b(send|transfer|swap|bridge|trade|deposit|withdrawal|payment|multisend|batch send)s?\b"#, options: .regularExpression) != nil
     }
 
     /// "swap 20 USDC to NEAR", "bridge my USDC to Arbitrum": an instruction, not a question about a price.
@@ -347,25 +461,37 @@ public actor ToolChat {
         content.contains("review_opened") || content.contains("prepared_for_review")
     }
 
-    /// The reply says a trade, swap or send is prepared or waiting for approval.
-    /// "the sends went through", "funds are in their wallet", "has been sent": a claim that money moved.
-    public static func claimsDone(_ text: String) -> Bool {
+    /// "the sends went through", "your swap is done", "has been sent": a claim that money moved. Bare passives ("was
+    /// sent", "was executed") and "it's done" are not claims on their own: history, file summaries and how-to answers
+    /// use them all the time. In a message about moving money (`inMoneyMessage`) they count again: there "10 USDC was
+    /// sent to alice.near" is a claim about this move.
+    public static func claimsDone(_ text: String, inMoneyMessage: Bool = false) -> Bool {
         let t = text.lowercased()
-        let patterns = [#"\b(went|gone) through\b"#, #"\b(has|have|had|was|were) been (sent|transferred|swapped|deposited|executed|completed)\b"#,
-                        #"\b(was|were) (sent|transferred|swapped|deposited|executed)\b"#, #"\bfunds are (now )?in\b"#, #"\bsuccessfully (sent|transferred|swapped|deposited)\b"#,
-                        #"\btransaction (is|was) (complete|confirmed|successful)\b"#, #"\bit(['’]s| is) (done|sent|confirmed)\b"#]
+        var patterns = [#"\b(went|gone) through\b"#, #"\b(has|have|had) been (sent|transferred|swapped|deposited|withdrawn|executed|completed|filled)\b"#,
+                        #"\bsuccessfully (sent|transferred|swapped|deposited|withdrew|withdrawn|executed|placed|filled)\b"#,
+                        #"\btransaction (is|was) (complete|confirmed|successful)\b"#,
+                        #"\b(your|the) (send|swap|transfer|trade|order|deposit|withdrawal|payment|batch send)s? (is|are|was|were) (now )?(done|complete|completed|confirmed|sent|filled|executed|through)\b"#,
+                        #"\bi(['’]ve| have)? (sent|transferred|swapped|deposited|withdrawn|executed)\b"#]
+        if inMoneyMessage {
+            patterns += [#"\b(was|were) (sent|transferred|swapped|deposited|withdrawn|executed)\b"#, #"\bit(['’]s| is) (done|sent|confirmed)\b"#,
+                         #"\bfunds are (now )?in\b"#]
+        }
         let sentences = t.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).filter {
             $0.range(of: #"\b(nothing|not|no|never|once|after|when|if|until|unless|will|would)\b|n['’]t\b"#, options: .regularExpression) == nil
         }
         return sentences.contains { s in patterns.contains { s.range(of: $0, options: .regularExpression) != nil } }
     }
 
-    public static func claimsPrepared(_ text: String) -> Bool {
+    /// The reply says a trade, swap or send is prepared or waiting for approval. "is prepared" alone isn't enough (a
+    /// meal plan is prepared too): the thing prepared is a money move, or it is prepared for review or approval. In a
+    /// message about moving money (`inMoneyMessage`), "it's prepared" and "has been prepared" count too.
+    public static func claimsPrepared(_ text: String, inMoneyMessage: Bool = false) -> Bool {
         let t = text.lowercased()
-        let patterns = [#"\b(is|been|now|trade|order|swap|send|transfer|it|position)\s+(prepared|ready for (your )?(review|approval))"#,
-                        #"\bprepared for (your )?(review|approval)"#, #"\bwaiting for (your )?(face id|approval)"#,
+        var patterns = [#"\b(trade|order|swap|send|transfer|position|deposit|withdrawal|payment|batch send)s?\s+(is\s+|are\s+)?(now\s+)?(prepared|ready for (your )?(review|approval))"#,
+                        #"\bprepared for (your )?(review|approval)"#, #"\bready for (your )?(review|approval)"#, #"\bwaiting for (your )?(face id|touch id|approval)"#,
                         #"\b(review|approval) (sheet|screen) (is )?open"#, #"\bi(['’]ve| have) prepared\b"#,
                         #"\bon the review (sheet|screen)\b"#]
+        if inMoneyMessage { patterns.append(#"\b(is|been|now|it|it['’]s)\s+(prepared|ready for (your )?(review|approval))"#) }
         // Sentence by sentence, skipping denials ("nothing is prepared for review", "it isn't ready for approval").
         let sentences = t.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).filter {
             $0.range(of: #"\b(nothing|not|no|never)\b|n['’]t\b"#, options: .regularExpression) == nil

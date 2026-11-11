@@ -54,7 +54,11 @@ enum AttachmentReader {
             a.recipients = RecipientTable.parse(all)
             let (text, note) = FileBudget.cut(all, unit: "rows")
             a.text = text; a.cutNote = note; a.truncated = note != nil
-            a.detail = sheets.count == 1 ? "spreadsheet, \(rows) rows" : "spreadsheet, \(sheets.count) sheets, \(rows) rows"
+            // A sheet cut at the row cap says so: its row count isn't the file's.
+            let capped = sheets.contains { $0.capped }
+            let first = "first \(XLSXText.Sheet.maxRows.formatted()) rows"
+            a.detail = sheets.count == 1 ? "spreadsheet, \(capped ? first : "\(rows) rows")"
+                : "spreadsheet, \(sheets.count) sheets, \(capped ? first + " of each" : "\(rows) rows")"
             return a
         }
         if ext == "pdf" {
@@ -197,7 +201,10 @@ enum AttachmentReader {
 
 extension Attachment {
     /// The chip's second line: size, and what Hermit read ("12 KB, spreadsheet, 48 rows").
-    var chipLine: String { [size, detail ?? ""].filter { !$0.isEmpty }.joined(separator: ", ") }
+    /// A file from a saved chat has only its name and size: it says it isn't loaded.
+    var chipLine: String {
+        restored ? "Not loaded. Attach it again to ask about it" : [size, detail ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
 
     /// The text came from text recognition (a photo, a screenshot or a scanned PDF), so an address in it may be misread.
     var readFromPicture: Bool { detail?.contains("read on this device") == true }

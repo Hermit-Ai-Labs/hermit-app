@@ -83,7 +83,7 @@ struct CalWeekView: View {
 
     private var allDay: some View {
         HStack(alignment: .top, spacing: 0) {
-            Text("All day").font(.system(size: 10.5)).foregroundStyle(Theme.faint)
+            Text("All day").font(.system(size: 10.5)).foregroundStyle(Theme.hint)
                 .frame(width: CalGrid.gutter - 6, alignment: .trailing).padding(.trailing, 6).padding(.top, 9)
             ForEach(days, id: \.self) { d in
                 VStack(spacing: 3) {
@@ -102,7 +102,7 @@ struct CalWeekView: View {
         HStack(alignment: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ForEach(CalGrid.hours, id: \.self) { h in
-                    Text(String(format: "%d:00", h)).font(.system(size: 10.5)).foregroundStyle(Theme.faint).monospacedDigit()
+                    Text(String(format: "%d:00", h)).font(.system(size: 10.5)).foregroundStyle(Theme.hint).monospacedDigit()
                         .frame(width: CalGrid.gutter - 6, height: CalGrid.row, alignment: .topTrailing)
                         .padding(.trailing, 6).padding(.top, 2)
                 }
@@ -172,7 +172,7 @@ private struct CalSlot: View {
                 Rectangle().fill(hover ? Theme.subtle : Color.clear)
                 if hover {
                     Label(String(format: "%02d:00", hour), systemImage: "plus").font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(Theme.faint).padding(.horizontal, 7).padding(.top, 5).transition(.opacity)
+                        .foregroundStyle(Theme.hint).padding(.horizontal, 7).padding(.top, 5).transition(.opacity)
                 }
             }
             .frame(height: CalGrid.row)
@@ -302,7 +302,7 @@ struct CalMonthView: View {
             HStack(spacing: 0) {
                 ForEach(0..<7, id: \.self) { i in
                     Text(CalendarData.format(CalendarData.add(start, days: i), compact ? "EEEEE" : "EEE"))
-                        .font(.system(size: 12)).foregroundStyle(Theme.faint)
+                        .font(.system(size: 12)).foregroundStyle(Theme.hint)
                         .padding(.horizontal, compact ? 4 : 8).padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .overlay(alignment: .trailing) { Rectangle().fill(Theme.border).frame(width: 1) }
@@ -355,7 +355,7 @@ private struct CalMonthCell: View {
             } else {
                 ForEach(items.prefix(2)) { t in CalChip(item: t) { onOpen(t) } }
                 if items.count > 2 {
-                    Text("+\(items.count - 2)").font(.system(size: 11)).foregroundStyle(Theme.faint).padding(.leading, 2)
+                    Text("+\(items.count - 2)").font(.system(size: 11)).foregroundStyle(Theme.hint).padding(.leading, 2)
                 }
             }
         }
@@ -401,7 +401,7 @@ private struct CalBoardColumn: View {
             HStack {
                 Text(status.label).foregroundStyle(Theme.muted)
                 Spacer()
-                Text("\(cards.count)").foregroundStyle(Theme.faint).monospacedDigit().contentTransition(.numericText())
+                Text("\(cards.count)").foregroundStyle(Theme.hint).monospacedDigit().contentTransition(.numericText())
             }
             .font(.system(size: 13)).padding(.horizontal, 2).frame(minHeight: 24)
             ForEach(cards) { t in
@@ -410,7 +410,7 @@ private struct CalBoardColumn: View {
                     .draggable("\(t.id)")
             }
             if cards.isEmpty {
-                Text("Drop tasks here").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text("Drop tasks here").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
                     .frame(maxWidth: .infinity).padding(.vertical, 22)
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
@@ -446,7 +446,7 @@ private struct CalBoardCard: View {
                 if item.project != nil { Circle().fill(item.color).frame(width: 7, height: 7) }
                 Text(item.project.map(CalendarData.short) ?? "Personal").foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer(minLength: 6)
-                Text(CalendarData.format(item.date, "MMM d")).foregroundStyle(Theme.faint).fixedSize()
+                Text(CalendarData.format(item.date, "MMM d")).foregroundStyle(Theme.hint).fixedSize()
             }
             .font(.system(size: 12.5)).padding(.top, 8)
             if item.status != .done {

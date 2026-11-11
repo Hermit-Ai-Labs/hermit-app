@@ -88,6 +88,12 @@ extension HermitToolbox {
         case .chain(let c): chain = c
         case .ask(let out): return out
         }
+        // Whitelist only covers the assistant's batches as it covers its single sends: one payee it stops stops the list.
+        for r in rows {
+            if let block = vm.whitelistBlock(r.address.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return json(["status": "blocked", "prepared": false, "reasons": [block], "note": "Nothing was prepared. Tell the user why."])
+            }
+        }
         let plan: BatchPlan
         do {
             plan = try await vm.service.planBatch(walletID: w.record.id, chain: chain, symbol: symbol, recipients: rows, origin: origin, source: source, fromPicture: fromPicture)

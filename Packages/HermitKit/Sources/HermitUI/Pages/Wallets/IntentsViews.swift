@@ -22,10 +22,14 @@ final class IntentsActivity {
     }
     /// Hidden from the list (still tracked, still in Activity).
     private(set) var hidden: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hermit.intents.hidden") ?? [])
+    /// Hides a swap from the list but keeps its record and keeps polling it, so a deposit sent to it still shows in
+    /// Activity with its real status. This is all a waiting swap offers: 1Click can't be told to cancel, and money sent
+    /// to the address still swaps.
     func hide(_ depositAddress: String) {
         withAnimation(.snappy) { hidden.insert(depositAddress) }
         UserDefaults.standard.set(Array(hidden), forKey: "hermit.intents.hidden")
         if focus?.id == depositAddress { focus = nil }
+        track(depositAddress)
     }
 
     func show(_ depositAddress: String) {
@@ -36,8 +40,8 @@ final class IntentsActivity {
 
     func reload() { swaps = swaps.filter { debugIDs.contains($0.depositAddress) } + WalletService.intentsLedger.all }
 
-    /// Forgets a swap on this device: a deposit address nobody sent to (Cancel), or a settled one (Remove from list).
-    /// 1Click isn't told; an unused address simply expires, and a swap already under way still completes.
+    /// Forgets a settled swap on this device (Remove from list). Not for a waiting one: Hermit can't know nothing was
+    /// sent, so those are hidden instead (hide), keeping their record and status.
     func remove(_ depositAddress: String) {
         WalletService.intentsLedger.remove(depositAddress)
         states[depositAddress] = nil; errors[depositAddress] = nil
@@ -217,13 +221,15 @@ struct IntentsStatusSheet: View {
                     .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
             }
             if status == .pendingDeposit {
-                Text("Nothing has been sent to this address yet. Cancel forgets it; it expires on its own. If you did already send, the swap still completes and the money still arrives.")
+                Text("1Click hasn't seen a deposit to this address yet. An unused address expires on its own. If you already sent funds, they still swap and arrive.")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
         } foot: {
             if status == .pendingDeposit {
-                Button("Cancel this swap") { act.remove(depositAddress); dismiss(); model.toast("Swap cancelled") }
-                    .buttonStyle(WideButton(kind: .plain))
+                Button("Hide from list") {
+                    act.hide(depositAddress); dismiss(); model.toast("Hidden. If you already sent funds, they still arrive and show in Activity.")
+                }
+                .buttonStyle(WideButton(kind: .plain))
             } else if status.isFinal {
                 Button("Remove from list") { act.remove(depositAddress); dismiss(); model.toast("Removed") }
                     .buttonStyle(WideButton(kind: .plain))
@@ -252,7 +258,7 @@ extension TrackedSwap {
     var toSymbol: String? { Self.symbol(in: to) }
     private static func symbol(in s: String) -> String? {
         let words = s.split(separator: " ").filter { $0 != "about" }
-        guard words.count >= 2, Double(words[0].replacingOccurrences(of: ",", with: "")) != nil else { return nil }
+        guard words.count >= 2, AmountText.value(String(words[0])) != nil else { return nil }
         return String(words[1])
     }
 }

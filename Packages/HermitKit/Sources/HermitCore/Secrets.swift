@@ -5,15 +5,23 @@ import Security
 public enum Secrets {
     static let service = "my.hermit.connectors"
 
-    public static func set(_ value: String?, for key: String) {
+    /// Saves (or, with nil or "", removes) the secret. False when the Keychain refused: the old value is then still
+    /// there (an existing item is updated in place, never deleted first), and the caller says it couldn't save.
+    @discardableResult
+    public static func set(_ value: String?, for key: String) -> Bool {
         let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                    kSecAttrAccount as String: key]
-        SecItemDelete(base as CFDictionary)
-        guard let value, !value.isEmpty else { return }
-        var add = base
-        add[kSecValueData as String] = Data(value.utf8)
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+        guard let value, !value.isEmpty else {
+            let status = SecItemDelete(base as CFDictionary)
+            return status == errSecSuccess || status == errSecItemNotFound
+        }
+        let fields: [String: Any] = [kSecValueData as String: Data(value.utf8),
+                                     kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let updated = SecItemUpdate(base as CFDictionary, fields as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
+        let add = base.merging(fields) { _, new in new }
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     public static func get(_ key: String) -> String? {

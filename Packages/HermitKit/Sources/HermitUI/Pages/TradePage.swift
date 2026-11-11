@@ -99,7 +99,7 @@ struct TradePositions: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(pnl(p.pnl)).font(.system(size: 14, weight: .medium)).foregroundStyle(p.pnl >= 0 ? Theme.green : Theme.red)
-                Text(String(format: "%+.1f%%", p.roe * 100)).font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text(String(format: "%+.1f%%", p.roe * 100)).font(.system(size: 12)).foregroundStyle(Theme.hint)
             }
             .monospacedDigit()
             Button("Close") { Task { await close(p) } }.buttonStyle(TradeSmallButton())
@@ -112,8 +112,15 @@ struct TradePositions: View {
         return HStack(spacing: 12) {
             MarketLogo(key: TradeData.logo(sym), name: o.coin, size: 30)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(o.isBuy ? "Buy" : "Sell") \(Hyperliquid.wire(o.size)) \(sym)").font(.system(size: 14, weight: .medium))
-                Text("Limit $\(o.price.tradePx)\(o.reduceOnly ? ", reduce only" : "")").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                // A take profit or stop loss waits for its trigger; size 0 means the whole position.
+                if o.isTrigger {
+                    Text("\(o.orderType) \(sym)").font(.system(size: 14, weight: .medium))
+                    Text("Triggers at $\(o.triggerPx.tradePx)" + (o.size == 0 || o.isPositionTpsl ? ", whole position" : ", \(Hyperliquid.wire(o.size)) \(sym)"))
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                } else {
+                    Text("\(o.isBuy ? "Buy" : "Sell") \(Hyperliquid.wire(o.size)) \(sym)").font(.system(size: 14, weight: .medium))
+                    Text("Limit $\(o.price.tradePx)\(o.reduceOnly ? ", reduce only" : "")").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                }
             }
             Spacer(minLength: 8)
             Button("Cancel") { Task { await cancel(o) } }.buttonStyle(TradeSmallButton())

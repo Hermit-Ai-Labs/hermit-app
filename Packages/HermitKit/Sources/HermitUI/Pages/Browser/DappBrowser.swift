@@ -40,7 +40,7 @@ final class DappBrowser: DappPresenter {
         }
         guard !Task.isCancelled, session === owner else { return }
         model.approval = approval
-        while model.approval?.id == approval.id { try? await Task.sleep(for: .milliseconds(150)) }
+        while model.approval?.uid == approval.uid { try? await Task.sleep(for: .milliseconds(150)) }
     }
 
     func notice(_ text: String) { model?.toast(text) }

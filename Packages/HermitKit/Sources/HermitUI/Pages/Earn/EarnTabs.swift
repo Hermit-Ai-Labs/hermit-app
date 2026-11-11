@@ -186,7 +186,7 @@ struct EarnArbitrage: View {
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(EarnPoolRow.pct(abs(p.fundAPR))).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
-                        Text("APR now").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                        Text("APR now").font(.system(size: 12)).foregroundStyle(Theme.hint)
                     }
                     .monospacedDigit()
                     Button("Ask") { model.send("Walk me through a \(p.sym) funding carry trade. Hyperliquid funding is \(p.fundPct.tradeTrim(4))% an hour right now.") }

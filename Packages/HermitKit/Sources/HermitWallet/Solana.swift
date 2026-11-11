@@ -163,6 +163,31 @@ public final class SolanaClient: Sendable {
         return total
     }
 
+    /// The owner's balance of each mint in base units (0 when it holds none), from two calls in all: one per token
+    /// program (SPL Token and Token-2022). One call per mint ran into the public node's 10 per 10 s limit per method.
+    public func tokenBalances(owner: SolanaPublicKey, mints: [SolanaPublicKey]) async throws -> [SolanaPublicKey: UInt128] {
+        func accounts(_ program: String) async throws -> JSON {
+            try await rpc.call("getTokenAccountsByOwner", [.string(owner.description), ["programId": .string(program)],
+                                                           ["encoding": "jsonParsed", "commitment": "confirmed"]])
+        }
+        async let classic = accounts("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+        async let token2022 = accounts("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+        let replies = try await [classic, token2022]
+        let wanted = Set(mints.map(\.description))
+        var byMint: [String: UInt128] = [:]
+        for r in replies {
+            for acc in r["value"]?.array ?? [] {
+                let info = acc["account"]?["data"]?["parsed"]?["info"]
+                guard let mint = info?["mint"]?.string, wanted.contains(mint),
+                      let s = info?["tokenAmount"]?["amount"]?.string, let v = UInt128(s) else { continue }
+                byMint[mint, default: 0] += v
+            }
+        }
+        var out: [SolanaPublicKey: UInt128] = [:]
+        for m in mints { out[m] = byMint[m.description] ?? 0 }
+        return out
+    }
+
     public func accountExists(_ a: SolanaPublicKey) async throws -> Bool {
         let r = try await rpc.call("getAccountInfo", [.string(a.description), ["encoding": "base64", "commitment": "confirmed"]])
         return !(r["value"]?.isNull ?? true)

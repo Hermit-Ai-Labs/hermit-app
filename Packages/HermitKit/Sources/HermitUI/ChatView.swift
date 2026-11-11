@@ -232,6 +232,7 @@ struct AttachmentChip: View {
         .padding(.leading, 6).padding(.trailing, 10).padding(.vertical, 6)
         .background(background, in: RoundedRectangle(cornerRadius: 11))
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(Theme.border))
+        .opacity(file.restored ? 0.55 : 1)
     }
 }
 

@@ -5,8 +5,8 @@ import HermitWallet
 /// Add funds from any chain NEAR Intents supports: the user picks what they'll send (BTC, ETH, SOL, USDT on Tron, …),
 /// Hermit asks 1Click for a real quote with a one-time deposit address, shows it as a QR code, and follows the deposit
 /// until it lands in the wallet as whatever you pick under "You get" (NEAR, USDC, ETH or SOL, on the network you
-/// choose; USDC on Base by default) or as USDC in Hyperliquid perps. A deposit address nobody sent to can be cancelled. Sent from an exchange or any other wallet;
-/// nothing is signed in Hermit.
+/// choose; USDC on Base by default) or as USDC in Hyperliquid perps. Start over hides the address and asks for a new one; the
+/// old one stays tracked, since money sent to it still swaps. Sent from an exchange or any other wallet; nothing is signed in Hermit.
 struct AnyChainFundView: View {
     let goal: FundGoal
     var onBack: (() -> Void)?
@@ -20,6 +20,8 @@ struct AnyChainFundView: View {
     @State private var checkedUnsigned = false
     @State private var busy = false
     @State private var error: String?
+    /// Counts copies, for the haptic.
+    @State private var copies = 0
     @State private var target = Target(chain: .base, symbol: "USDC")
     @Environment(\.dismiss) private var dismiss
 
@@ -87,7 +89,7 @@ struct AnyChainFundView: View {
             if let q = quote, let addr = q.depositAddress {
                 let waiting = (act.state(addr)?.status ?? .pendingDeposit) == .pendingDeposit
                 if waiting {
-                    Button("Cancel") { cancel(addr) }.buttonStyle(WideButton(kind: .plain))
+                    Button("Start over") { startOver(addr) }.buttonStyle(WideButton(kind: .plain))
                 }
                 // An unsigned quote: no "I've sent it" until the user says they checked it with 1Click.
                 if !waiting || q.signatureValid || checkedUnsigned {
@@ -102,6 +104,8 @@ struct AnyChainFundView: View {
             }
         }
         .task { do { tokens = try await OneClick().tokens() } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "NEAR Intents didn't answer." } }
+        .sensoryFeedback(.error, trigger: error) { _, new in new != nil }
+        .sensoryFeedback(.success, trigger: copies)
     }
 
     @ViewBuilder private var form: some View {
@@ -117,7 +121,8 @@ struct AnyChainFundView: View {
                     MenuField(selection: $target, options: Self.targets, title: { "\($0.symbol) on \($0.chain.name)" }, logo: { $0.symbol })
                 }
             }
-            FormField(label: "About how much", trailing: src?.price.map { p in value > 0 ? "≈ \(MoneyFmt.usd(value * p, digits: 2))" : "1 = \(MoneyFmt.usdSmart(p))" }) {
+            // A price of 0 means 1Click has none for this token: show nothing rather than "≈ $0.00".
+            FormField(label: "About how much", trailing: src?.price.flatMap { $0 > 0 ? $0 : nil }.map { p in value > 0 ? "≈ \(MoneyFmt.usd(value * p, digits: 2))" : "1 = \(MoneyFmt.usdSmart(p))" }) {
                 AmountTextField(text: $amount)
             }
             if ownRefund == nil, let s = src {
@@ -157,7 +162,7 @@ struct AnyChainFundView: View {
                     .overlay { LogoMark(s.map { $0.assetId == IntentsAssets.wrappedNear ? "near" : $0.symbol } ?? "", size: 34).padding(3).background(.white, in: Circle()) }
                 Text(shortAddr(addr, keep: 9)).font(.system(size: 14, design: .monospaced)).lineLimit(1).accessibilityLabel(addr)
                 HStack(spacing: 8) {
-                    Button { Clip.copy(addr); model.toast("Deposit address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(OutlineButton())
+                    Button { Clip.copy(addr); copies += 1; model.toast("Deposit address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(OutlineButton())
                     ShareLink(item: addr) { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(OutlineButton())
                 }
             }
@@ -180,12 +185,12 @@ struct AnyChainFundView: View {
         }
     }
 
-    /// Nothing was sent yet: forget the address (it expires by itself on 1Click's side) and go back to the form.
-    private func cancel(_ addr: String) {
-        WalletService.intentsLedger.remove(addr)
-        act.reload()
+    /// Back to the form for a new address. The old one is only hidden, never forgotten: Hermit can't know nothing was
+    /// sent to it, and anything that was still swaps, so it stays tracked and in Activity. Unused, it expires on its own.
+    private func startOver(_ addr: String) {
+        act.hide(addr)
         withAnimation(.smooth) { quote = nil; checkedUnsigned = false }
-        model.toast("Deposit address cancelled")
+        model.toast("Address hidden. If you already sent funds, they still arrive and show in Activity.")
     }
 
     private func openSwap() {
@@ -224,7 +229,9 @@ struct AnyChainFundView: View {
                 checkedUnsigned = false
                 withAnimation(.smooth) { quote = q }
             } catch {
-                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                // A route minimum is said in the token the user sends.
+                self.error = (error as? OneClickError)?.minimumText(decimals: s.decimals, symbol: s.symbol)
+                    ?? (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
     }

@@ -17,22 +17,37 @@ struct MainnetLockedNote: View {
 }
 
 /// Amount typed as text so the exact value reaches the engine (no floating-point rounding).
+/// A decimal comma ("1,5" on a French or German keypad) becomes "1.5" as it is typed, so anything that reads the text
+/// sees the same number. Text with no clear reading (a "1,5" where "." is the decimal mark) stays as typed, in red,
+/// and reads as no amount.
 struct AmountTextField: View {
     @Binding var text: String
     var body: some View {
         TextField("0", text: $text)
             .textFieldStyle(.plain).font(.system(size: 14)).monospacedDigit()
+            .foregroundStyle(AmountText.normalize(text) == nil ? Theme.red : Theme.text)
             .autocorrectionDisabled()
             #if os(iOS)
             .keyboardType(.decimalPad)
             #endif
             .modifier(FieldBox())
+            .onChange(of: text) { _, new in
+                // Rewrite only when dropping the commas would read a different number; "1,000" stays as typed.
+                if let n = AmountText.normalize(new), n != new.replacingOccurrences(of: ",", with: "") { text = n }
+            }
     }
 }
 
 /// A fraction of an exact balance, rounded down to at most 8 decimals ("25%", "50%").
 func fractionText(_ h: Holding?, _ f: Double) -> String {
     guard let h, h.amount > 0 else { return "0" }
+    // Exact: the balance's own digits times the fraction in whole numbers, rounded down, so it never tops the balance.
+    let places = h.exact.split(separator: ".", omittingEmptySubsequences: false).dropFirst().first?.count ?? 0
+    if f > 0, let v = try? Units.parse(h.exact, decimals: places) {
+        let k = UInt128(Int((min(f, 1) * 10_000).rounded()))
+        let part = v / 10_000 * k + v % 10_000 * k / 10_000
+        return Units.format(part, decimals: places, maxFraction: 8)
+    }
     let digits = 8.0
     let v = (h.amount * f * pow(10, digits)).rounded(.down) / pow(10, digits)
     var s = String(format: "%.8f", v)
@@ -70,7 +85,7 @@ struct WalletSendSheet: View {
     init(vm: WalletsViewModel, fromID: String, chain: Chain?, token: String?) {
         self.vm = vm
         let w = vm.wallet(fromID) ?? vm.wallets.first
-        let pre = vm.sendPrefill
+        let pre = vm.sendPrefill.flatMap { Date().timeIntervalSince($0.made) < 60 ? $0 : nil }
         vm.sendPrefill = nil
         _onSent = State(initialValue: pre?.onSent)
         // Opened plainly: start on the biggest balance this wallet can send, not an empty ETH on Base.
@@ -149,7 +164,7 @@ struct WalletSendSheet: View {
                 }
                 let list = vm.whitelist.filter { $0.kind == chain.kind }
                 if list.isEmpty {
-                    Text("No saved \(chain.kind.shortName) addresses yet.").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                    Text("No saved \(chain.kind.shortName) addresses yet.").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
                 }
                 ForEach(list) { w in
                     SelectRow(title: w.label, subtitle: "\(shortAddr(w.address)), \(w.networkName)", mono: true,

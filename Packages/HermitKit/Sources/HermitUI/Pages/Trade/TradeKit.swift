@@ -273,7 +273,7 @@ struct TradeKV: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .topLeading), count: cols), alignment: .leading, spacing: 12) {
             ForEach(pairs, id: \.0) { k, v in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(k).font(.system(size: 12)).foregroundStyle(Theme.faint)
+                    Text(k).font(.system(size: 12)).foregroundStyle(Theme.hint)
                     Text(v).font(.system(size: 14, weight: .medium)).monospacedDigit().foregroundStyle(colors[k] ?? Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -622,7 +622,7 @@ struct MarketStatus: View {
                 Text(t).foregroundStyle(Theme.muted)
                 if let retry { Button("Retry", action: retry).buttonStyle(TradeSmallButton()) }
             case .empty(let t):
-                Text(t).foregroundStyle(Theme.faint)
+                Text(t).foregroundStyle(Theme.hint)
             }
             Spacer(minLength: 0)
         }
@@ -648,7 +648,7 @@ struct TradeSoon: View {
 struct MarketSource: View {
     let text: String
     var body: some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(Theme.faint)
+        Text(text).font(.system(size: 12)).foregroundStyle(Theme.hint)
     }
 }
 

@@ -65,7 +65,7 @@ struct SavedSitesRow: View {
                 .buttonStyle(PayPillButton(kind: .outline))
             }
             if store.sites.isEmpty {
-                Text("Add any site to open it here in one tap.").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text("Add any site to open it here in one tap.").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             } else {
                 PayFlow(spacing: 6) {
                     ForEach(store.sites) { s in

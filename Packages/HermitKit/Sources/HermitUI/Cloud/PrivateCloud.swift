@@ -79,10 +79,12 @@ final class CloudStatus {
         return "Switched to \(next.name). \(old) is no longer on NEAR AI Cloud"
     }
 
-    func setKey(_ key: String?) {
-        NearAICloud.ownKey = key
+    /// False when the Keychain refused the change (the old key stays).
+    @discardableResult func setKey(_ key: String?) -> Bool {
+        let ok = NearAICloud.saveOwnKey(key)
         hasKey = NearAICloud.apiKey != nil
         hasOwnKey = NearAICloud.ownKey != nil
+        return ok
     }
 
     /// The proof to show for a check made outside a chat (no completion).
@@ -150,7 +152,7 @@ struct CloudPrompt: View {
                 Button("Add key") { model.open(.settings, tab: "cloud") }.buttonStyle(BlackButton())
             } else if let p = status.proof {
                 Button { proof = p } label: { Image(systemName: "checkmark.shield").font(.system(size: 15)) }
-                    .buttonStyle(PlainCardButton()).help("See what was checked")
+                    .buttonStyle(PlainCardButton()).help("See what was checked").accessibilityLabel("View proof")
             }
         }
         .padding(12)

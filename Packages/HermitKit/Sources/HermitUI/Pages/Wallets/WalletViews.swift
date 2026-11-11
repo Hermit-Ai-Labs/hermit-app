@@ -64,7 +64,7 @@ struct BalanceCard<Sub: View>: View {
                 if let usd {
                     Text(MoneyFmt.usd(usd, digits: usd < 100 ? 2 : 0)).contentTransition(.numericText()).animation(.smooth, value: usd)
                 } else {
-                    Text("$—").foregroundStyle(Theme.faint)
+                    Text("$—").foregroundStyle(Theme.hint)
                 }
             }
             .font(.system(size: 36, weight: .semibold)).tracking(-0.8).monospacedDigit()
@@ -137,14 +137,14 @@ struct AllocationCard: View {
                                 Text(d.0).lineLimit(1)
                                 Spacer(minLength: 6)
                                 Text(MoneyFmt.usdSmart(d.1)).monospacedDigit()
-                                Text("\(Int((d.1 / total * 100).rounded()))%").foregroundStyle(Theme.faint).monospacedDigit().frame(width: 34, alignment: .trailing)
+                                Text("\(Int((d.1 / total * 100).rounded()))%").foregroundStyle(Theme.hint).monospacedDigit().frame(width: 34, alignment: .trailing)
                             }
                             .font(.system(size: 12.5))
                         }
                     }
                 }
             }
-            Text("Agent-managed funds: not set up yet").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            Text("Agent-managed funds: not set up yet").font(.system(size: 12)).foregroundStyle(Theme.hint)
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -179,7 +179,7 @@ struct NoWalletView: View {
                     .font(.system(size: 13.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
-                Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                Text("Works on").font(.system(size: 12)).foregroundStyle(Theme.hint)
                 ChainStack(chains: Chain.mainnets, size: 18)
             }
             VStack(spacing: 10) {
@@ -348,7 +348,7 @@ struct TokensList: View {
                                         .foregroundStyle(ch > 0 ? Theme.green : ch < 0 ? Theme.red : Theme.muted)
                                 }
                             } else {
-                                Text(g.testnet ? "No value" : "No price").font(.system(size: 13)).foregroundStyle(Theme.faint)
+                                Text(g.testnet ? "No value" : "No price").font(.system(size: 13)).foregroundStyle(Theme.hint)
                             }
                         }
                     }
@@ -387,7 +387,7 @@ struct GasList: View {
             }
             RowList(items: tanks) { g in gasRow(g) }
             Text("To refill, send the network's coin to your address from Add funds.")
-                .font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
+                .font(.system(size: 12.5)).foregroundStyle(Theme.hint).padding(.top, 6)
         }
     }
 
@@ -443,7 +443,7 @@ struct ActivityList: View {
             }
             RowList(items: items) { a in ActivityRow(item: a, wallet: walletID == nil ? vm.wallet(a.walletID)?.name : nil) { open(.activity(a)) } }
             if !feed.failed.isEmpty {
-                MarketStatus(kind: .failed("Couldn't read \(feed.failed.joined(separator: ", ")) history")) { Task { await feed.refresh(force: true) } }
+                MarketStatus(kind: .failed("Couldn't read all of the \(feed.failed.joined(separator: ", ")) history")) { Task { await feed.refresh(force: true) } }
             }
             if feed.loadedOnce {
                 MarketSource(text: feed.hasExplorerKey ? "Solana, NEAR and EVM history from the chain, plus what Hermit did on this device."
@@ -466,7 +466,7 @@ struct ExplorerLinks: View {
             let chains = chain.map { [$0] } ?? [Chain.ethereum, .base, .solana, .near]
             VStack(alignment: .leading, spacing: 6) {
                 Text("Received transfers and older history are on the explorer\(walletID == nil && vm.wallets.count > 1 ? " (\(w.name))" : ""):")
-                    .font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.hint)
                 WrapRow {
                     ForEach(chains) { c in
                         if let a = w.address(on: c), let url = c.explorerURL(address: a) {
@@ -531,7 +531,7 @@ struct AccountsList: View {
                 .padding(.vertical, 11)
                 Hairline()
             }
-            Text("Linking social accounts to wallets is coming later.").font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.top, 6)
+            Text("Linking social accounts to wallets is coming later.").font(.system(size: 12.5)).foregroundStyle(Theme.hint).padding(.top, 6)
         }
     }
 }

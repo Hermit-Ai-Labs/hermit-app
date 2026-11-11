@@ -51,10 +51,17 @@ struct FundSheet: View {
     @State private var quote: Relay.Quote?
     /// For Hyperliquid: a cheaper way than Relay's one step, when there is one (HyperliquidRoute).
     @State private var hlRoute: HyperliquidRoute?
+    /// For Hyperliquid: the wallet can't pay the bridge transfer's gas on Arbitrum, so only Relay's one step is offered.
+    @State private var arbGasMissing = false
+    /// For Hyperliquid: an earlier deposit whose hop reached Arbitrum but whose bridge transfer wasn't sent, and what landed.
+    @State private var unfinished: PendingHyperliquidDeposit?
+    @State private var unfinishedLanded: UInt128?
     @State private var quoting = false
     @State private var error: String?
     @State private var family: Family = .evm
     @State private var arrival: DepositArrival?
+    /// Counts copies, for the haptic.
+    @State private var copies = 0
     private var vm: WalletsViewModel { .shared }
     private var hl: HyperliquidStore { .shared }
 
@@ -88,7 +95,7 @@ struct FundSheet: View {
         guard goal == .hyperliquid else { return nil }
         switch hlRank(h) {
         case 0: return (h.amount >= HyperliquidRoute.minimum ? "Straight into Hyperliquid's bridge, about $0.01" : "Under 5 USDC: goes through Relay", h.amount >= HyperliquidRoute.minimum)
-        case 1: return (h.amount >= HyperliquidRoute.minimum + 0.1 ? "Two steps via Arbitrum, about $0.03" : "Under 5 USDC: goes through Relay", false)
+        case 1: return (h.amount >= HyperliquidRoute.minimum + 0.1 ? "The cheapest route is picked when you enter an amount" : "Under 5 USDC: goes through Relay", false)
         default: return ("Through Relay; the first deposit to a new account costs about $1.20 extra", false)
         }
     }
@@ -117,6 +124,7 @@ struct FundSheet: View {
             if case .hyperliquid = goal, let a = hl.account {
                 DetailLines(lines: [("On Hyperliquid now", "$" + a.withdrawable.tradeGrouped(2))])
             }
+            unfinishedRow
             if !sources.isEmpty {
                 SectionLabel(text: "From your wallet") { EmptyView() }
                 VStack(spacing: 0) {
@@ -143,6 +151,56 @@ struct FundSheet: View {
             }
             .buttonStyle(PressStyle())
             anyChainRow(back: .source)
+        }
+        .task { await loadUnfinished() }
+    }
+
+    /// An earlier Hyperliquid deposit that stopped on Arbitrum (no gas, the sheet closed, a slow hop): finish it here.
+    @ViewBuilder private var unfinishedRow: some View {
+        if let p = unfinished {
+            if let landed = unfinishedLanded {
+                let text = Units.format(landed, decimals: 6)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Finish your Hyperliquid deposit").font(.system(size: 14, weight: .medium))
+                    Text("\(text) USDC reached your wallet on Arbitrum. One more transaction sends it into Hyperliquid.")
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    Button("Finish deposit") { finishUnfinished(landed) }.buttonStyle(OutlineButton())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12).background(Theme.subtle, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border))
+            } else if Date().timeIntervalSince(p.created) < 3600 {
+                NoteBox(symbol: "clock", text: "Your last deposit is still on its way to Arbitrum. Once it lands, you can finish it here.")
+            }
+        }
+    }
+
+    private func loadUnfinished() async {
+        guard goal == .hyperliquid, let w = wallet else { return }
+        let p = PendingHyperliquidDeposit.load(w.record.id)
+        var landed: UInt128?
+        if p != nil { landed = await vm.service.hyperliquidLanded(walletID: w.record.id) }
+        unfinished = p
+        unfinishedLanded = landed
+    }
+
+    /// Sends exactly what landed on Arbitrum into Hyperliquid's bridge, through the approval sheet. The hop isn't sent again.
+    private func finishUnfinished(_ landed: UInt128) {
+        guard let w = wallet else { return }
+        let svc = vm.service, wid = w.record.id, text = Units.format(landed, decimals: 6)
+        ask(Approval(kind: "Move funds", title: "\(text) USDC to Hyperliquid",
+                     lines: [["From", "\(text) USDC on Arbitrum"], ["To", "\(text) USDC on Hyperliquid"],
+                             ["Fee", "About \(MoneyFmt.usd(HyperliquidRoute.bridgeGasUSD, digits: 2)) of ETH gas"], ["Steps", "One transaction"],
+                             ["Route", "Hyperliquid's bridge"]],
+                     checks: ["Deposited into Hyperliquid's own bridge from your wallet, so it's credited to this address",
+                              "Signed on \(Device.here) with your wallet's key"],
+                     success: "On its way to Hyperliquid") {
+            try await svc.finishHyperliquid(walletID: wid, amount: landed)
+        }) {
+            unfinished = nil; unfinishedLanded = nil
+            ActivityLedger.shared.record(ActivityLedger.moved(amount: text, symbol: "USDC", from: .arbitrum, to: "Hyperliquid",
+                                                              route: "Hyperliquid's bridge", walletID: w.id))
+            Task { try? await Task.sleep(for: .seconds(4)); await vm.refresh(); await hl.refresh() }
         }
     }
 
@@ -247,6 +305,10 @@ struct FundSheet: View {
                         : [("Fee", MoneyFmt.usd(q.feeUSD, digits: 2))]) + [ ("Arrives", q.seconds <= 60 ? "In under a minute" : "In about \(q.seconds / 60) min"),
                                         ("Route", "Relay")])
                 }
+                if goal == .hyperliquid, arbGasMissing, hlRoute == nil, quote != nil {
+                    Label("Add a little ETH on Arbitrum to use Hyperliquid's own bridge, the cheaper route.", systemImage: "info.circle")
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
                 if value > h.amount { Text("Only \(h.exact) \(h.symbol) available.").font(.system(size: 12.5)).foregroundStyle(Theme.red) }
                 if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
             }
@@ -255,10 +317,11 @@ struct FundSheet: View {
                 .disabled((quote == nil && hlRoute == nil) || quoting || value <= 0 || value > (h?.amount ?? 0))
         }
         .task(id: "\(h?.id ?? "")|\(amount)") { await requote() }
+        .sensoryFeedback(.error, trigger: error) { _, new in new != nil }
     }
 
     private func requote() async {
-        quote = nil; hlRoute = nil; error = nil
+        quote = nil; hlRoute = nil; error = nil; arbGasMissing = false
         guard let h = source, let w = wallet, let v = AmountText.value(amount), v > 0, v <= h.amount else { return }
         let tok = h.symbol == h.chain.nativeSymbol ? nil : h.chain.token(h.symbol)
         guard let amt = try? Units.parse(AmountText.clean(amount), decimals: tok?.decimals ?? h.chain.nativeDecimals) else { return }
@@ -278,9 +341,14 @@ struct FundSheet: View {
         } catch {
             if !Task.isCancelled { self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription }
         }
-        // Hyperliquid: the bridge (or Relay to Arbitrum, then the bridge) when that's cheaper than Relay's one step.
-        if goal == .hyperliquid, !Task.isCancelled,
-           let r = await HyperliquidRoute.best(chain: h.chain, symbol: h.symbol, amount: v, raw: amt, relay: q, user: user), !Task.isCancelled {
+        // Hyperliquid: the bridge (or Relay to Arbitrum, then the bridge) when that's cheaper than Relay's one step, and only
+        // when the wallet can pay the bridge transfer's gas on Arbitrum.
+        guard goal == .hyperliquid, h.symbol == "USDC", h.chain.kind == .evm, !Task.isCancelled else { return }
+        let gas = await vm.service.canPayArbitrumBridgeGas(w.record.evmAddress)
+        guard !Task.isCancelled else { return }
+        arbGasMissing = !gas
+        if let r = await HyperliquidRoute.best(chain: h.chain, symbol: h.symbol, amount: v, raw: amt, relay: q, user: user, arbitrumGas: gas),
+           !Task.isCancelled {
             hlRoute = r
             if quote == nil { error = nil }
         }
@@ -362,7 +430,7 @@ struct FundSheet: View {
                 Text(shortAddr(addr, keep: 8)).font(.system(size: 14, design: .monospaced)).lineLimit(1)
                     .accessibilityLabel(addr)
                 HStack(spacing: 8) {
-                    Button { Clip.copy(addr); model.toast("Address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    Button { Clip.copy(addr); copies += 1; model.toast("Address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
                         .buttonStyle(OutlineButton())
                     ShareLink(item: addr, subject: Text("My wallet address"), message: Text("\(family.rawValue) address")) {
                         Label("Share", systemImage: "square.and.arrow.up")
@@ -391,6 +459,7 @@ struct FundSheet: View {
         }
         .animation(.smooth(duration: 0.35), value: arrival)
         .task(id: family) { await watch() }
+        .sensoryFeedback(.success, trigger: copies)
     }
 
     private var tip: String {
@@ -408,11 +477,12 @@ struct FundSheet: View {
          "Withdraw, then come back here. It usually lands in 1–3 minutes."]
     }
 
-    /// Watches the networks on screen every 2 seconds (DepositWatcher) and shows the arrival right here, then refreshes
+    /// Watches the networks on screen every second (DepositWatcher) and shows the arrival right here, then refreshes
     /// the whole wallet in the background so every page has the new balance.
     private func watch() async {
         guard let w = wallet, arrival == nil else { return }
-        guard let a = await DepositWatcher.watch(wallet: w.record, family: family, service: vm.service), stage == .receive else { return }
+        let known = DepositWatcher.known(vm.holdings.filter { $0.walletID == w.id })
+        guard let a = await DepositWatcher.watch(wallet: w.record, family: family, service: vm.service, known: known), stage == .receive else { return }
         arrival = a
         ActivityLedger.shared.record(ActivityLedger.received(a, walletID: w.id, address: w.record.address(on: a.chain)))
         Task { await vm.refresh() }

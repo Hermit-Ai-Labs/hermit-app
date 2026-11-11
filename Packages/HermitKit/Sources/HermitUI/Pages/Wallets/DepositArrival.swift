@@ -10,10 +10,12 @@ struct DepositArrival: Equatable {
 }
 
 /// Watches one wallet for incoming money, fast: every second it reads only the networks the Receive screen shows
-/// (Solana, NEAR, or the EVM networks), every balance in parallel, compares each with the first reading, and reports
-/// any increase, however small. Base is read from its Flashblocks preconf RPC ("pending"), so a transfer shows about
-/// 200 ms after it's sent. Solana also holds a live subscription (SolanaPush), so a transfer is read the moment it
-/// confirms. The full wallet refresh runs once, after the money lands.
+/// (Solana, NEAR, or the EVM networks), every balance in parallel, compares each with the last reading, and reports
+/// any increase, however small. A balance the first round couldn't read is compared with `known` (the last full wallet
+/// refresh) instead, so a deposit that lands while a network is throttled still shows. A network that fails is skipped
+/// for a few rounds (2, 4, 8, then 16) rather than read every second. Base is read from its Flashblocks preconf RPC
+/// ("pending"), so a transfer shows about 200 ms after it's sent. Solana also holds a live subscription (SolanaPush), so
+/// a transfer is read the moment it confirms. The full wallet refresh runs once, after the money lands.
 enum DepositWatcher {
     static func chains(_ family: FundSheet.Family) -> [Chain] {
         switch family {
@@ -23,12 +25,26 @@ enum DepositWatcher {
         }
     }
 
+    /// The last full refresh's balances for one wallet, keyed like Balance.id ("base:USDC"), in base units.
+    static func known(_ holdings: [Holding]) -> [String: UInt128] {
+        var out: [String: UInt128] = [:]
+        for h in holdings {
+            let decimals: Int? = h.symbol == h.chain.nativeSymbol ? h.chain.nativeDecimals : h.chain.token(h.symbol)?.decimals
+            guard let decimals, let v = try? Units.parse(h.exact, decimals: decimals) else { continue }
+            out["\(h.chain.id):\(h.symbol)"] = v
+        }
+        return out
+    }
+
     /// Returns the first increase seen, or nil when cancelled.
     @MainActor
-    static func watch(wallet: WalletRecord, family: FundSheet.Family, service: WalletService) async -> DepositArrival? {
+    static func watch(wallet: WalletRecord, family: FundSheet.Family, service: WalletService,
+                      known: [String: UInt128] = [:]) async -> DepositArrival? {
         let chains = chains(family)
         var baseline: [String: UInt128] = [:]
-        var first = true
+        var round = 0
+        // Per network: failures in a row, and the round it is read again.
+        var backoff: [String: (fails: Int, next: Int)] = [:]
         let kick = Kick()
         var push: SolanaPush?
         if family == .solana, let owner = SolanaPublicKey(wallet.address(on: .solana)) {
@@ -37,18 +53,33 @@ enum DepositWatcher {
         }
         defer { push?.stop() }
         while !Task.isCancelled {
-            let read = family == .evm ? await evmBalances(wallet: wallet, chains: chains, service: service)
-                : await service.fetchBalances(for: wallet, chains: chains).balances.values.flatMap { $0 }
+            let due = chains.filter { (backoff[$0.id]?.next ?? 0) <= round }
+            var read: [Balance] = [], failed: [Chain] = []
+            if family == .evm {
+                let r = await evmBalances(wallet: wallet, chains: due, service: service)
+                read = r.balances
+                failed = r.failed
+            } else if !due.isEmpty {
+                let r = await service.fetchBalances(for: wallet, chains: due)
+                read = r.balances.values.flatMap { $0 }
+                failed = r.failed
+            }
+            for c in due {
+                if failed.contains(c) {
+                    let fails = (backoff[c.id]?.fails ?? 0) + 1
+                    backoff[c.id] = (fails, round + (1 << Swift.min(fails, 4)))
+                } else { backoff[c.id] = nil }
+            }
             for b in read {
-                guard let before = baseline[b.id] else { baseline[b.id] = b.amount; continue }
-                if !first, b.amount > before {
+                // The first round sets the baseline. A balance it missed is compared with the last full refresh.
+                if let before = baseline[b.id] ?? (round > 0 ? known[b.id] : nil), b.amount > before {
                     let delta = Double(Units.format(b.amount - before, decimals: b.decimals)) ?? 0
                     let price = WalletsViewModel.shared.price(b.symbol)
                     return DepositArrival(chain: b.chain, symbol: b.symbol, amount: delta, usd: price.map { $0 * delta })
                 }
                 baseline[b.id] = b.amount
             }
-            first = false
+            round += 1
             await kick.wait(upTo: 1)
         }
         return nil
@@ -58,23 +89,26 @@ enum DepositWatcher {
 extension DepositWatcher {
     static let basePreconf = URL(string: "https://mainnet-preconf.base.org")!
 
-    /// Native coin and every listed token on each EVM network, all at once. A read that fails is skipped this round.
+    /// Native coin and every listed token on each EVM network, all at once. A read that fails is skipped this round, and
+    /// its network is reported in `failed`.
     @MainActor
-    static func evmBalances(wallet: WalletRecord, chains: [Chain], service: WalletService) async -> [Balance] {
-        guard let owner = EVMAddress(wallet.address(on: chains.first ?? .base)) else { return [] }
+    static func evmBalances(wallet: WalletRecord, chains: [Chain], service: WalletService) async -> (balances: [Balance], failed: [Chain]) {
+        guard !chains.isEmpty, let owner = EVMAddress(wallet.address(on: chains.first ?? .base)) else { return ([], []) }
         let clients = chains.map { c in (c, c.id == "base" ? EVMClient(url: basePreconf) : service.evm(c)) }
-        return await withTaskGroup(of: Balance?.self) { g in
+        return await withTaskGroup(of: (Chain, Balance?).self) { g in
             for (c, client) in clients {
                 let block = c.id == "base" ? "pending" : "latest"
-                g.addTask { (try? await client.balance(owner, block: block)).map { Balance(chain: c, token: nil, amount: $0) } }
+                g.addTask { (c, (try? await client.balance(owner, block: block)).map { Balance(chain: c, token: nil, amount: $0) }) }
                 for t in c.tokens {
                     guard let addr = EVMAddress(t.address) else { continue }
-                    g.addTask { (try? await client.tokenBalance(token: addr, owner: owner, block: block)).map { Balance(chain: c, token: t, amount: $0) } }
+                    g.addTask { (c, (try? await client.tokenBalance(token: addr, owner: owner, block: block)).map { Balance(chain: c, token: t, amount: $0) }) }
                 }
             }
-            var out: [Balance] = []
-            for await b in g { if let b { out.append(b) } }
-            return out
+            var out: [Balance] = [], failed: [Chain] = []
+            for await (c, b) in g {
+                if let b { out.append(b) } else if !failed.contains(c) { failed.append(c) }
+            }
+            return (out, failed)
         }
     }
 }

@@ -6,6 +6,8 @@ import HermitCore
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
     @State private var expanded: Set<String> = []
+    /// The chat a right-click Delete asked about; deleting waits for the confirmation.
+    @State private var confirmDelete: Conversation?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +16,13 @@ struct Sidebar: View {
             }
             Divider().overlay(Theme.border)
             account
+        }
+        .confirmationDialog("Delete this chat?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+                            titleVisibility: .visible, presenting: confirmDelete) { c in
+            Button("Delete", role: .destructive) { model.deleteConversation(c.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { c in
+            Text("\"\(c.title)\" and its messages are removed from this device.")
         }
         #if os(macOS)
         .background(Theme.subtle)
@@ -41,7 +50,7 @@ struct Sidebar: View {
                 chatRow(c, indent: 0)
             }
             if model.recentConversations.isEmpty {
-                Text("Your chats show up here").font(.system(size: 12.5)).foregroundStyle(Theme.faint)
+                Text("Your chats show up here").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
                     .padding(.horizontal, 10).padding(.vertical, 4)
             }
         }
@@ -81,8 +90,7 @@ struct Sidebar: View {
                     }
                 } else {
                     Text("Wallets").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
-                    Text(MoneyFmt.usdSmart(wallets.total())).font(.system(size: 15, weight: .semibold)).monospacedDigit()
-                        .redacted(reason: wallets.loaded ? [] : .placeholder)
+                    total.font(.system(size: 15, weight: .semibold)).monospacedDigit()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -93,6 +101,17 @@ struct Sidebar: View {
         }
         .buttonStyle(PressStyle())
         .task { if !wallets.loaded { await wallets.refresh() } }
+    }
+
+    /// Only a total that is known: a network that didn't answer or a coin with no price isn't counted as $0.
+    @ViewBuilder private var total: some View {
+        if let t = wallets.totalUSD {
+            Text(MoneyFmt.usdSmart(t))
+        } else if wallets.loaded {
+            Text("Unavailable").foregroundStyle(Theme.muted)
+        } else {
+            Text(MoneyFmt.usdSmart(0)).redacted(reason: .placeholder)
+        }
     }
 
     private func isActive(_ r: Route) -> Bool {
@@ -115,7 +134,7 @@ struct Sidebar: View {
                 Text(r.title).font(.system(size: 13.5, weight: r == .home ? .medium : .regular))
                 Spacer()
                 #if os(macOS)
-                if r == .home { Text("⌘N").font(.system(size: 11)).foregroundStyle(Theme.faint).opacity(SnapshotMode.active ? 0 : 1) }
+                if r == .home { Text("⌘N").font(.system(size: 11)).foregroundStyle(Theme.hint).opacity(SnapshotMode.active ? 0 : 1) }
                 #endif
             }
             .foregroundStyle(r == .home ? Theme.text : (active ? Theme.text : Theme.muted))
@@ -155,7 +174,7 @@ struct Sidebar: View {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(chats) { c in chatRow(c, indent: 26) }
                     if chats.isEmpty {
-                        Text("No chats yet").font(.system(size: 12.5)).foregroundStyle(Theme.faint).padding(.leading, 32).padding(.vertical, 4)
+                        Text("No chats yet").font(.system(size: 12.5)).foregroundStyle(Theme.hint).padding(.leading, 32).padding(.vertical, 4)
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -175,12 +194,12 @@ struct Sidebar: View {
         .padding(.leading, indent)
         .contextMenu {
             Button("Open", systemImage: "bubble.left") { model.openConversation(c.id) }
-            Button("Delete", systemImage: "trash", role: .destructive) { model.deleteConversation(c.id) }
+            Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = c }
         }
     }
 
     private func section(_ t: String) -> some View {
-        Text(t).font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(.leading, 10).padding(.top, 16).padding(.bottom, 4)
+        Text(t).font(.system(size: 11.5)).foregroundStyle(Theme.hint).padding(.leading, 10).padding(.top, 16).padding(.bottom, 4)
     }
 
     private var account: some View {
@@ -189,7 +208,7 @@ struct Sidebar: View {
                 Section(model.user) {
                     Button { model.open(.wallets) } label: {
                         Label("Wallets", systemImage: "wallet.bifold")
-                        if !wallets.wallets.isEmpty { Text(MoneyFmt.usdSmart(wallets.total())) }
+                        if let t = wallets.totalUSD { Text(MoneyFmt.usdSmart(t)) }
                     }
                     Button("Files", systemImage: "doc") { model.open(.files) }
                     Button("Connectors", systemImage: "puzzlepiece.extension") { model.open(.connectors) }
@@ -212,7 +231,7 @@ struct Sidebar: View {
                     .foregroundStyle(.white).frame(width: 26, height: 26).background(Theme.text, in: Circle())
                     Text(model.user.isEmpty ? "You" : model.user).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text)
                         .lineLimit(1)
-                    Text("Local").font(.system(size: 13)).foregroundStyle(Theme.faint)
+                    Text("Local").font(.system(size: 13)).foregroundStyle(Theme.hint)
                     Spacer(minLength: 4)
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.faint)
                 }
