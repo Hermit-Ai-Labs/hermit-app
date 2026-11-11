@@ -49,6 +49,9 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     public var toolbox: AgentToolbox?
     /// Notification observers (iPhone), kept for as long as the agent lives.
     private var observers: [NSObjectProtocol] = []
+    /// True from a chat's first message until `reset`: the store is told a chat is using the model in use, so a
+    /// downloaded upgrade takes over between chats and never inside one (`ModelStore.chatBegan`).
+    private let holding = LockedBox<Bool>(false)
 
     @MainActor
     public init(store: ModelStore? = nil, toolbox: AgentToolbox? = nil, onStats: (@Sendable (GenerationStats) -> Void)? = nil) {
@@ -80,14 +83,38 @@ public final class LocalAgent: Agent, @unchecked Sendable {
         Task { [store, engine, chat] in
             guard let ready = await MainActor.run(body: { store.readyModel }) else { return }
             guard (try? await engine.load(id: ready.spec.id, directory: ready.directory)) != nil else { return }
-            await chat.setFamily(await engine.family)
-            await chat.setToolSet(ready.spec.toolSet)
+            await LocalAgent.configure(chat, family: await engine.family, spec: ready.spec)
             await engine.prefill(await chat.systemPrefix())
         }
     }
 
+    /// Points the chat at the model that answers: its prompt family (Lite's empty think block), then the tool set
+    /// it was trained on. `.v2` (Hermit 1.2, 1.1 Lite) leaves today's prompt and 15 tool lines as they are; `.v3`
+    /// takes the v3 prompt, the core tools and, from the chat's first message, its packs (`ToolChat`).
+    static func configure(_ chat: ToolChat, family: HermitPrompt.Family, spec: ModelSpec) async {
+        await chat.setFamily(family)
+        await chat.setToolSet(spec.toolSet)
+    }
+
     public func reset() {
         Task { [chat] in await chat.reset() }
+        endChat()
+    }
+
+    /// The chat is over: the model it ran on is let go, so a downloaded upgrade can take over. On the main thread,
+    /// where the app calls `reset`, that happens before this returns, so the next chat's first message already gets
+    /// the new model and its prompt.
+    private func endChat() {
+        let store = self.store, holding = self.holding
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { if holding.value { holding.value = false; store.chatEnded() } }
+        } else {
+            Task { @MainActor in if holding.value { holding.value = false; store.chatEnded() } }
+        }
+    }
+
+    deinit {
+        if holding.value { let store = self.store; Task { @MainActor in store.chatEnded() } }
     }
 
     /// Name and hermit.md for the system prompt. The model reads its instructions when a conversation starts,
@@ -104,9 +131,16 @@ public final class LocalAgent: Agent, @unchecked Sendable {
 
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
         AsyncStream { cont in
-            let task = Task { [store, engine, chat, toolbox, onStats] in
+            let task = Task { [store, engine, chat, toolbox, onStats, holding] in
                 defer { cont.finish() }
-                guard let ready = await MainActor.run(body: { store.readyModel }) else {
+                // The model in use, held for this chat from its first message: an upgrade that finishes downloading
+                // meanwhile waits for the chat to end, so the model and its tool set never change inside a chat.
+                let held = await MainActor.run { () -> (spec: ModelSpec, directory: URL)? in
+                    guard let r = store.readyModel else { return nil }
+                    if !holding.value { holding.value = true; store.chatBegan() }
+                    return r
+                }
+                guard let ready = held else {
                     cont.yield(.text("The on-device model isn't downloaded yet."))
                     return
                 }
@@ -118,9 +152,7 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                         cont.yield(.status("Waking up \(ready.spec.name)…"))
                         loadTime = try await engine.load(id: ready.spec.id, directory: ready.directory)
                     }
-                    await chat.setFamily(await engine.family)
-                    // The prompt follows what the loaded model was trained on (v2 for Hermit 1.2 and 1.1 Lite).
-                    await chat.setToolSet(ready.spec.toolSet)
+                    await LocalAgent.configure(chat, family: await engine.family, spec: ready.spec)
                     // A hot device slows the model down: say so instead of leaving the wait unexplained.
                     let heat = ProcessInfo.processInfo.thermalState
                     cont.yield(.status(heat == .serious || heat == .critical ? "Thinking, slower while this device is hot…" : "Thinking…"))
@@ -279,9 +311,10 @@ actor LocalEngine {
     }
 
     /// Qwen3-1.7B (Lite) is a reasoning model: training put an empty think block after every assistant prefix.
-    /// Qwen3-4B-Instruct-2507 has none. Read from the repo name and the shipped template.
+    /// Qwen3-4B-Instruct-2507 has none. Read from the repo name (`ModelCatalog.isLite`: any Hermit Lite, 1.1 or
+    /// later) and the shipped template.
     static func family(id: String, directory: URL) -> HermitPrompt.Family {
-        if id.lowercased().contains("lite") { return .thinking }
+        if ModelCatalog.isLite(id) { return .thinking }
         var t = (try? String(contentsOf: directory.appending(path: "chat_template.jinja"), encoding: .utf8)) ?? ""
         if t.isEmpty, let d = try? Data(contentsOf: directory.appending(path: "tokenizer_config.json")),
            let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { t = j["chat_template"] as? String ?? "" }

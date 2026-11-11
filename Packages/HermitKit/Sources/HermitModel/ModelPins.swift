@@ -24,6 +24,37 @@ public struct ModelPin: Sendable, Codable {
 
 enum ModelPins {
     static let all: [String: ModelPin] = [
+    // ==== HERMIT 1.3: PASTE THE TWO PINS HERE ================================================================
+    // For each of the two models, paste what `scripts/publish-model.py --repo <id> --revision <commit> --local <dir>`
+    // printed, as it is: the comment line with the repo id, the `"<id>":` key and its `ModelPin(...)`, down to the
+    // closing `]),`. The key must be the spec's `id` in ModelCatalog.swift and the pin's revision its `revision`;
+    // otherwise the spec has no pin and HermitModelTests' testShippedCatalog fails. Leave the older pins below
+    // where they are: people who have those models still use them.
+    // aiquantgod/Hermit-1.3-Lite-MLX-6bit
+    "aiquantgod/Hermit-1.3-Lite-MLX-6bit":
+        ModelPin(revision: "446752a7c51e8640621478dd5618e9e259550a71", pieceSize: 134217728, files: [
+            .init(path: "generation_config.json", size: 174, sha256: "b85588c5a41e2eb6667442f752ea5d2ecbe310ef6189f0fde59a6479ff1921eb"),
+            .init(path: "tokenizer_config.json", size: 729, sha256: "ee8f6d44bf2353e6d3686c3adaf70e1ccfe9e6ed6822d0ab2f28cafdd7754792"),
+            .init(path: "config.json", size: 1805, sha256: "70c56f13c8caa6bd9b17e7576f64233a0d1b481a46b84dcd4b1ec228a325c286"),
+            .init(path: "chat_template.jinja", size: 20652, sha256: "b0afeab5f331fdde8c75da6c56f1edfd74cae297405a83b207304d5199a565d0"),
+            .init(path: "model.safetensors.index.json", size: 49772, sha256: "04e63663497dadcbb12686f606b43553bf5b6272664453cd045aae945ea7dcf7"),
+            .init(path: "tokenizer.json", size: 11422650, sha256: "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"),
+            .init(path: "model.safetensors", size: 1398193581, sha256: "7a78e02386d1cfe92bdaa2076ee88a7084ef9b18f099905ac838a2e57b64c5c8", pieces: [
+                "0de8ff2af428bf3ab0a642ff7c52bb94391e611e0601b3d1c143e506fb85680f",
+                "452bd7179f847f6d0e400cc56712d8d2369314f63a105626d3128637f6a3a697",
+                "41feb6cc5bbe56dade0cba4be97e25f04465d5ec03c0556f85cc40b97b9876e5",
+                "3be1e2e2c36e9ef26a861bd2882fe2862f599e2cd67fc6999428f96176083d9b",
+                "89287ccf918fee705b911504978433ed87f6794128f68d61acf0d146057f61e1",
+                "60007dd1c8363747e291b1764e2615a5d135904cdde6b20bc2c24f6e5ac457f9",
+                "3650081b3f287b76ab566de7ef5da58e65dd9af5fefeffe63c39a9dd8030ba8e",
+                "50811772a435f2c26e73804d2bc5ae1a900349b0edce65a04b45f2dcb31d0e46",
+                "6ab01e12258efb33ceb2439e66584d1764918171dabef9dcea271f3dc7f42a31",
+                "03b8e3814e230f0633025ae843c36e55a0391745e4b26dbe7f7f982d5417b688",
+                "415c6bb072380441d3b1ace47f6f9199c58c440c29ea9841176a753f8b9f3f74",
+            ]),
+        ]),
+    // ==== END OF THE HERMIT 1.3 BLOCK ========================================================================
+
     // rahulol/Hermit-1.2-4B-MLX-4bit
     "rahulol/Hermit-1.2-4B-MLX-4bit":
         ModelPin(revision: "6183aaf929d66dc50f4b7c547d140fca57be54e6", pieceSize: 134217728, files: [

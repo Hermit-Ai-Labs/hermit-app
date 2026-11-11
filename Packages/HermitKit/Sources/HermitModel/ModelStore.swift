@@ -45,8 +45,24 @@ public final class ModelStore {
     public private(set) var waitingForWiFi: String?
     /// The source the current download uses, for the logs and the model sheet.
     public private(set) var source: [String: ModelSource] = [:]
+    /// The newer model the user tapped Download for on the upgrade card, until it has taken over.
+    public private(set) var upgradeAccepted: String?
+    /// Every newer model the user answered "Not now" to (or removed by hand). None is offered again; a later model is.
+    /// All of them are kept, not only the last: a person with both an older full model and an older Lite answers
+    /// once for each, and the first answer must still hold after the second.
+    public private(set) var upgradeDismissed: Set<String> = []
 
     public let root: URL
+    /// The models this store knows and the two a new install starts with: the app's catalog on this device.
+    /// Tests pass a made-up one.
+    public let lineup: ModelLineup
+    /// Called once an upgrade has taken over, with the old model and the new one (the app shows a toast).
+    @ObservationIgnored public var onUpgraded: (@MainActor (ModelSpec, ModelSpec) -> Void)?
+    private let defaults: UserDefaults
+    /// Tests: stands in for the network download of a model's files.
+    private let fetcher: (@MainActor (String) async throws -> Void)?
+    /// Chats under way on the model in use (`chatBegan`, `chatEnded`). A downloaded upgrade waits for zero.
+    @ObservationIgnored private var chatsOpen = 0
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var deleteObservers: [(String) -> Void] = []
     /// Set when the app goes to the background, so every remaining piece is handed to iOS at once (it can't start
@@ -56,14 +72,19 @@ public final class ModelStore {
     /// Background time and the Live Activity while a download runs.
     @ObservationIgnored private let keepAlive = DownloadKeepAlive()
     #endif
-    private static let selectedKey = "hermit.model.selected"
+    static let selectedKey = "hermit.model.selected"
     /// The model the user asked to download and hasn't finished, so a relaunch picks the download up again.
-    private static let downloadingKey = "hermit.model.downloading"
+    static let downloadingKey = "hermit.model.downloading"
     /// Set once the first-launch download was started (or offered): it never starts by itself again.
     private static let autoStartedKey = "hermit.model.autoStarted"
     /// The model waiting for Wi-Fi, kept across launches.
     private static let wifiKey = "hermit.model.waitForWiFi"
-    private static let readyMarker = ".hermit-ready"
+    /// The upgrade card's answers (the newer model's id), and the old model whose files go once the new one is in use.
+    private static let upgradeAcceptedKey = "hermit.model.upgrade.accepted"
+    private static let upgradeDismissedKey = "hermit.model.upgrade.dismissed"
+    static let upgradeRemoveKey = "hermit.model.upgrade.remove"
+    /// Written last, after every file passed its check: a folder with it holds a complete, verified model.
+    static let readyMarker = ".hermit-ready"
     /// The file list for a model that isn't pinned in the app, kept so a relaunch can continue without the network.
     private static let filesCache = ".hermit-files.json"
     /// Room kept free on top of the bytes still to come (the piece being merged, the system's own needs).
@@ -81,32 +102,56 @@ public final class ModelStore {
         }
     }
 
-    public init(root: URL? = nil) {
-        self.root = root ?? URL.applicationSupportDirectory.appending(path: "Hermit/Models", directoryHint: .isDirectory)
+    /// The app's store. Tests pass a folder, a made-up lineup and a defaults suite of their own.
+    public convenience init(root: URL? = nil, lineup: ModelLineup? = nil, defaults: UserDefaults? = nil) {
+        self.init(root: root, lineup: lineup, defaults: defaults, fetcher: nil)
+    }
+
+    /// `fetcher` stands in for the network download of a model's files (tests).
+    init(root: URL?, lineup: ModelLineup?, defaults: UserDefaults?, fetcher: (@MainActor (String) async throws -> Void)?) {
+        let root = root ?? URL.applicationSupportDirectory.appending(path: "Hermit/Models", directoryHint: .isDirectory)
+        let lineup = lineup ?? .shipped
+        let defaults = defaults ?? .standard
+        self.root = root
+        self.lineup = lineup
+        self.defaults = defaults
+        self.fetcher = fetcher
         // A model that's no longer in the catalog (Woof, before Hermit 1.1) falls back to the default, and its files go.
-        let known = Set(ModelCatalog.all.map(\.id))
-        let saved = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap { known.contains($0) ? $0 : nil } ?? ModelCatalog.defaultID
-        let spec = ModelCatalog.spec(saved)
-        selectedID = spec.supported && ModelCatalog.fits(spec) ? saved : ModelCatalog.defaultID
-        if let d = UserDefaults.standard.string(forKey: Self.downloadingKey), !known.contains(d) {
-            UserDefaults.standard.removeObject(forKey: Self.downloadingKey)
+        let known = lineup.ids
+        let saved = defaults.string(forKey: Self.selectedKey)
+        // A build with a newer default never takes a working model away: with no choice saved, a model that is on
+        // this device wins over a default that isn't (`ModelLineup.initialSelection`).
+        // A first download that was interrupted (or is waiting for Wi-Fi) continues by itself below: its model stays
+        // the one in use, so it doesn't land beside a newer default that nobody downloaded.
+        let pending = defaults.string(forKey: Self.downloadingKey) ?? defaults.string(forKey: Self.wifiKey)
+        let chosen = lineup.initialSelection(saved: saved, pending: pending, isReady: { ModelStore.isComplete($0, in: root) })
+        selectedID = chosen
+        // Written down once it is on the device, so the model in use only changes by the user's choice or a finished upgrade.
+        if saved != chosen, ModelStore.isComplete(chosen, in: root) { defaults.set(chosen, forKey: Self.selectedKey) }
+        if let d = defaults.string(forKey: Self.downloadingKey), !known.contains(d) {
+            defaults.removeObject(forKey: Self.downloadingKey)
         }
-        Self.removeRetired(root: self.root, keep: known)
-        for spec in ModelCatalog.all { states[spec.id] = isComplete(spec.id) ? .ready : .notDownloaded }
+        Self.removeRetired(root: root, keep: known)
+        for spec in lineup.all { states[spec.id] = isComplete(spec.id) ? .ready : .notDownloaded }
         if states[selectedID] == nil { states[selectedID] = isComplete(selectedID) ? .ready : .notDownloaded }
-        BackgroundDownloads.shared.root = self.root
+        upgradeDismissed = Set(defaults.stringArray(forKey: Self.upgradeDismissedKey) ?? [])
+        upgradeAccepted = defaults.string(forKey: Self.upgradeAcceptedKey).flatMap { known.contains($0) ? $0 : nil }
+        // What a finished upgrade left behind goes. One that finished downloading while a chat was open, or just
+        // before a quit, takes over now: at launch no chat is using the old model.
+        removeReplaced()
+        applyLandedUpgrade()
+        if fetcher == nil { BackgroundDownloads.shared.root = root }
         let testing = NSClassFromString("XCTestCase") != nil
-        if let w = UserDefaults.standard.string(forKey: Self.wifiKey), known.contains(w), states[w] != .ready, !testing { waitForWiFi(w) }
+        if let w = defaults.string(forKey: Self.wifiKey), known.contains(w), states[w] != .ready, !testing { waitForWiFi(w) }
         #if os(iOS)
         // iOS may have kept transfers going while Hermit wasn't running: attach to them, and continue a download the
         // user started that hasn't landed yet.
         Task { [weak self] in
             var ids = await BackgroundDownloads.shared.modelsInFlight()
-            if let pending = UserDefaults.standard.string(forKey: Self.downloadingKey) { ids.insert(pending) }
+            if let pending = defaults.string(forKey: Self.downloadingKey) { ids.insert(pending) }
             guard let self else { return }
             // Transfers iOS kept for a model that's no longer in the catalog (MiniCPM before Hermit 1.1) are cancelled,
             // not resumed: they'd fail into a retired folder forever and hold up the real download.
-            let known = Set(ModelCatalog.all.map(\.id))
             for id in ids where !known.contains(id) { BackgroundDownloads.shared.discard(model: id) }
             for id in ids where known.contains(id) && self.state(id) != .ready { self.download(id) }
         }
@@ -126,7 +171,7 @@ public final class ModelStore {
         #else
         // Mac: a download the user started and quit before it finished continues on the next launch (finished pieces
         // stay on disk), like the iPhone app.
-        if let pending = UserDefaults.standard.string(forKey: Self.downloadingKey), known.contains(pending),
+        if let pending = defaults.string(forKey: Self.downloadingKey), known.contains(pending),
            states[pending] != .ready, !testing {
             Task { @MainActor [weak self] in self?.download(pending) }
         }
@@ -147,7 +192,7 @@ public final class ModelStore {
     @ObservationIgnored private var backgroundObserver: NSObjectProtocol?
 
     private func resumeInterrupted() {
-        guard let id = UserDefaults.standard.string(forKey: Self.downloadingKey), tasks[id] == nil, state(id) != .ready else { return }
+        guard let id = defaults.string(forKey: Self.downloadingKey), tasks[id] == nil, state(id) != .ready else { return }
         if case .failed = state(id), !NetworkPath.shared.isOnline { return }
         download(id)
     }
@@ -174,7 +219,7 @@ public final class ModelStore {
 
     // MARK: Reading
 
-    public var selected: ModelSpec { ModelCatalog.spec(selectedID) }
+    public var selected: ModelSpec { lineup.spec(selectedID) }
     public var selectedState: State { state(selectedID) }
     public func state(_ id: String) -> State { states[id] ?? .notDownloaded }
 
@@ -198,14 +243,24 @@ public final class ModelStore {
     /// Mac), after one question on mobile data. Never again after that, and never over a download that's running or
     /// finished; a paused or deleted model stays that way.
     public func autoStart() {
-        let d = UserDefaults.standard
+        let d = defaults
         guard !d.bool(forKey: Self.autoStartedKey) else { return }
         d.set(true, forKey: Self.autoStartedKey)
         let id = selectedID
         guard state(id) == .notDownloaded, tasks[id] == nil, d.string(forKey: Self.downloadingKey) == nil else { return }
+        start(id)
+    }
+
+    /// Starts a download nobody asked for by its size: right away on Wi-Fi (or a Mac), after one question on mobile
+    /// data, and by itself once there is Wi-Fi when the phone is offline. The first download and an upgrade share it.
+    private func start(_ id: String) {
         Task { @MainActor [weak self] in
             await NetworkPath.shared.settled()
-            guard let self, self.state(id) == .notDownloaded, self.tasks[id] == nil else { return }
+            guard let self, self.tasks[id] == nil else { return }
+            switch self.state(id) {
+            case .notDownloaded, .failed: break
+            default: return
+            }
             #if os(iOS)
             if NetworkPath.shared.isExpensive { self.cellularAsk = id; return }
             if !NetworkPath.shared.isOnline { self.waitForWiFi(id); return }
@@ -224,7 +279,7 @@ public final class ModelStore {
     /// Starts the download by itself once the phone is on Wi-Fi (or any network that isn't metered).
     private func waitForWiFi(_ id: String) {
         waitingForWiFi = id
-        UserDefaults.standard.set(id, forKey: Self.wifiKey)
+        defaults.set(id, forKey: Self.wifiKey)
         guard !wifiWatching else { checkWiFi(); return }
         wifiWatching = true
         NetworkPath.shared.onChange { [weak self] in
@@ -241,14 +296,14 @@ public final class ModelStore {
 
     private func clearWiFiWait() {
         waitingForWiFi = nil
-        UserDefaults.standard.removeObject(forKey: Self.wifiKey)
+        defaults.removeObject(forKey: Self.wifiKey)
     }
 
     // MARK: Changing
 
     public func select(_ id: String) {
         selectedID = id
-        UserDefaults.standard.set(id, forKey: Self.selectedKey)
+        defaults.set(id, forKey: Self.selectedKey)
         if states[id] == nil { states[id] = isComplete(id) ? .ready : .notDownloaded }
     }
 
@@ -256,12 +311,12 @@ public final class ModelStore {
     public func download(_ id: String) {
         if cellularAsk == id { cellularAsk = nil }
         if waitingForWiFi == id { clearWiFiWait() }
-        UserDefaults.standard.set(true, forKey: Self.autoStartedKey)
+        defaults.set(true, forKey: Self.autoStartedKey)
         guard tasks[id] == nil, state(id) != .ready else { return }
         states[id] = .downloading(progress(id))
-        UserDefaults.standard.set(id, forKey: Self.downloadingKey)
+        defaults.set(id, forKey: Self.downloadingKey)
         #if os(iOS)
-        keepAlive.begin(id: id, name: ModelCatalog.spec(id).name, received: received[id] ?? 0, total: totals[id] ?? 0)
+        keepAlive.begin(id: id, name: lineup.spec(id).name, received: received[id] ?? 0, total: totals[id] ?? 0)
         #endif
         tasks[id] = Task { [weak self] in
             guard let self else { return }
@@ -270,10 +325,8 @@ public final class ModelStore {
             var failures = 0
             while true {
                 do {
-                    try await self.fetch(id)
-                    self.states[id] = .ready
-                    self.clearDownloading(id)
-                    self.keepAliveFinish(id, .landed)
+                    if let fake = self.fetcher { try await fake(id) } else { try await self.fetch(id) }
+                    self.landed(id)
                 } catch is CancellationError {
                     self.states[id] = .notDownloaded
                     self.clearDownloading(id)
@@ -309,6 +362,15 @@ public final class ModelStore {
         }
     }
 
+    /// A download finished: every file is in place and passed its check (`fetch` writes the ready marker last).
+    /// If it is the upgrade the user asked for, it takes over now, or as soon as no chat is using the old model.
+    private func landed(_ id: String) {
+        states[id] = .ready
+        clearDownloading(id)
+        keepAliveFinish(id, .landed)
+        applyLandedUpgrade()
+    }
+
     /// Seconds to wait before each retry; after the last one the download shows as stopped.
     private static let retryDelays: [Double] = [2, 8, 30]
 
@@ -335,7 +397,7 @@ public final class ModelStore {
     }
 
     private func clearDownloading(_ id: String) {
-        if UserDefaults.standard.string(forKey: Self.downloadingKey) == id { UserDefaults.standard.removeObject(forKey: Self.downloadingKey) }
+        if defaults.string(forKey: Self.downloadingKey) == id { defaults.removeObject(forKey: Self.downloadingKey) }
     }
 
     /// Stops a download. What came down so far stays on disk, so the next download picks up from there.
@@ -349,6 +411,10 @@ public final class ModelStore {
         BackgroundDownloads.shared.discard(model: id)
         clearDownloading(id)
         if waitingForWiFi == id { clearWiFiWait() }
+        // Removing the newer model by hand calls its upgrade off, and is an answer to the card like "Not now":
+        // without this the card would come straight back and offer the model that was just removed.
+        if upgradeAccepted == id { setAccepted(nil) }
+        if lineup.successor(of: selected)?.id == id { dismiss(id) }
         for observer in deleteObservers { observer(id) }
         try? FileManager.default.removeItem(at: directory(id))
         received[id] = nil
@@ -358,6 +424,97 @@ public final class ModelStore {
     /// Called before a model's files are removed, so a loaded copy can be let go.
     public func onDelete(_ observer: @escaping (String) -> Void) { deleteObservers.append(observer) }
 
+    // MARK: Upgrading
+
+    /// The move to the model that replaced the one in use, when there is one to offer or under way. nil for a new
+    /// install, for the newest model, after "Not now", and when this device can't run the newer model.
+    /// The model in use keeps answering throughout (`ModelUpgrade`).
+    public var upgrade: ModelUpgrade? {
+        lineup.upgrade(selectedID: selectedID, isReady: { state($0) == .ready }, accepted: upgradeAccepted, dismissed: upgradeDismissed)
+    }
+
+    /// "Download" on the upgrade card. The download starts as the first one does (at once on Wi-Fi or a Mac, one
+    /// question on mobile data) and shows wherever downloads show. Nothing else changes until it has landed.
+    public func acceptUpgrade() {
+        guard let u = upgrade, u.phase == .offered else { return }
+        setAccepted(u.to.id)
+        start(u.to.id)
+    }
+
+    /// "Not now" on the upgrade card: it isn't shown again for this model. A download under way stops; what came
+    /// down stays, and the model can still be downloaded from Settings, Models.
+    public func declineUpgrade() {
+        guard let u = upgrade, u.phase != .landed else { return }
+        let id = u.to.id
+        if upgradeAccepted == id {
+            cancel(id)
+            if waitingForWiFi == id { clearWiFiWait() }
+            if cellularAsk == id { cellularAsk = nil }
+            setAccepted(nil)
+        }
+        dismiss(id)
+    }
+
+    private func dismiss(_ id: String) {
+        upgradeDismissed.insert(id)
+        defaults.set(upgradeDismissed.sorted(), forKey: Self.upgradeDismissedKey)
+    }
+
+    /// A chat started on the model in use. Until `chatEnded`, a downloaded upgrade waits: the model and its prompt
+    /// can't change in the middle of a chat, and the old model's files can't go while it is answering.
+    public func chatBegan() { chatsOpen += 1 }
+
+    /// That chat is over (New chat, another chat opened): a downloaded upgrade takes over now.
+    public func chatEnded() {
+        chatsOpen = max(0, chatsOpen - 1)
+        applyLandedUpgrade()
+    }
+
+    /// The upgrade the user asked for takes over, if it is fully downloaded and checked and no chat is using the old
+    /// model: it becomes the model in use, and only then do the old model's files go.
+    private func applyLandedUpgrade() {
+        guard let target = upgradeAccepted else { return }
+        // Picked by hand in the meantime ("Use"): nothing left to do, and the old model stays as the user left it.
+        if target == selectedID { setAccepted(nil); return }
+        guard chatsOpen == 0, state(target) == .ready, isComplete(target) else { return }
+        // The upgrade was for the model in use when Download was tapped. If another model was picked by hand since
+        // (Lite, say), that choice stands: nothing switches and nothing is removed, and the downloaded model is in
+        // Settings with "Use".
+        guard lineup.successor(of: selected)?.id == target else { setAccepted(nil); return }
+        let old = selectedID
+        // Written before the switch, so a quit between the two steps still removes the old files at the next launch.
+        // The accepted note goes last: a quit before it is redone or tidied at the next launch, never half done.
+        defaults.set(old, forKey: Self.upgradeRemoveKey)
+        select(target)
+        setAccepted(nil)
+        removeReplaced()
+        onUpgraded?(lineup.spec(old), lineup.spec(target))
+    }
+
+    /// Removes the model an upgrade replaced. Never the model in use, and never while the model in use isn't
+    /// complete on this device: then the old one may be the only one that works, and it stays.
+    private func removeReplaced() {
+        guard let old = defaults.string(forKey: Self.upgradeRemoveKey) else { return }
+        defaults.removeObject(forKey: Self.upgradeRemoveKey)
+        guard old != selectedID, states[old] != nil, state(selectedID) == .ready, isComplete(selectedID) else { return }
+        delete(old)
+    }
+
+    private func setAccepted(_ id: String?) {
+        upgradeAccepted = id
+        if let id { defaults.set(id, forKey: Self.upgradeAcceptedKey) } else { defaults.removeObject(forKey: Self.upgradeAcceptedKey) }
+    }
+
+    /// The models Settings lists: the two this build installs, and any older one that is in use or has files on this
+    /// device, so it can still be picked, finished or removed. An older model nobody has isn't offered.
+    public var listed: [ModelSpec] {
+        lineup.all.filter { spec in
+            guard spec.supported else { return false }
+            if lineup.isCurrent(spec) || spec.id == selectedID || state(spec.id) != .notDownloaded { return true }
+            return FileManager.default.fileExists(atPath: directory(spec.id).path)
+        }
+    }
+
     // MARK: Download
 
     private func progress(_ id: String) -> Double {
@@ -365,8 +522,11 @@ public final class ModelStore {
         return min(1, Double(received[id] ?? 0) / Double(total))
     }
 
-    private func isComplete(_ id: String) -> Bool {
-        FileManager.default.fileExists(atPath: directory(id).appending(path: Self.readyMarker).path)
+    private func isComplete(_ id: String) -> Bool { Self.isComplete(id, in: root) }
+
+    /// Every file of the model is in its folder under `root` and passed its check.
+    private static func isComplete(_ id: String, in root: URL) -> Bool {
+        FileManager.default.fileExists(atPath: root.appending(path: id, directoryHint: .isDirectory).appending(path: readyMarker).path)
     }
 
     /// The release to download: built in (pinned), else the mirror's manifest, else the Hugging Face tree listing.
@@ -398,7 +558,7 @@ public final class ModelStore {
         var rootValues = URLResourceValues(); rootValues.isExcludedFromBackup = true
         var rootURL = root; try? rootURL.setResourceValues(rootValues)
 
-        let spec = ModelCatalog.spec(id)
+        let spec = lineup.spec(id)
         let (pin, candidates) = try await manifest(spec, dir)
         let files = pin.files.filter { ModelCatalog.wanted($0.path) }
         let total = files.reduce(0) { $0 + $1.size }

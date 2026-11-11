@@ -12,7 +12,9 @@ public final class HybridAgent: Agent, @unchecked Sendable {
         let store = store ?? .shared
         self.store = store
         local = LocalAgent(store: store)
-        let underTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        // Never under tests: `swift test` has no Metal library, so loading a model there ends the process. (The
+        // XCTestConfigurationFilePath variable is only set by Xcode, not by `swift test`.)
+        let underTest = NSClassFromString("XCTestCase") != nil
         if store.readyModel != nil && !underTest { local.warmUp() }
     }
 

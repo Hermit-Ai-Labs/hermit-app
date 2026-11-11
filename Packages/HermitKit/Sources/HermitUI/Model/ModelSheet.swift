@@ -19,7 +19,8 @@ struct ModelSheet: View {
     private var list: some View {
         let store = model.models
         return VStack(spacing: 0) {
-            ForEach(Array(ModelCatalog.all.filter(\.supported).enumerated()), id: \.element.id) { i, spec in
+            // The models this build installs, and any older one that is still on this device.
+            ForEach(Array(store.listed.enumerated()), id: \.element.id) { i, spec in
                 if i > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
                 row(store, spec)
             }

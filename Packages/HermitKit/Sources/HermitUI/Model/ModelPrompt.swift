@@ -4,6 +4,7 @@ import HermitModel
 /// First run on the home screen: the model isn't on this device yet. Card B from the design round: the flight-mode crab,
 /// copycat's holo foil drifting over a pale violet card, and one small holo icon that keeps changing its look.
 /// While it downloads, a holo strip fills under the text. The card folds away once the model is ready.
+/// A person whose model is ready and has been replaced by a newer one gets the upgrade card here instead.
 struct ModelPrompt: View {
     @Environment(AppModel.self) private var model
 
@@ -40,9 +41,13 @@ struct ModelPrompt: View {
                 }
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
                 .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.97))))
+            } else if let upgrade = store.upgrade {
+                ModelUpgradeCard(upgrade: upgrade)
+                    .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.97))))
             }
         }
         .animation(.smooth(duration: 0.35), value: state)
+        .animation(.smooth(duration: 0.35), value: store.upgrade)
     }
 
     private func title(_ state: ModelStore.State, _ spec: ModelSpec) -> String {

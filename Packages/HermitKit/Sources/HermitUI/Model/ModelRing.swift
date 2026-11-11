@@ -60,9 +60,15 @@ extension ModelStore {
         }
     }
 
+    /// A model's download size, "2.3 GB": its files' exact total when the download has listed them or the release is
+    /// pinned in the app, the catalog's figure otherwise.
+    func downloadSize(_ spec: ModelSpec) -> String {
+        ByteCountFormatter.string(fromByteCount: totals[spec.id] ?? spec.pinnedBytes ?? spec.approxBytes, countStyle: .file)
+    }
+
     /// The selected model's size for the mobile-data question: "2.3 GB".
     var cellularSize: String {
-        let spec = ModelCatalog.spec(cellularAsk ?? selectedID)
+        let spec = lineup.spec(cellularAsk ?? selectedID)
         return ByteCountFormatter.string(fromByteCount: totals[spec.id] ?? spec.pin.map { $0.files.reduce(0) { $0 + $1.size } } ?? spec.approxBytes,
                                          countStyle: .file)
     }

@@ -53,6 +53,8 @@ let package = Package(
         .target(name: "HermitUI", dependencies: ["HermitCore", "HermitModel", "HermitWallet", "HermitCloud"], resources: [.process("Resources")]),
         .testTarget(name: "HermitCoreTests", dependencies: ["HermitCore"], resources: [.copy("Fixtures")]),
         .testTarget(name: "HermitUITests", dependencies: ["HermitUI"]),
+        // The model catalog, the upgrade from an older model to a newer one, and which prompt a model gets.
+        .testTarget(name: "HermitModelTests", dependencies: ["HermitModel", "HermitCore"]),
         .testTarget(name: "HermitWalletTests", dependencies: ["HermitWallet"], resources: [.copy("Fixtures")]),
         .testTarget(name: "HermitCloudTests", dependencies: ["HermitCloud"], resources: [.copy("Fixtures")]),
     ],

@@ -200,6 +200,8 @@ public final class AppModel {
         // snapshots, the Debug tour or tests.
         if persist && NSClassFromString("XCTestCase") == nil {
             models.autoStart()
+            // A newer model the user asked for finished downloading and took over (between chats): say who answers now.
+            models.onUpgraded = { [weak self] _, new in self?.toast("Now chatting with \(new.name)") }
             // Scheduled automations run while the app is open (AutomationScheduler.swift).
             AutomationScheduler.shared.attach(self)
         }
