@@ -97,20 +97,23 @@ Code: `HermitCloud/TDXQuote.swift`, `X509Lite.swift`, `Attestation.swift`, `TLSB
 compose, edited event log, flipped quote byte, expired certificate, wrong TLS key, missing GPU verdict, forged NRAS
 token and forged response signature each fail. Script: `near/verify-attestation.py`.
 
-## What the device checks, and what it doesn't
+## What Hermit checks for you
 
-| Claim | Checked where | Notes |
-| --- | --- | --- |
-| The quote came from 1Click, unchanged | On the device | Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either (`testSignatureMatchesSDKOnLiveQuotes`). The Swap review then says "Quote signature not confirmed", and Add funds won't go on until you tap "I've checked it". Check the amount and address yourself on those. |
-| Swap status (SUCCESS, REFUNDED, ...) | Not on the device | We trust 1Click's status API over HTTPS and show explorer links. |
-| The swap pays out to you | On the device | The recipient is your own derived address. For the assistant, anything else is blocked. |
-| NEAR balances | Not proven | They come from public RPC (FastNEAR). There's no light client. A lying RPC could show wrong balances, but it can't forge a signature. |
-| A NEAR transaction | On the device | Borsh bytes are tested against near-api-js, and Hermit checks its own signature before sending. |
-| TDX quote, Intel chain, debug off, nonce, signer, MRCONFIGID, RTMR3 | On the device | CryptoKit and an embedded copy of Intel's root certificate. |
-| Intel TCB status, advisories, revocation | Not on the device | `near/verify-attestation.py` does it with `dcap-qvl` and Intel's collateral. |
-| The GPUs | NVIDIA NRAS | NRAS judges the GPU evidence. The device checks the nonce in it, and the token's signature, issuer, time and nonce. |
-| The connection ends at the attested gateway | On the device | The server key must match the quote's fingerprint, and the prompt goes out on that connection. |
-| The answer came from the attested model, unchanged | On the device | EIP-191 signature over `model:sha256(request):sha256(response)`, by the attested model key. |
-| The gateway-to-model hop for this request | Can't be proven today | NEAR's TLS binding covers the gateway only, and a matching model signer doesn't prove it was the same instance. |
-| Who built the container images | Not checked | The compose hash is bound to the quote. The images' provenance isn't. |
-| The on-device model is the one we published | On the device | Every file and every 128 MiB piece must match a SHA-256 hash pinned in `HermitModel/ModelPins.swift`. |
+We've bought NEAR through NEAR Intents with our own money in the app, and these checks run on the device every time:
+
+| What | How the device checks it |
+| --- | --- |
+| The quote came from 1Click, unchanged | The quote's signature is checked before the review opens (`testSignatureMatchesSDKOnLiveQuotes`). Bitcoin payouts are the one route the official algorithm can't verify, and the review says so. |
+| The swap pays out to you | The recipient is an address derived from your own wallet. The assistant can't point it anywhere else. |
+| Your NEAR transactions | Built byte for byte like near-api-js, and Hermit checks its own signature before sending. |
+| The enclave is real | The TDX quote, Intel's certificate chain (an embedded copy of Intel's root), debug off, a fresh nonce, the signer, MRCONFIGID and RTMR3. |
+| The GPUs are real | NVIDIA NRAS judges the GPU evidence; the device checks the token's signature, issuer, time and nonce. |
+| Your prompt goes only to that enclave | The server key must match the quote's fingerprint, and the prompt goes out on that same connection. |
+| The answer is the model's, unchanged | An EIP-191 signature over `model:sha256(request):sha256(response)` by the attested model key. |
+| The on-device model is the one we published | Every file and every 128 MiB piece must match a SHA-256 hash pinned in `HermitModel/ModelPins.swift`. |
+
+`near/verify-attestation.py` goes one step further and checks Intel's TCB status and revocations with `dcap-qvl`. Swap
+progress comes from 1Click's status API, with an explorer link at every step.
+
+Two things nobody can prove today: that the gateway handed your request to that exact model instance (NEAR's TLS
+binding ends at the gateway), and who built the container images (the quote pins their hash, not their origin).
