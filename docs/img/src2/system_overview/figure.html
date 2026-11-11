@@ -1,0 +1,317 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Hermit at a glance</title>
+<style>
+@font-face { font-family: 'Geist'; src: url('../fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Geist Mono'; src: url('../fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; }
+/* Site-plan palette: white paper, flat pastel fields, thin black ink */
+:root {
+  --paper:#FCFCF8; --ink:#17171A; --ink2:#3A3A42; --ink3:#5C5C66;
+  --butter:#F8EFA6;      /* the device */
+  --teal:#9AD3C8;        /* NEAR */
+  --teal-plot:#CDEBE4;
+  --sky:#A9D6EE;         /* chains and venues */
+  --lav:#CFCFDF;         /* public services */
+  --salmon:#F4B5A8;      /* money path plots */
+  --rose:#C2455A;        /* money path ink */
+  --sage:#CFE2BE;
+  --white:#FFFFFF;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: transparent; }
+body { width: 1200px; color: var(--ink); font-family: 'Geist', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+#fig { position: relative; width: 1200px; background: var(--paper); border-radius: 28px; overflow: hidden; }
+.abs { position: absolute; }
+
+/* header */
+.eyebrow { display: flex; align-items: center; gap: 12px; font: 500 18px/24px 'Geist Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); white-space: nowrap; }
+.eyebrow svg { width: 37px; height: 24px; }
+h1 { font: 600 58px/64px 'Geist'; letter-spacing: -.03em; color: var(--ink); white-space: nowrap; }
+.sub { font: 400 22px/30px 'Geist'; color: var(--ink2); white-space: nowrap; }
+.legend { z-index: 3; display: grid; grid-template-columns: 36px auto; column-gap: 14px; row-gap: 10px; align-items: center; font: 500 18px/24px 'Geist'; color: var(--ink2); white-space: nowrap; }
+.legend svg { width: 36px; height: 12px; overflow: visible; }
+
+/* zones: flat pastel fields with a faint cell grid, like plots on a site plan */
+.zone { z-index: 0; }
+.zone.cells { background-image:
+  repeating-linear-gradient(0deg, rgba(255,255,255,.42) 0 1.5px, transparent 1.5px 32px),
+  repeating-linear-gradient(90deg, rgba(255,255,255,.42) 0 1.5px, transparent 1.5px 32px); }
+.zone.dev { background-color: var(--butter); }
+.zone.pub { background-color: var(--lav); }
+.zone.near { background-color: var(--teal); }
+.zone.chain { background-color: var(--sky); }
+.zl { font: 500 18px/22px 'Geist Mono'; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); white-space: nowrap; z-index: 3; }
+
+/* plots */
+.plot { z-index: 3; background: var(--white); border: 1.5px solid var(--ink); padding: 0 18px; display: flex; flex-direction: column; justify-content: center; }
+.plot b { font: 600 22px/28px 'Geist'; letter-spacing: -.01em; color: var(--ink); white-space: nowrap; }
+.plot span { font: 400 18px/24px 'Geist'; color: var(--ink2); white-space: nowrap; }
+.plot.money { background: var(--salmon); }
+.plot.vault { background: var(--sage); }
+.plot.nearp { background: var(--teal-plot); }
+.plot.sm { padding: 0 14px; }
+.plot.sm b { font-size: 21px; line-height: 26px; }
+.plot.sm span { white-space: normal; line-height: 23px; }
+.plot.pubp { padding: 0 12px; } .plot.pubp span { white-space: nowrap; letter-spacing: -.01em; }
+#mode { padding: 0 14px; }
+.seg { display: flex; height: 36px; margin-top: 10px; font: 500 18px/22px 'Geist'; }
+.seg div { display: flex; align-items: center; padding: 0 10px; white-space: nowrap; }
+.seg .on { background: var(--ink); color: var(--white); border: 1.5px solid var(--ink); }
+.seg .pc { color: var(--ink); border: 1.5px dashed var(--ink); border-left: none; background: var(--white); }
+.accts div { font: 500 19px/30px 'Geist'; color: var(--ink); white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+.accts i { width: 10px; height: 10px; background: var(--rose); display: inline-block; }
+.you { z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 4px; font: 600 20px/24px 'Geist'; color: var(--ink); white-space: nowrap; }
+.you .tile { width: 44px; height: 44px; border-radius: 22px; background: var(--white); border: 1.5px solid var(--ink); display: grid; place-items: center; }
+.you svg { width: 24px; height: 24px; fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* wires */
+svg#wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 2; }
+.w { fill: none; stroke-linecap: butt; stroke-linejoin: miter; }
+.w.ink { stroke: var(--ink); stroke-width: 1.6; }
+.w.money { stroke: var(--rose); stroke-width: 2.6; }
+.w.dash { stroke-dasharray: 7 6; }
+.hd { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.hd.ink { stroke: var(--ink); stroke-width: 1.6; } .hd.money { stroke: var(--rose); stroke-width: 2.6; }
+.mk { fill: var(--paper); stroke-width: 1.5; } .mk.ink { stroke: var(--ink); } .mk.money { stroke: var(--rose); }
+.deco { stroke: var(--ink); stroke-width: 1.2; fill: none; }
+.lbl { z-index: 4; position: absolute; font: 500 18px/22px 'Geist'; color: var(--ink2); white-space: nowrap; padding: 1px 8px; }
+.lbl.tight { padding: 1px 2px; }
+.lbl.money { color: #9E2F43; }
+.lbl.c { transform: translate(-50%, -50%); }
+.on-dev { background: var(--butter); } .on-paper { background: var(--paper); }
+.note { z-index: 3; font: 400 18px/26px 'Geist'; color: var(--ink3); white-space: nowrap; }
+.note .zl { display: block; margin-bottom: 8px; color: var(--ink3); }
+</style></head>
+<body><div id="fig"></div>
+<script>
+const PERSON = '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20.2c.6-3.9 3.6-6.4 7.2-6.4s6.6 2.5 7.2 6.4"/>';
+const MARK = `<svg viewBox="0 0 171.8 110"><g fill="none" stroke="#17171A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h161.8v100H5zM105 5v100M105 66.8h61.8M128.6 66.8V105M105 81.4h23.6M119.6 66.8v14.6M5 105A100 100 0 0 1 105 5a61.8 61.8 0 0 1 61.8 61.8 38.2 38.2 0 0 1-38.2 38.2 23.6 23.6 0 0 1-23.6-23.6 14.6 14.6 0 0 1 14.6-14.6"/></g></svg>`;
+
+async function build() {
+await Promise.all(["600 22px Geist", "400 18px Geist", "500 18px Geist", "600 58px Geist", "500 18px 'Geist Mono'"].map(f => document.fonts.load(f)));
+await document.fonts.ready;
+const fig = document.getElementById('fig');
+const R = {};
+function el(html, x, y, w, h, id, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'abs ' + cls; d.style.left = x + 'px'; d.style.top = y + 'px';
+  if (w != null) d.style.width = w + 'px'; if (h != null) d.style.height = h + 'px';
+  d.innerHTML = html; if (id) d.id = id; fig.appendChild(d);
+  if (id) R[id] = { x, y, w: w ?? d.offsetWidth, h: h ?? d.offsetHeight };
+  return d;
+}
+const plot = (id, x, y, w, h, label, sub, cls = '') => el(`<b>${label}</b>${sub ? `<span>${sub}</span>` : ''}`, x, y, w, h, id, 'plot ' + cls);
+
+// ---------- geometry ----------
+const DEV = { x: 64, y: 236, w: 656 };            // device field, right edge 720
+const L = { x: 88, w: 268 }, RC = { x: 444, w: 252 };
+const OX = 816, OW = 320, PX = OX + 12, PW = OW - 24;   // outside column, plots inside it
+
+// header
+el(`${MARK}<span>Hermit / system overview</span>`, 64, 56, null, null, 'eyebrow', 'eyebrow');
+el(`<h1>Hermit at a glance</h1>`, 62, 96, null, null, 'title');
+el(`<div class="sub">Everything that thinks, decides and signs runs on your device.</div>`, 64, 174, null, null, 'subtitle');
+el(`<div class="legend">
+  <svg viewBox="0 0 36 12"><path d="M1 6h34" stroke="#C2455A" stroke-width="2.6"/></svg><span>Moves money</span>
+  <svg viewBox="0 0 36 12"><path d="M1 6h34" stroke="#17171A" stroke-width="1.6" stroke-dasharray="7 6"/></svg><span>Private Cloud or read only</span>
+</div>`, PX, 0, null, null, 'legend');
+
+// ---------- the device ----------
+el('On your iPhone or Mac', L.x, 258, null, null, 'zlDev', 'zl');
+const R1 = 312, R2 = 426, R2H = 116, R3 = 626, R3H = 96, R4 = 796, R4H = 96, R5 = 966, R5H = 108;
+el(`<div class="tile"><svg viewBox="0 0 24 24">${PERSON}</svg></div><span>You</span>`, L.x, R1 - 8, null, null, 'you', 'you');
+R.youTile = { x: L.x + (R.you.w - 44) / 2, y: R1 - 8, w: 44, h: 44 };
+plot('chat', 224, R1 - 8, 128, 48, 'Chat', '');
+plot('chats', RC.x, R1 - 16, RC.w, 76, 'Chats stay here', 'Saved on this device');
+el(`<b>Mode switch</b><div class="seg"><div class="on">On-device</div><div class="pc">Private Cloud</div></div>`, L.x, R2, L.w, R2H, 'mode', 'plot');
+plot('enc', RC.x, R2, RC.w, R2H, 'Enclave check', 'Proof before any prompt');
+plot('model', L.x, R3, L.w, R3H, 'Hermit 1.2 model', 'On device, MLX 4-bit');
+plot('loop', RC.x, R3, RC.w, R3H, 'Tool loop', '15 tools, guarded');
+plot('policy', L.x, R4, L.w, R4H, 'Spending policy', 'Limits before any review', 'money');
+plot('review', RC.x, R4, RC.w, R4H, 'Review and Face ID', 'You approve every move', 'money');
+const AW = 204;
+el(`<div><i></i>EVM account</div><div><i></i>Solana account</div><div><i></i>NEAR account</div>`, L.x, R5, AW, R5H, 'accts', 'plot accts');
+plot('vault', RC.x, R5, RC.w, R5H, 'Key vault', 'Sealed by Secure Enclave', 'vault');
+const DEVB = R5 + R5H + 32;
+el('', DEV.x, DEV.y, DEV.w, DEVB - DEV.y, 'device', 'zone cells dev');
+
+// ---------- outside ----------
+// public services
+const PUB = { y: 236 };
+el('Public services', PX, 256, null, null, 'zlPub', 'zl');
+const PH = 56, PG = 6, P0 = 282;
+plot('nras', PX, P0, PW, PH, 'NVIDIA NRAS', 'GPU evidence only', 'sm pubp');
+plot('dl', PX, P0 + (PH + PG), PW, PH, 'Model download', 'models.hermit.my, Hugging Face', 'sm pubp');
+plot('data', PX, P0 + 2 * (PH + PG), PW, PH, 'Public data', 'Prices, yields, history, RPCs', 'sm pubp');
+const PUBB = P0 + 3 * PH + 2 * PG + 12;
+el('', OX, PUB.y, OW, PUBB - PUB.y, 'pub', 'zone cells pub');
+// NEAR
+const NY = PUBB + 16;
+const yIn = R2 + R2H - 14;          // Enclave check -> NEAR AI Cloud
+const yOut = R3 + 22;               // NEAR AI Cloud -> tool loop
+const yQuote = R3 + R3H - 18;       // tool loop -> 1Click
+plot('cloud', PX, NY + 12, PW, yOut + 22 - (NY + 12), 'NEAR AI Cloud', 'TEE gateway and model', 'nearp');
+plot('intents', PX, yQuote - 26, PW, 76, 'NEAR Intents 1Click', 'Signed quotes, solvers fill', 'nearp');
+el('NEAR', PX, R.intents.y + R.intents.h + 14, null, null, 'zlNear', 'zl');
+const NB = R.intents.y + R.intents.h + 50;
+el('', OX, NY, OW, NB - NY, 'nearz', 'zone cells near');
+
+// chains and venues
+const CY = DEVB + 56;
+el('Chains and venues', 80, CY + 16, null, null, 'zlCh', 'zl');
+const chains = [['nearc', 'NEAR', 'Your implicit account', 'nearp'], ['evm', 'EVM chains', 'Ethereum, Base, Arbitrum, more'], ['sol', 'Solana', 'Spot through Jupiter'],
+  ['hl', 'Hyperliquid', 'Perps, your own account'], ['routes', 'Relay, Aave v3', 'Bridges, Earn deposits'], ['btc', 'Bitcoin', 'Payout only, via 1Click']];
+const CG = 8, CX0 = 76, CWd = (1124 - CX0 - CG * 5) / 6, CPY = CY + 52, CPH = 104;
+chains.forEach(([id, b, s, c], i) => plot(id, CX0 + i * (CWd + CG), CPY, CWd, CPH, b, s, 'sm ' + (c || '')));
+const CB = CPY + CPH + 16;
+el('', 64, CY, 1072, CB - CY, 'chainz', 'zone cells chain');
+
+// the footnote under the plan
+el(`No Hermit server, no account, no analytics. Nothing syncs to iCloud.`, 64, CB + 28, null, null, 'note', 'note');
+const H = CB + 28 + 26 + 52;
+fig.style.height = H + 'px';
+
+// ---------- wires ----------
+const svgNS = 'http://www.w3.org/2000/svg';
+const wires = document.createElementNS(svgNS, 'svg'); wires.id = 'wires';
+wires.setAttribute('width', 1200); wires.setAttribute('height', H); fig.appendChild(wires);
+const g = (tag, attrs, parent = wires) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+const rt = (id, f = .5) => [R[id].x + R[id].w, R[id].y + R[id].h * f];
+const lf = (id, f = .5) => [R[id].x, R[id].y + R[id].h * f];
+const tp = (id, f = .5) => [R[id].x + R[id].w * f, R[id].y];
+const bt = (id, f = .5) => [R[id].x + R[id].w * f, R[id].y + R[id].h];
+const midY = id => R[id].y + R[id].h / 2;
+const FR = fig.getBoundingClientRect();
+const box = sel => { const r = fig.querySelector(sel).getBoundingClientRect(); return { x: r.left - FR.left, y: r.top - FR.top, w: r.width, h: r.height }; };
+const WIRES = window.WIRES = [];
+function wire(pts, style, { dash = false, head = true, mark = true } = {}) {
+  const AH = 10;
+  g('path', { d: 'M' + pts.map(p => p.join(' ')).join(' L'), class: `w ${style}${dash ? ' dash' : ''}` });
+  if (head) {
+    const a = pts[pts.length - 2], b = pts[pts.length - 1]; const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const P = (x, y) => [b[0] + x * Math.cos(ang) - y * Math.sin(ang), b[1] + x * Math.sin(ang) + y * Math.cos(ang)].map(v => v.toFixed(2)).join(' ');
+    g('path', { d: `M${P(-AH, -AH * .55)} L${P(0, 0)} L${P(-AH, AH * .55)}`, class: `hd ${style}` });
+  }
+  if (mark) { const [x, y] = pts[0]; g('rect', { x: x - 4.5, y: y - 4.5, width: 9, height: 9, class: `mk ${style}` }); }
+  WIRES.push({ pts, style });
+}
+function gap(x, y, vertical, color = 'var(--paper)') { const s = 6;   // a break in a line where another crosses it
+  g('path', { d: vertical ? `M${x} ${y - s} V${y + s}` : `M${x - s} ${y} H${x + s}`, stroke: color, 'stroke-width': 8, fill: 'none' }); }
+function lbl(text, x, y, cls = 'on-dev') { return el(text, x, y, null, null, null, 'lbl c ' + cls); }
+
+// inside the device
+const yYou = R.youTile.y + 22;
+wire([[R.youTile.x + 44, yYou], [R.chat.x, yYou]], 'ink', { mark: false });
+lbl('ask', (R.youTile.x + 44 + R.chat.x) / 2, yYou - 16, 'on-dev');
+const chatX = R.chat.x + R.chat.w / 2;
+wire([[chatX, R.chat.y + R.chat.h], [chatX, R2]], 'ink');
+const sOn = box('#mode .on'), sPc = box('#mode .pc');
+const segY = sPc.y + sPc.h / 2, onX = sOn.x + sOn.w / 2;
+wire([[sPc.x + sPc.w, segY], [RC.x, segY]], 'ink', { dash: true });
+wire([[onX, sOn.y + sOn.h], [onX, R3]], 'ink');
+wire([rt('model'), lf('loop')], 'ink');
+lbl('tool calls', (L.x + L.w + RC.x) / 2, midY('model') - 16, 'on-dev tight');
+
+// corridor x positions
+const IN = RC.x + RC.w;             // 704
+const v1 = 746, v2 = 766, v3 = 786;
+const yDl = R2 + R2H + 40, yDataUp = R3 - 20;
+// Enclave check -> NVIDIA NRAS (dashed)
+const yN = R2 + 22;
+wire([[IN, yN], [v1, yN], [v1, midY('nras')], lf('nras')], 'ink', { dash: true });
+// Model download -> model
+const xModelIn = R.model.x + R.model.w - 44;
+wire([lf('dl'), [v2, midY('dl')], [v2, yDl], [xModelIn, yDl], [xModelIn, R3]], 'ink');
+lbl('pinned SHA-256, once', 560, yDl, 'on-dev');
+// Tool loop -> public data (dashed, read only)
+const xLoopUp = IN - 26;
+wire([[xLoopUp, R3], [xLoopUp, yDataUp], [v3, yDataUp], [v3, midY('data')], lf('data')], 'ink', { dash: true });
+// Enclave check -> NEAR AI Cloud, breaking the two climbing lines
+gap(v2, yIn, true); gap(v3, yIn, true);
+wire([[IN, yIn], [PX, yIn]], 'ink');
+// NEAR AI Cloud -> tool loop (dashed)
+wire([[PX, yOut], [IN, yOut]], 'ink', { dash: true });
+lbl('tool calls', (DEV.x + DEV.w + 10 + PX) / 2, yOut - 17, 'tight');
+// tool loop -> 1Click
+wire([[IN, yQuote], [PX, yQuote]], 'ink');
+lbl('quotes', (DEV.x + DEV.w + 10 + PX) / 2, yQuote - 17, 'tight');
+
+// money path
+const yPrep = R3 + R3H + (R4 - R3 - R3H) / 2;
+const xPolicyIn = R.policy.x + R.policy.w - 56;
+wire([bt('loop'), [R.loop.x + R.loop.w / 2, yPrep], [xPolicyIn, yPrep], [xPolicyIn, R4]], 'money');
+lbl('prepare only', (R.loop.x + R.loop.w / 2 + xPolicyIn) / 2, yPrep, 'on-dev money');
+wire([rt('policy'), lf('review')], 'money');
+lbl('allowed', (L.x + L.w + RC.x) / 2, midY('policy') - 16, 'on-dev money');
+wire([bt('review'), tp('vault')], 'money');
+lbl('Face ID', R.review.x + R.review.w / 2 + 44, (R4 + R4H + R5) / 2, 'on-dev money');
+wire([lf('vault'), [R.accts.x + R.accts.w, midY('vault')]], 'money');
+lbl('derive, sign', (R.accts.x + R.accts.w + RC.x) / 2, midY('vault') - 16, 'on-dev money');
+// signed transactions leave the device for the chains
+const xSig = R.accts.x + 48;
+gap(xSig, DEVB, false, 'var(--butter)');
+wire([[xSig, R5 + R5H], [xSig, CY]], 'money');
+el('signed transactions', xSig + 12, DEVB + 12, null, null, 'lSig', 'lbl money on-paper');
+// 1Click settles on the chains
+const xSet = R.intents.x + R.intents.w - 12;
+el('Key', PX, NB + 44, null, null, 'zlKey', 'zl');
+const lg = document.getElementById('legend'); lg.style.top = (NB + 80) + 'px'; R.legend.y = NB + 80;
+wire([[xSet, R.intents.y + R.intents.h], [xSet, CY]], 'ink');
+el('settles', xSet - 74, DEVB + 12, null, null, 'lSet', 'lbl on-paper');
+
+
+// plan furniture: open squares at field corners, thin arrows running off the page
+for (const z of ['device', 'pub', 'nearz', 'chainz']) { const r = R[z]; const left = !(z === 'pub' || z === 'nearz');
+  for (const [x, y] of [...(left ? [[r.x, r.y], [r.x, r.y + r.h]] : []), [r.x + r.w, r.y], [r.x + r.w, r.y + r.h]]) g('rect', { x: x - 5, y: y - 5, width: 10, height: 10, class: 'mk ink' }); }
+g('rect', { x: DEV.x - 10, y: DEV.y - 10, width: DEV.w + 20, height: DEVB - DEV.y + 20, fill: 'none', stroke: 'var(--ink)', 'stroke-width': 1.2, 'stroke-dasharray': '3 5' });
+const arrow = (x1, y1, x2, y2) => { g('path', { d: `M${x1} ${y1} L${x2} ${y2}`, class: 'deco' }); const ang = Math.atan2(y2 - y1, x2 - x1);
+  const P = (x, y) => [x2 + x * Math.cos(ang) - y * Math.sin(ang), y2 + x * Math.sin(ang) + y * Math.cos(ang)].join(' ');
+  g('path', { d: `M${P(-8, -4)} L${x2} ${y2} L${P(-8, 4)}`, class: 'deco' }); };
+arrow(1172, 120, 1172, 24);
+['--teal', '--butter', '--salmon', '--sage', '--sky', '--lav'].forEach((c, i) => g('rect', { x: 976 + i * 28, y: 56, width: 20, height: 20, fill: `var(${c})`, stroke: 'var(--ink)', 'stroke-width': 1 }));
+arrow(28, H - 170, 28, H - 40);
+arrow(1164, CY + 40, 1184, CY + 40);
+}
+window.figureCheck = () => {
+  const out = { problems: [] };
+  const fig = document.getElementById('fig'); const F = fig.getBoundingClientRect();
+  const texts = [];
+  const walker = document.createTreeWalker(fig, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const n = walker.currentNode; if (!n.textContent.trim()) continue;
+    const r = document.createRange(); r.selectNodeContents(n);
+    for (const rc of r.getClientRects()) {
+      const fs = parseFloat(getComputedStyle(n.parentElement).fontSize);
+      texts.push({ t: n.textContent.trim(), x: rc.left - F.left, y: rc.top - F.top, w: rc.width, h: rc.height, fs, el: n.parentElement });
+    }
+  }
+  for (const t of texts) {
+    if (t.fs < 18) out.problems.push('small ' + t.fs + ' ' + t.t);
+    if (t.x < 0 || t.y < 0 || t.x + t.w > 1200 || t.y + t.h > F.height) out.problems.push('off ' + t.t);
+    const p = t.el.closest('.plot'); if (p) { const pr = p.getBoundingClientRect(); if (t.x + t.w > pr.right - F.left - 8) out.problems.push('tight ' + t.t); }
+  }
+  for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+    const a = texts[i], c = texts[j]; if (a.el === c.el) continue;
+    if (a.x < c.x + c.w - 1 && c.x < a.x + a.w - 1 && a.y < c.y + c.h - 1 && c.y < a.y + a.h - 1) out.problems.push('text overlap: ' + a.t + ' | ' + c.t);
+  }
+  const boxes = [...fig.querySelectorAll('.plot,.lbl,.you,.legend,.note,.zl,h1,.sub,.eyebrow')].map(e => { const r = e.getBoundingClientRect(); return { e, x: r.left - F.left, y: r.top - F.top, w: r.width, h: r.height }; });
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i], c = boxes[j]; if (a.e.contains(c.e) || c.e.contains(a.e)) continue;
+    if (a.x < c.x + c.w - .5 && c.x < a.x + a.w - .5 && a.y < c.y + c.h - .5 && c.y < a.y + a.h - .5)
+      out.problems.push('box overlap: ' + a.e.textContent.trim().slice(0, 24) + ' | ' + c.e.textContent.trim().slice(0, 24));
+  }
+  const solid = [...fig.querySelectorAll('.plot,.you .tile,.lbl,.zl,.note')].map(e => { const r = e.getBoundingClientRect(); return { e, x: r.left - F.left + 2, y: r.top - F.top + 2, w: r.width - 4, h: r.height - 4 }; });
+  for (const w of (window.WIRES || [])) for (let k = 0; k < w.pts.length - 1; k++) {
+    const [x0, y0] = w.pts[k], [x1, y1] = w.pts[k + 1];
+    for (const s of solid) {
+      if (s.e.classList.contains('lbl')) continue;
+      const [sx, sy] = w.pts[0]; if (sx >= s.x - 2 && sx <= s.x + s.w + 2 && sy >= s.y - 2 && sy <= s.y + s.h + 2) continue;   // the wire starts on this plot
+      const minx = Math.min(x0, x1), maxx = Math.max(x0, x1), miny = Math.min(y0, y1), maxy = Math.max(y0, y1);
+      if (maxx > s.x && minx < s.x + s.w && maxy > s.y && miny < s.y + s.h) out.problems.push('wire through "' + s.e.textContent.trim().slice(0, 20) + '" seg ' + [x0, y0, x1, y1].map(Math.round));
+    }
+  }
+  return out;
+};
+window.figureReady = build();
+</script>
+</body></html>

@@ -1,0 +1,301 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Private Cloud: proof first</title>
+<style>
+@font-face { font-family: 'Geist'; src: url('../fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Geist Mono'; src: url('../fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; }
+/* Two colours only: Klein blue and white. Softer text is white at lower opacity. */
+:root { --blue:#1E2AD6; --white:#FFFFFF; --w2:rgba(255,255,255,.80); --w3:rgba(255,255,255,.62); --w4:rgba(255,255,255,.38); }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: transparent; }
+body::before { content: ''; position: absolute; inset: 0; border-radius: 28px; background: var(--blue); z-index: -1; }
+body { position: relative; isolation: isolate; width: 1200px; background: none; clip-path: inset(0 round 28px); color: var(--white); border-radius: 28px;
+  overflow: hidden; font-family: 'Geist', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: 'Geist Mono'; font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
+.abs { position: absolute; }
+#dither { position: absolute; left: 0; top: 0; z-index: 0; image-rendering: pixelated; }
+svg.layer { position: absolute; left: 0; top: 0; width: 1200px; overflow: visible; pointer-events: none; }
+svg.layer#back { z-index: 1; } svg.layer#front { z-index: 4; }
+#root > * { z-index: 3; }
+svg.ico { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; flex: none; }
+
+.eyebrow { left: 64px; top: 56px; display: flex; align-items: center; gap: 12px; height: 24px;
+  font: 500 18px/24px 'Geist Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--w2); white-space: nowrap; }
+.eyebrow svg { width: 37px; height: 24px; }
+h1 { position: absolute; left: 62px; top: 96px; font: 600 58px/64px 'Geist'; letter-spacing: -.03em; white-space: nowrap; }
+.sub { left: 64px; top: 174px; font: 400 22px/30px 'Geist'; color: var(--w2); white-space: nowrap; }
+
+/* lane heads */
+.lh { text-align: center; white-space: nowrap; }
+.lh .n { display: flex; align-items: center; justify-content: center; gap: 9px; font: 600 21px/28px 'Geist'; letter-spacing: -.01em; }
+.lh .n svg { width: 22px; height: 22px; }
+.lh .s { font: 400 18px/24px 'Geist'; color: var(--w3); margin-top: 2px; }
+.lh.left { text-align: left; } .lh.left .n { justify-content: flex-start; }
+.tag { height: 28px; padding: 0 12px; background: var(--blue); display: flex; align-items: center; gap: 8px;
+  font: 500 18px/28px 'Geist Mono'; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+
+/* phases */
+.ph { display: flex; align-items: baseline; gap: 14px; padding-right: 14px; background: var(--blue); white-space: nowrap; }
+.ph .l { width: 30px; height: 30px; align-self: center; border: 1.5px solid var(--white); border-radius: 8px; display: grid; place-items: center; font: 600 18px/1 'Geist Mono'; }
+.ph .k { font: 500 18px/28px 'Geist Mono'; letter-spacing: .12em; text-transform: uppercase; }
+.ph .d { font: 400 18px/28px 'Geist'; color: var(--w3); }
+
+/* steps */
+.badge { width: 32px; height: 32px; border-radius: 50%; background: var(--white); color: var(--blue);
+  font: 600 18px/32px 'Geist'; text-align: center; font-variant-numeric: tabular-nums; }
+.al { font: 600 21px/28px 'Geist'; letter-spacing: -.01em; white-space: nowrap; }
+.as { font: 400 18px/24px 'Geist'; color: var(--w2); white-space: nowrap; }
+.pl { background: var(--blue); padding: 0 8px; font: 400 18px/24px 'Geist'; color: var(--w2); white-space: nowrap; }
+.vlab { transform: rotate(-90deg); background: var(--blue); padding: 0 12px; font: 600 18px/24px 'Geist'; white-space: nowrap; }
+.conn { height: 34px; padding: 0 16px 0 32px; border-radius: 17px; background: var(--blue); border: 1.5px solid var(--white);
+  font: 600 18px/31px 'Geist'; white-space: nowrap; }
+.conn::before { content: ''; position: absolute; left: 13px; top: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--white); }
+
+/* checklist */
+.chk .t { display: flex; align-items: center; gap: 12px; font: 400 19px/26px 'Geist'; white-space: nowrap; padding: 4px 0; }
+.chk .t svg { width: 18px; height: 18px; stroke-width: 2.2; }
+.chk .ok { margin-top: 14px; padding-top: 14px; border-top: 1.5px solid var(--w4); font: 600 18px/26px 'Geist'; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px 0 12px; border-radius: 18px;
+  background: var(--white); color: var(--blue); font: 600 19px/36px 'Geist'; white-space: nowrap; }
+.chip svg { width: 18px; height: 18px; stroke-width: 2.4; }
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-enclave" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><rect x="9.25" y="11.5" width="5.5" height="4.25" rx="1"/><path d="M10.5 11.5v-1.25a1.5 1.5 0 0 1 3 0v1.25"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><rect x="9" y="9" width="6" height="6" rx="1.2"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5S9.6 5.9 12 3.5z"/></symbol>
+    <symbol id="i-device" viewBox="0 0 24 24"><rect x="2.5" y="5" width="7" height="14" rx="1.8"/><path d="M5.2 7h1.6"/><rect x="11.5" y="6" width="10" height="8" rx="1.2"/><path d="M10.5 17h12"/></symbol>
+    <symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-cloudlock" viewBox="0 0 24 24"><path d="M7 18.5h-.5a4 4 0 0 1-.6-8 6 6 0 0 1 11.7-1.2A4.6 4.6 0 0 1 18 18.5h-.5"/><rect x="9" y="14" width="6" height="5.5" rx="1.2"/><path d="M10.5 14v-1.3a1.5 1.5 0 0 1 3 0V14"/></symbol>
+  </defs>
+</svg>
+
+<canvas id="dither"></canvas>
+<svg class="layer" id="back"></svg>
+<svg class="layer" id="front"></svg>
+
+<div class="abs eyebrow"><svg viewBox="0 0 171.8 110"><g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h161.8v100H5zM105 5v100M105 66.8h61.8M128.6 66.8V105M105 81.4h23.6M119.6 66.8v14.6M5 105A100 100 0 0 1 105 5a61.8 61.8 0 0 1 61.8 61.8 38.2 38.2 0 0 1-38.2 38.2 23.6 23.6 0 0 1-23.6-23.6 14.6 14.6 0 0 1 14.6-14.6"/></g></svg><span>Hermit / Private Cloud</span></div>
+<h1>Private Cloud: proof first</h1>
+<div class="abs sub">Your device checks NEAR AI Cloud's enclaves before your prompt leaves.</div>
+
+<div id="root"></div>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const root = document.getElementById('root');
+const back = document.getElementById('back'), front = document.getElementById('front');
+const W = 1200;
+function div(cls, x, y, html, w) { const e = document.createElement('div'); e.className = 'abs ' + cls; e.style.left = x + 'px'; e.style.top = y + 'px'; if (w) e.style.width = w + 'px'; e.innerHTML = html; root.appendChild(e); return e; }
+function el(parent, tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; }
+const tick = '<svg class="ico"><use href="#i-tick"/></svg>';
+
+/* ---------- geometry ---------- */
+const DEV = { x: 64, r: 470 };     // device outline
+const R = 104;                     // device rail (lane 1)
+const ZX = 140;                    // device text column
+const BAR = 491;                   // the watched connection
+const PAN = { x: 512, r: 992 };    // NEAR AI Cloud, dithered walls
+const WALL = 32;
+const L2 = 648, L3 = 856, L4 = 1070;
+const TOP = 260;
+
+const WHITE = '#FFFFFF', SOFT = 'rgba(255,255,255,.62)';
+function arrow(x1, x2, y, o = {}) {
+  const color = o.color || WHITE, w = o.w || 2;
+  const dir = Math.sign(x2 - x1), base = x2 - dir * 11;
+  el(front, 'path', { d: `M${x1} ${y}H${base}`, stroke: color, 'stroke-width': w, fill: 'none', 'stroke-dasharray': o.dash || '', 'stroke-linecap': o.dash ? 'butt' : 'round' });
+  el(front, 'path', { d: `M${x2} ${y}L${base} ${y - 6}L${base} ${y + 6}Z`, fill: color });
+}
+const port = y => el(front, 'circle', { cx: BAR, cy: y, r: 7, fill: WHITE, stroke: 'var(--blue)', 'stroke-width': 3 });
+const knock = y => el(back, 'rect', { x: BAR - 9, y: y - 8, width: 18, height: 16, fill: 'var(--blue)' });
+const badge = (cx, cy, n) => div('badge', cx - 16, cy - 16, String(n));
+// label above an arrow, sub below it
+function step(n, y, label, sub) {
+  badge(R, y, n);
+  div('al', ZX, y - 36, label);
+  if (sub) div('as', ZX, y + 10, sub);
+}
+
+let geom = {};
+function layout() {
+  root.innerHTML = ''; back.innerHTML = ''; front.innerHTML = '';
+
+  /* ---------- lane heads ---------- */
+  const HY = TOP + 40;
+  div('lh left', ZX - 40, HY + 0, `<div class="n">Your iPhone or Mac</div><div class="s">Checks everything</div>`);
+  const h2 = div('lh', 0, HY, `<div class="n">Gateway enclave</div><div class="s">Intel TDX</div>`);
+  const h3 = div('lh', 0, HY, `<div class="n">Model enclave</div><div class="s">TDX and NVIDIA GPUs</div>`);
+  const h4 = div('lh', 0, HY, `<div class="n">NVIDIA NRAS</div><div class="s">GPU verdict</div>`);
+  for (const [h, x] of [[h2, L2], [h3, L3], [h4, L4]]) h.style.left = (x - h.offsetWidth / 2) + 'px';
+  const LIFE0 = HY + 70;
+  let y = LIFE0 + 34;
+
+  /* ---------- A: proof ---------- */
+  const PA = y; y += 64;
+  const a1 = y;
+  badge(R, a1, 1); div('al', ZX, a1 - 14, 'Fresh 32-byte nonce');
+  const BAR0 = a1;
+  const a2 = a1 + 96; step(2, a2, 'Report request', 'Nonce in, no API key');
+  const a3 = a2 + 100; step(3, a3, 'Gateway and model reports', 'Quotes, event logs, GPU evidence');
+  div('pl', (L2 + L3) / 2 - 64, a3 - 34, 'via the gateway');
+  const a4 = a3 + 100; step(4, a4, 'GPU evidence', 'Your prompt stays home');
+  const a4b = a4 + 92; div('al', ZX, a4b - 36, 'Signed verdict');
+  y = a4b + 52;
+  // 5: the checks, on the device
+  const a5 = y + 16;
+  badge(R, a5, 5);
+  const ck = div('chk', ZX, a5 - 14, `<div class="al">Your device checks</div>
+    <div style="margin-top:12px">${['Intel-signed TDX quotes', 'Debug mode off', 'Nonce in quotes and GPU proof', 'Signing key bound', 'Config and event log match', 'NVIDIA verdict valid', 'Connection key matches quote']
+      .map(t => `<div class="t">${tick}<span>${t}</span></div>`).join('')}</div>
+    <div class="ok">All pass, then prompt and key leave</div>`, DEV.r - 24 - ZX);
+  const CK0 = a5 - 14, CK1 = CK0 + ck.offsetHeight;
+  y = CK1 + 40;
+
+  /* ---------- B: prompt ---------- */
+  const PB = y; y += 64;
+  const a6 = y + 36; step(6, a6, 'Prompt and API key', 'Same checked connection');
+  const a7 = a6 + 66;
+  badge(L2, a7, 7); div('pl', L2 + 28, a7 - 38, 'forwarded');
+  const a8 = a7 + 70; step(8, a8, 'Reply or tool calls');
+  const a9 = a8 + 72;
+  badge(R, a9, 9); div('al', ZX, a9 - 14, 'Tools run on device');
+  div('as', ZX, a9 + 18, 'Same guard, cleaner, policy');
+  div('as', ZX, a9 + 44, 'Up to 5 rounds, then the reply');
+  const BAR1 = a8;
+  y = a9 + 44 + 24 + 40;
+
+  /* ---------- C: answer ---------- */
+  const PC = y; y += 64;
+  const a10 = y + 36; step(10, a10, 'Fetch the signature', 'Separate request');
+  const a11 = a10 + 92;
+  badge(R, a11, 11); div('al', ZX, a11 - 14, 'Check the signature');
+  div('as', ZX, a11 + 18, 'Signed by the attested model key');
+  const a12 = a11 + 96;
+  badge(R, a12, 12);
+  div('', ZX, a12 - 18, `<span class="chip">${tick}Verified in a TEE</span>`);
+  div('as', ZX, a12 + 28, 'Review buttons need that signature');
+  const DEV_B = a12 + 28 + 24 + 32;
+
+  /* ---------- containers ---------- */
+  el(back, 'rect', { x: DEV.x + 0.75, y: TOP, width: DEV.r - DEV.x - 1.5, height: DEV_B - TOP, rx: 26, fill: 'none', stroke: WHITE, 'stroke-width': 1.5 });
+  const cloudTag = div('tag', PAN.x + 26, TOP - 14, `<svg class="ico" style="width:20px;height:20px"><use href="#i-cloudlock"/></svg><span>NEAR AI Cloud</span>`);
+  cloudTag.style.left = ((PAN.x + PAN.r) / 2 - cloudTag.offsetWidth / 2) + 'px';
+
+  /* ---------- lifelines ---------- */
+  const PANB = a10 + 76;
+  for (const [x, end] of [[R, DEV_B - 22], [L2, PANB - 40], [L3, PANB - 40], [L4, PANB - 40]])
+    el(back, 'path', { d: `M${x} ${LIFE0} V${end}`, stroke: WHITE, 'stroke-width': 1.5, 'stroke-dasharray': '1.5 7', 'stroke-linecap': 'round', opacity: .55 });
+
+  /* ---------- phase rules ---------- */
+  for (const [yy, l, k, d] of [[PA, 'A', 'Proof', 'before your prompt leaves'], [PB, 'B', 'Prompt', 'on the checked connection'], [PC, 'C', 'Answer', 'checked when it arrives']]) {
+    el(back, 'path', { d: `M${DEV.x + 20} ${yy}H${1136}`, stroke: WHITE, 'stroke-width': 1, opacity: .38 });
+    div('ph', DEV.x + 20, yy - 14, `<span class="l">${l}</span><span class="k">${k}</span><span class="d">${d}</span>`);
+  }
+
+  /* ---------- the watched connection ---------- */
+  el(back, 'path', { d: `M${BAR} ${BAR0} V${BAR1}`, stroke: WHITE, 'stroke-width': 6, 'stroke-linecap': 'round' });
+  el(front, 'circle', { cx: BAR, cy: BAR0, r: 9, fill: 'var(--blue)', stroke: WHITE, 'stroke-width': 3 });
+  // its name runs up the line, beside the checks
+  const cn = div('vlab', 0, 0, 'One watched HTTPS connection');
+  cn.style.left = (BAR - cn.offsetWidth / 2) + 'px'; cn.style.top = ((CK0 + CK1) / 2 - cn.offsetHeight / 2) + 'px';
+
+  /* ---------- arrows ---------- */
+  const S = { w: 2.5 }, T = { w: 1.75, color: SOFT };
+  arrow(R + 18, L2, a2, S); port(a2);
+  arrow(L3, L2 + 2, a3, { ...T, dash: '6 6' });
+  arrow(L2, R + 18, a3, S); port(a3);
+  knock(a4); knock(a4b);
+  arrow(R + 18, L4, a4, T);
+  arrow(L4, R + 18, a4b, T);
+
+  arrow(R + 18, L2, a6, S); port(a6);
+  arrow(L2 + 18, L3, a7, { ...T, dash: '6 6' });
+  arrow(L2, R + 18, a8, S); port(a8);
+  arrow(R + 18, L2, a10, T);
+  // loop 9 -> 6, left of the rail
+  const lx = 80, r = 10;
+  el(front, 'path', { d: `M${R - 18} ${a9} H${lx + r} Q${lx} ${a9} ${lx} ${a9 - r} V${a6 + r} Q${lx} ${a6} ${lx + r} ${a6} H${R - 18 - 10}`, stroke: SOFT, 'stroke-width': 1.75, fill: 'none' });
+  el(front, 'path', { d: `M${R - 18} ${a6}L${R - 28} ${a6 - 5.5}L${R - 28} ${a6 + 5.5}Z`, fill: SOFT });
+
+  /* ---------- canvas ---------- */
+  const BAND = 150;
+  const HT = DEV_B + 40 + BAND;
+  document.body.style.height = HT + 'px';
+  back.setAttribute('height', HT); front.setAttribute('height', HT);
+  geom = { PAN: { x: PAN.x, y: TOP, r: PAN.r, b: PANB }, band: HT - BAND, HT, hillTop: x => hillTop(x, HT - BAND, PANB + 70) };
+  drawDither();
+}
+
+/* a dune that rises under the enclave, low under the device */
+function hillTop(x, low, high) {
+  const t = Math.min(1, Math.max(0, (x - 520) / 560)), e = t * t * (3 - 2 * t);
+  return low + 40 + (high - low - 40) * e + 16 * Math.sin(x / W * 9 + .6) * (0.4 + e);
+}
+
+/* ---------- 1-bit ordered dither: the enclave walls and a band at the foot ---------- */
+const BAYER = [0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21];
+function drawDither() {
+  const c = document.getElementById('dither'), HT = geom.HT, DPR = 2, CELL = 6;   // 3 CSS px pixels
+  c.width = W * DPR; c.height = HT * DPR; c.style.width = W + 'px'; c.style.height = HT + 'px';
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height); g.fillStyle = '#FFFFFF';
+  const P = geom.PAN, rad = 30;
+  // signed distance inside a rounded rect (positive inside)
+  function inside(px, py) {
+    const cx = (P.x + P.r) / 2, cy = (P.y + P.b) / 2, hw = (P.r - P.x) / 2 - rad, hh = (P.b - P.y) / 2 - rad;
+    const qx = Math.abs(px - cx) - hw, qy = Math.abs(py - cy) - hh;
+    const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - rad;
+    return -out;
+  }
+  for (let j = 0; j * CELL < c.height; j++) for (let i = 0; i * CELL < c.width; i++) {
+    const px = (i + .5) * CELL / DPR, py = (j + .5) * CELL / DPR;
+    let v = 0;
+    const d = inside(px, py);
+    if (d >= 0 && d < WALL) v = Math.pow(1 - d / WALL, 1.25) * 1.02;
+    // a low dithered horizon: two soft hills
+    const top = geom.hillTop(px);
+    // capped below solid white so the card's corners keep their shape on a white page
+    if (py > top) v = Math.max(v, Math.pow(Math.min(1, (py - top) / 210), 1.15) * .78);
+    if (v > (BAYER[(j % 8) * 8 + (i % 8)] + .5) / 64) g.fillRect(i * CELL, j * CELL, CELL, CELL);
+  }
+}
+
+window.runChecks = function () {
+  const H = document.body.offsetHeight;
+  const out = { problems: [] };
+  const leaves = [...document.querySelectorAll('body *')].filter(e => !(e.closest('svg')) && !['SCRIPT', 'STYLE'].includes(e.tagName) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+  const boxes = [];
+  const P = geom.PAN;
+  for (const e of leaves) {
+    const rng = document.createRange(); rng.selectNodeContents(e);
+    const fs = parseFloat(getComputedStyle(e).fontSize);
+    if (fs < 18) out.problems.push(`small font ${fs} "${e.textContent.trim()}"`);
+    for (const r of rng.getClientRects()) {
+      if (r.left < 62 || r.top < 0 || r.right > W - 63 || r.bottom > H) out.problems.push(`off canvas "${e.textContent.trim()}"`);
+      // text must keep clear of the dithered walls (the tag sits on its own blue)
+      const onWall = !e.closest('.tag') && r.right > P.x - 4 && r.left < P.r + 4 && r.bottom > P.y - 4 && r.top < P.b + 4 &&
+        (r.left < P.x + WALL + 4 || r.right > P.r - WALL - 4 || r.top < P.y + WALL + 4 || r.bottom > P.b - WALL - 4);
+      if (onWall) out.problems.push(`text on dither wall "${e.textContent.trim()}"`);
+      if (r.bottom > Math.min(geom.hillTop(r.left), geom.hillTop(r.right), geom.hillTop((r.left + r.right) / 2)) - 12) out.problems.push(`text in dither band "${e.textContent.trim()}"`);
+      boxes.push({ e, r, t: e.textContent.trim() });
+    }
+  }
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].r, b = boxes[j].r;
+    if (boxes[i].e.contains(boxes[j].e) || boxes[j].e.contains(boxes[i].e)) continue;
+    if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) out.problems.push(`text overlap "${boxes[i].t}" / "${boxes[j].t}"`);
+  }
+  const blocks = [...document.querySelectorAll('#root > *, h1, .sub, .eyebrow')];
+  for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
+    const a = blocks[i].getBoundingClientRect(), b = blocks[j].getBoundingClientRect();
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) out.problems.push(`block overlap "${blocks[i].textContent.trim().slice(0, 24)}" / "${blocks[j].textContent.trim().slice(0, 24)}"`);
+  }
+  for (const e of document.querySelectorAll('.al, .pl, .conn, .lh .n')) { const n = e.textContent.trim().split(/\s+/).length; if (n > 5) out.problems.push(`label >5 words: "${e.textContent.trim()}"`); }
+  const vis = [...document.querySelectorAll('#root, h1, .sub, .eyebrow')].map(e => e.textContent).join(' ');
+  if (vis.includes(String.fromCharCode(183))) out.problems.push('middle dot found');
+  return out;
+};
+window.figureReady = document.fonts.ready.then(() => { layout(); });
+window.figureCheck = () => window.runChecks();
+</script>
+</body></html>
