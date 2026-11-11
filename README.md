@@ -59,15 +59,6 @@ tools. It never holds a key. Anything that moves money goes through the
 They're sealed with a Secure Enclave key. There's no account and no analytics. The rest is in
 [docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md), with a prompt-injection attack you can run.
 
-## What doesn't work yet
-
-- NEAR Intents has no testnet, so swaps are mainnet only. Try a quote and the `near/` scripts never move money.
-- We trust 1Click's status API. The device doesn't check the destination chain itself.
-- Quotes that pay out on Bitcoin fail the signature check. Hermit warns and asks you to check them yourself.
-- There's no NEAR light client, so NEAR balances come from public RPC.
-- Batch sends are EVM only. Spot and Memes are Solana only. Earn deposits are Aave v3 on three networks.
-- [What the device checks, and what it doesn't](docs/NEAR.md#what-the-device-checks-and-what-it-doesnt) has the full table.
-
 ## Built at NEAR HACKATHON
 
 We started this repository on 2026-10-29, ten days after the hackathon was announced, and tagged the first commit
