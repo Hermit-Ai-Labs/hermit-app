@@ -478,7 +478,12 @@ public final class ModelStore {
     private func applyLandedUpgrade() {
         guard let target = upgradeAccepted else { return }
         // Picked by hand in the meantime ("Use"): nothing left to do, and the old model stays as the user left it.
-        if target == selectedID { setAccepted(nil); return }
+        // Already the model in use but not all here yet (its download was cut off): it carries on downloading.
+        if target == selectedID {
+            setAccepted(nil)
+            if state(target) != .ready, fetcher != nil || NSClassFromString("XCTestCase") == nil { download(target) }
+            return
+        }
         guard chatsOpen == 0, state(target) == .ready, isComplete(target) else { return }
         // The upgrade was for the model in use when Download was tapped. If another model was picked by hand since
         // (Lite, say), that choice stands: nothing switches and nothing is removed, and the downloaded model is in

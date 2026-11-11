@@ -357,6 +357,20 @@ final class ModelUpgradeTests: XCTestCase {
         await eventually("the new model is ready") { again.readyModel?.spec.id == newFull.id }
     }
 
+    func testAnUpgradeAlreadyInUseCarriesOnDownloading() async throws {
+        let d = device()
+        // The Mac on 2026-11-12: the newer model was already the one in use, half downloaded, its upgrade still noted.
+        try Self.write(newFull.id, in: d.root, complete: false)
+        d.defaults.set(newFull.id, forKey: ModelStore.selectedKey)
+        d.defaults.set(newFull.id, forKey: ModelStore.upgradeAcceptedKey)
+        let fake = FakeDownload(root: d.root)
+        let s = open(d, fetcher: { id in try await fake.run(id) })
+        XCTAssertEqual(s.selectedID, newFull.id)
+        await eventually("its download carries on by itself") { fake.started == [newFull.id] }
+        fake.finish = true
+        await eventually("the model is ready") { s.readyModel?.spec.id == newFull.id }
+    }
+
     func testTheAppHasOneEngineHoweverManyAgents() {
         // SwiftUI rebuilt the app model on every scene update and each one loaded its own copy of the model:
         // 8 copies, 20 GB on an 8 GB Mac (2026-11-12). Every agent must share the one engine.
