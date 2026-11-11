@@ -53,6 +53,39 @@ enum ModelPins {
                 "415c6bb072380441d3b1ace47f6f9199c58c440c29ea9841176a753f8b9f3f74",
             ]),
         ]),
+    // aiquantgod/Hermit-1.3-4B-MLX-5bit
+    "aiquantgod/Hermit-1.3-4B-MLX-5bit":
+        ModelPin(revision: "25ae0154b7a3861a54abda03beb2663a28829566", pieceSize: 134217728, files: [
+            .init(path: "generation_config.json", size: 174, sha256: "b85588c5a41e2eb6667442f752ea5d2ecbe310ef6189f0fde59a6479ff1921eb"),
+            .init(path: "tokenizer_config.json", size: 730, sha256: "400c3ab7c84026ef441e0223425c8724f11057171df2c149a544825d3296afb7"),
+            .init(path: "config.json", size: 2014, sha256: "57b401ce4fbcaf1f274d6eae966cf54e797606251b9257dc08c3fc673449b382"),
+            .init(path: "chat_template.jinja", size: 20608, sha256: "54d9902baeabad15c999840a8a42bf8ef0ce51dfee230b3fe12d79a9676c1118"),
+            .init(path: "model.safetensors.index.json", size: 63964, sha256: "fd9ab512823b83d11ba1886e2742f9683a26ed1fe570e6f36705ad311033512d"),
+            .init(path: "tokenizer.json", size: 11422650, sha256: "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"),
+            .init(path: "model.safetensors", size: 2765806707, sha256: "3cd5cb7b3511d03872a80ec01d8ae95d7f6444af66549c78621d39d8b23c9fca", pieces: [
+                "7cf9074759267e8ccf918ebd4f56981542fd90c85a5c38dad91d382e5c01d551",
+                "3d72db9852a84c013bb23f09013c9895940eadea6813143cc5c6d0eedd4dd305",
+                "edaccde9823211ea50d88b7b76402b9ea7fa03871ff2cb5edae97305e0aa7d04",
+                "5b8a1522fa45366d7829cc345fc800dfc57b0bc8be8868a8bc3929bc5b6bce6b",
+                "b998a6ab681050d671cbd6489cc58201d22a1d3382b5993fff78145f04b4464c",
+                "d8276379396f3021d7bad5c1e515f174562998ae846bd2d3b0b6b97299053844",
+                "40eb819189cfb8a06e9bd02c82a1961de26c26368887ddca7a2e6ad6f2ce588e",
+                "3d39f8812b54396ca5dfdc63d521075082f2f36d08b832fdda202d8c808ebbc8",
+                "5abb299628e87a60492c1aac53735e883514b4593e5ffcfb06afbfde9ea81d93",
+                "5e30bade206b51cb47f3d3e729cd07a950f321fef62892236d1eea465a4a537c",
+                "e5003f8ed3b864e7f11a2fb5bc4eda451a826af8bbb7898e88ff8abd2d17c340",
+                "627a77420288eebddd9131edb22ef72d53f5e546e753e30bd05da34bc8a5c8be",
+                "5903d1a8f7bbf40f6fd054b588e0c058fa20d9dd5e4be71e8506f8495cc86f7f",
+                "98866c8f319ef9d8f0042db84338ea5e34be481d29f8cbb17f46dfa3f13d41f1",
+                "295f560e1e49b5d1fd267a60d449a4cf10fbb8e73c44f603480842db9f0f3c9f",
+                "de926c117bbc01893d0c7e28c3454a80ca59a59cf427a6cf5f306b6487044411",
+                "6218fc8fc526ccdae46d730ef26150705af3e4755d37341b9da7710dc038036e",
+                "bee9a4df9e32f355f172c05cfafa1e1b17c8a1165d6562a723d14ba302247b4d",
+                "f14e0235cef59219784f5a9151020f60bd68eaeb0685b5caeaa805010c6fc6a9",
+                "4a075003365cdd0881c172e6499c89f4c4c1bdcd84885dde2cea9af4c2af98cc",
+                "dc995e7f73ed022ad098c54849ef4d0c49b3a4e8e429663b34da02d42dd5bc22",
+            ]),
+        ]),
     // ==== END OF THE HERMIT 1.3 BLOCK ========================================================================
 
     // rahulol/Hermit-1.2-4B-MLX-4bit

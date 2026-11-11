@@ -12,7 +12,7 @@ needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it se
 - iPhone TestFlight: https://testflight.apple.com/join/ed9vUh7d (iOS 26)
 - Demo video: TODO
 
-The model downloads on first launch (about 2.3 GB, 1 GB on smaller iPhones). It's mainnet: real swaps move real money.
+The model downloads on first launch (about 2.8 GB, 1.4 GB on smaller iPhones). It's mainnet: real swaps move real money.
 
 ## Things you can ask it
 
@@ -52,7 +52,7 @@ step and what you should see, and [docs/BUILD.md](docs/BUILD.md) shows how to bu
 
 <p align="center"><a href="docs/img/system_overview.png"><img src="docs/img/system_overview.png" alt="Hermit system overview: on your iPhone or Mac are the chat, the mode switch, the Hermit 1.2 model, the tool loop with 15 guarded tools, the enclave check, the spending policy, the review with Face ID and the key vault with EVM, Solana and NEAR accounts, and outside it are only NEAR AI Cloud, NEAR Intents 1Click, the chains and venues (NEAR, EVM, Solana, Hyperliquid, Relay and Aave v3, Bitcoin), public data, NVIDIA NRAS and the model download." width="620"></a></p>
 
-By default the Hermit 1.2 model answers on your device, and your chats stay there. In Private Cloud mode the device
+By default the Hermit 1.3 model answers on your device, and your chats stay there. In Private Cloud mode the device
 checks the enclave's proof first, then sends your prompt on that same connection. Either way the model can only call
 tools. It never holds a key. Anything that moves money goes through the
 [spending policy](docs/SECURITY-DEMO.md#the-spending-policy) and a review you approve, and only then do the keys sign.
@@ -74,11 +74,12 @@ Tap any figure to open it full size.
 
 ## Our models
 
-We train our own models. Hermit 1.3 is our fine-tune of Qwen3-4B, and Hermit 1.3 Lite brings the same skills to smaller
-iPhones on Qwen3-1.7B. They learn from 21,000 examples of real Hermit work: all 30 tools, multi-step requests like
-"bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything unsafe. We
-train them side by side on rented GPUs, the 4B on an A100 80GB and Lite on an A6000, and both run on your device as
-MLX 4-bit. They're training right now, and the weights will be at [huggingface.co/aiquantgod](https://huggingface.co/aiquantgod).
+We train our own models. [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) is our fine-tune of
+Qwen3-4B, and [Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit) brings the same skills to
+smaller iPhones on Qwen3-1.7B. They learned from 21,000 examples of real Hermit work: all 30 tools, multi-step requests
+like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything unsafe.
+Two passes each on rented GPUs (an L40S and an A6000). Both run on your device with MLX, and the app checks every byte
+it downloads against hashes built into it.
 
 ## Built at NEAR HACKATHON
 

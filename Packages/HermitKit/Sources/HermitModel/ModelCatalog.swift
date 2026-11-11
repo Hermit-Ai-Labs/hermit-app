@@ -55,7 +55,7 @@ public enum ModelCatalog {
     /// its spec to `all` and its pin to `ModelPins.all`, then put its id here. Nothing else changes: a person who
     /// has the older model keeps it and is offered the new one once (`ModelStore.upgrade`), so the older spec and
     /// pin stay in the lists. Lite's repo name must contain "lite" (`isLite`).
-    public static let fullID = "rahulol/Hermit-1.2-4B-MLX-4bit"
+    public static let fullID = "aiquantgod/Hermit-1.3-4B-MLX-5bit"
     public static let liteID = "aiquantgod/Hermit-1.3-Lite-MLX-6bit"
     /// The model a new install starts with on this device.
     public static var defaultID: String { defaultModel(memoryGB: deviceMemoryGB) }
@@ -80,6 +80,9 @@ public enum ModelCatalog {
         // `minMemoryGB` 7 and 5 are today's values for 4-bit weights of these two base models (each is the weights
         // plus about 4 GB). A release quantised at 5, 6 or 8 bits, or mixed, is bigger: raise the number with it.
         // HermitModelTests (testShippedCatalog) then checks the ids, the pins, the sizes and the Lite name.
+        ModelSpec(id: "aiquantgod/Hermit-1.3-4B-MLX-5bit", revision: "25ae0154b7a3861a54abda03beb2663a28829566", name: "Hermit 1.3",
+                  detail: "Hermit's full model, trained on its trading tools. Private, offline.",
+                  approxBytes: 2_777_000_000, minMemoryGB: 7, toolSet: .v3, whatsNew: ModelSpec.v3News),
         ModelSpec(id: "aiquantgod/Hermit-1.3-Lite-MLX-6bit", revision: "446752a7c51e8640621478dd5618e9e259550a71", name: "Hermit 1.3 Lite",
                   detail: ModelSpec.liteDetail, approxBytes: 1_409_000_000, minMemoryGB: 5, toolSet: .v3, whatsNew: ModelSpec.v3News),
         // ==== END OF THE HERMIT 1.3 BLOCK ====================================================================
