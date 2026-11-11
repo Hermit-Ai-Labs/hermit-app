@@ -53,7 +53,7 @@ final class Snapshots: XCTestCase {
 
     func testApproval() throws {
         let a = ScriptedAgent.payAlice
-        try shoot(ApprovalSheet(approval: a, onApproved: {}), "mac-approval", CGSize(width: 420, height: 560), settle: 3)
+        try shoot(ApprovalSheet(approval: a, onApproved: { _ in }), "mac-approval", CGSize(width: 420, height: 560), settle: 3)
     }
 
     func testMark() throws {
