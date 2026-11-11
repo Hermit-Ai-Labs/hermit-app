@@ -76,7 +76,7 @@ extension PaySheet where Header == PaySheetTitle {
 }
 
 /// New or existing scheduled payment: payee, address, amount, token, date, repeat and a note.
-/// Pay now opens the wallet's Send, filled in.
+/// Pay now opens the wallet's Send, filled in; once that send is approved, the payment moves to its next date.
 struct PayScheduleSheet: View {
     @Environment(AppModel.self) var model
     @Environment(\.dismiss) var dismiss
@@ -89,12 +89,31 @@ struct PayScheduleSheet: View {
     init(item: ScheduledPayment?, isNew: Bool? = nil) {
         let p = item ?? ScheduledPayment(payee: "", addr: "", amount: 0, token: "USDC", note: "", next: CalendarData.day(1), repeats: .monthly)
         _f = State(initialValue: p)
-        _amount = State(initialValue: p.amount > 0 ? (p.amount.rounded() == p.amount ? String(Int(p.amount)) : String(p.amount)) : "")
+        _amount = State(initialValue: p.exact ?? (p.amount > 0 ? PayAmount.plain(p.amount) : ""))
         self.isNew = isNew ?? (item == nil)
     }
 
+    private var addr: String { PayAddress.normalized(f.addr) }
+    /// The address and token can go out together on some network (not SOL to a 0x address).
+    private var routable: Bool { payChain(address: addr, token: f.token) != nil }
     private var valid: Bool {
-        !f.payee.trimmingCharacters(in: .whitespaces).isEmpty && PayAddress.valid(f.addr) && (Double(amount) ?? 0) > 0
+        !f.payee.trimmingCharacters(in: .whitespaces).isEmpty && PayAddress.valid(f.addr) && PayAmount.exact(amount) != nil && routable
+    }
+    /// The saved payee this payment follows. Typing another name unlinks it, so a payee is never renamed from here.
+    private var linked: Payee? {
+        let name = f.payee.trimmingCharacters(in: .whitespaces)
+        return store.payee(id: f.payeeID).flatMap { $0.name.caseInsensitiveCompare(name) == .orderedSame ? $0 : nil }
+    }
+    /// Under the address: what saving does to a linked payee, or a warning when the name is a payee with another address.
+    private var payeeNote: (String, Color)? {
+        let name = f.payee.trimmingCharacters(in: .whitespaces)
+        guard PayAddress.valid(f.addr), !name.isEmpty else { return nil }
+        if let l = linked {
+            if l.addr == addr { return nil }
+            return ("Saving also updates \(l.name) in Payees", Theme.muted)
+        }
+        if let other = store.payee(named: name), other.addr != addr { return ("Not the address saved for \(other.name)", Theme.amber) }
+        return nil
     }
 
     var body: some View {
@@ -104,7 +123,7 @@ struct PayScheduleSheet: View {
                     TextField("Name", text: $f.payee).textFieldStyle(.plain).font(.system(size: 14))
                     if !store.payees.isEmpty {
                         Menu {
-                            ForEach(store.payees) { p in Button(p.name) { f.payee = p.name; f.addr = p.addr } }
+                            ForEach(store.payees) { p in Button(p.name) { f.payee = p.name; f.addr = p.addr; f.payeeID = p.id } }
                         } label: {
                             Image(systemName: "person.crop.circle").font(.system(size: 14)).foregroundStyle(Theme.muted)
                         }
@@ -115,17 +134,25 @@ struct PayScheduleSheet: View {
                 .payInputBox()
             }
             PayField(label: "Address or ENS") {
-                TextField("0x…, name.eth or a Solana address", text: $f.addr).textFieldStyle(.plain)
+                TextField("0x…, name.eth, Solana or NEAR", text: $f.addr).textFieldStyle(.plain)
                     .font(.system(size: 13, design: .monospaced)).autocorrectionDisabled().payInputBox()
             }
             if !f.addr.isEmpty && !PayAddress.valid(f.addr) {
                 Label("That doesn't look like an address", systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
+            } else if let n = payeeNote {
+                Text(n.0).font(.system(size: 12)).foregroundStyle(n.1)
             }
             HStack(alignment: .top, spacing: 12) {
                 PayField(label: "Amount") {
                     TextField("0", text: $amount).textFieldStyle(.plain).monospacedDigit().font(.system(size: 14)).payInputBox()
                 }
                 PayField(label: "Token") { PayMenuField(options: PaymentsData.tokens.map { ($0, $0) }, selection: $f.token) }
+            }
+            if let problem = PayAmount.problem(amount) {
+                Label(problem, systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
+            } else if PayAddress.valid(f.addr) && !routable {
+                Label("\(f.token) can't be sent to this address. Pick another token.", systemImage: "xmark.circle")
+                    .font(.system(size: 12)).foregroundStyle(Theme.red)
             }
             HStack(alignment: .top, spacing: 12) {
                 PayField(label: "Date") {
@@ -154,15 +181,16 @@ struct PayScheduleSheet: View {
             if !isNew {
                 HStack(spacing: 10) {
                     Button("Pay now") {
+                        guard let amt = PayAmount.exact(amount) else { return }
                         dismiss()
-                        let amt = amount, addr = f.addr, token = f.token
+                        let addr = self.addr, token = f.token, id = f.id
                         Task { @MainActor in
                             try? await Task.sleep(for: .milliseconds(350))
-                            payViaWallet(model, address: addr, amount: amt, token: token)
+                            payViaWallet(model, address: addr, amount: amt, token: token) { PaymentsStore.shared.markPaid(id) }
                         }
                     }
                     .buttonStyle(PayPillButton(kind: .accent))
-                    .disabled(!PayAddress.valid(f.addr) || (Double(amount) ?? 0) <= 0)
+                    .disabled(!PayAddress.valid(f.addr) || PayAmount.exact(amount) == nil || !routable)
                     Text("Opens Send with this filled in.").font(.system(size: 12)).foregroundStyle(Theme.faint)
                 }
             }
@@ -187,14 +215,25 @@ struct PayScheduleSheet: View {
     }
 
     private func save() {
-        guard valid, let v = Double(amount) else { return }
+        guard valid, let exact = PayAmount.exact(amount), let v = Double(exact) else { return }
         var p = f
         p.payee = p.payee.trimmingCharacters(in: .whitespaces)
-        p.addr = p.addr.trimmingCharacters(in: .whitespaces)
+        p.addr = addr
         p.amount = v
+        p.exact = exact
         p.next = CalendarData.cal.startOfDay(for: p.next)
+        if let l = linked {
+            // One payee, one address: an address fixed here also fixes the payee and its other payments.
+            if l.addr != p.addr { store.save(Payee(id: l.id, name: l.name, addr: p.addr)) }
+        } else if let same = store.payee(named: p.payee) {
+            // Same name, other address: kept as a one-off so the saved payee is not changed behind your back.
+            p.payeeID = same.addr == p.addr ? same.id : nil
+        } else {
+            let payee = Payee(name: p.payee, addr: p.addr)
+            store.save(payee)
+            p.payeeID = payee.id
+        }
         store.save(p)
-        if store.payee(named: p.payee) == nil { store.save(Payee(name: p.payee, addr: p.addr)) }
         dismiss()
         model.toast(isNew ? "Scheduled for \(CalendarData.format(p.next, "MMM d"))" : "Saved")
     }
@@ -214,6 +253,13 @@ struct PayeeSheet: View {
     }
 
     private var valid: Bool { !p.name.trimmingCharacters(in: .whitespaces).isEmpty && PayAddress.valid(p.addr) }
+    /// Scheduled payments that follow this payee.
+    private var linkedCount: Int { isNew ? 0 : store.schedule.filter { $0.payeeID == p.id }.count }
+    private var savedNote: String {
+        PayAddress.kind(p.addr) == .ens
+            ? "Saved on this device."
+            : "Saved on this device and in your wallet's saved addresses. A new address works in Send 24 hours after you add it."
+    }
 
     var body: some View {
         PaySheet(title: isNew ? "Add payee" : p.name) {
@@ -221,13 +267,18 @@ struct PayeeSheet: View {
                 TextField("e.g. Landlord", text: $p.name).textFieldStyle(.plain).font(.system(size: 14)).payInputBox()
             }
             PayField(label: "Address or ENS") {
-                TextField("0x…, name.eth or a Solana address", text: $p.addr).textFieldStyle(.plain)
+                TextField("0x…, name.eth, Solana or NEAR", text: $p.addr).textFieldStyle(.plain)
                     .font(.system(size: 13, design: .monospaced)).autocorrectionDisabled().payInputBox()
             }
             if !p.addr.isEmpty && !PayAddress.valid(p.addr) {
                 Label("That doesn't look like an address", systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
             }
-            Text("Saved on this device only.").font(.system(size: 12)).foregroundStyle(Theme.faint)
+            if linkedCount > 0 {
+                Text(linkedCount == 1 ? "1 scheduled payment uses this payee and follows your changes."
+                     : "\(linkedCount) scheduled payments use this payee and follow your changes.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+            Text(savedNote).font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
         } foot: {
             if !isNew {
                 Button { store.removePayee(p.id); dismiss(); model.toast("Payee deleted") } label: {
@@ -238,7 +289,7 @@ struct PayeeSheet: View {
             }
             Button(isNew ? "Add" : "Save") {
                 var x = p
-                x.name = x.name.trimmingCharacters(in: .whitespaces); x.addr = x.addr.trimmingCharacters(in: .whitespaces)
+                x.name = x.name.trimmingCharacters(in: .whitespaces); x.addr = PayAddress.normalized(x.addr)
                 store.save(x); dismiss(); model.toast(isNew ? "\(x.name) added" : "Saved")
             }
             .buttonStyle(PayWideButton(kind: .black)).disabled(!valid).keyboardShortcut(.defaultAction)

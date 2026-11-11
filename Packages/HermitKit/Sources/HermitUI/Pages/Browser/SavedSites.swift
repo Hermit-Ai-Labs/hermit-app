@@ -70,7 +70,9 @@ struct SavedSitesRow: View {
                 PayFlow(spacing: 6) {
                     ForEach(store.sites) { s in
                         PayChip(on: false, action: { if let u = URL(string: s.url) { DappBrowser.shared.open(u, model: model) } }) {
-                            MarketLogo(key: nil, name: s.name, size: 16, remote: URL(string: "https://\(s.host)/favicon.ico"))
+                            // A directory app gets its bundled logo: many sites answer /favicon.ico with a page or nothing.
+                            if let app = DappBrowser.directoryName(for: s.host) { MarketLogo(key: app, name: s.name, size: 16) }
+                            else { MarketLogo(key: nil, name: s.name, size: 16, remote: URL(string: "https://\(s.host)/favicon.ico")) }
                             Text(s.name)
                         }
                         .contextMenu {

@@ -1,5 +1,6 @@
 import SwiftUI
 import HermitCore
+import os
 #if os(macOS)
 import AppKit
 #else
@@ -58,14 +59,34 @@ enum LocalJSON {
         return d
     }
 
+    private static let log = Logger(subsystem: "Hermit", category: "LocalJSON")
+
+    /// nil when there is no file yet. A file that is there but can't be read or decoded is moved aside to
+    /// "<name>.corrupt-<time>" first, so the store's next save starts a new file instead of destroying the old data.
     static func load<T: Decodable>(_ name: String, as: T.Type) -> T? {
-        guard let url = dir?.appendingPathComponent(name), let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        guard let url = dir?.appendingPathComponent(name), FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
+        do {
+            return try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
+        } catch {
+            let aside = url.deletingLastPathComponent().appendingPathComponent("\(name).corrupt-\(Int(Date().timeIntervalSince1970))")
+            let moved = (try? FileManager.default.moveItem(at: url, to: aside)) != nil
+            log.error("Could not read \(name, privacy: .public): \(error.localizedDescription, privacy: .public). Kept a copy: \(moved)")
+            return nil
+        }
     }
 
-    static func save<T: Encodable>(_ value: T, _ name: String) {
-        guard let url = dir?.appendingPathComponent(name), let data = try? JSONEncoder().encode(value) else { return }
-        try? data.write(to: url, options: .atomic)
+    /// Writes atomically. On failure (a full disk) it logs and shows an error toast; returns false.
+    @discardableResult
+    static func save<T: Encodable>(_ value: T, _ name: String) -> Bool {
+        guard let url = dir?.appendingPathComponent(name) else { return false }
+        do {
+            try JSONEncoder().encode(value).write(to: url, options: .atomic)
+            return true
+        } catch {
+            log.error("Could not save \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Task { @MainActor in ToastCenter.shared.show("Couldn't save your changes. Check free space on this device.", kind: .error) }
+            return false
+        }
     }
 }
 
@@ -344,10 +365,11 @@ struct PayLiveTag: View {
 struct PayPulseDot: View {
     var color: Color = Theme.green
     var size: CGFloat = 6
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Circle().fill(color).frame(width: size, height: size)
             .background {
-                if !SnapshotMode.active {
+                if !SnapshotMode.active && !reduceMotion {
                     Circle().fill(color.opacity(0.35)).frame(width: size, height: size)
                         .phaseAnimator([false, true]) { v, on in v.scaleEffect(on ? 2.4 : 1).opacity(on ? 0 : 1) }
                             animation: { on in on ? .smooth(duration: 1.4) : nil }

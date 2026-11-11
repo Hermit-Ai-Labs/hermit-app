@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Payments: scheduled and recurring payments, saved payees, a transfer form and the API catalogue.
-/// Everything you enter is kept on this device. Sending from here is not live yet, so the pay buttons are greyed out.
+/// Everything you enter is kept on this device. Paying opens the wallet's Send filled in (review, scan, Face ID).
 struct PaymentsPage: View {
     @Environment(AppModel.self) private var model
     @State private var tab: PayTab = .schedule

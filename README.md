@@ -14,10 +14,10 @@ checks every move, and the user approves each one with Face ID.
 | --- | --- |
 | iPhone (TestFlight, public) | https://testflight.apple.com/join/ed9vUh7d |
 | Mac (TestFlight) | https://testflight.apple.com/join/P66H5DF8 (in Apple beta review; may not open yet) |
-| Demo video | `TODO: link to the X post / video` |
+| Demo video | `TODO (team): link to the X post with the demo video` |
 | Built at | NEAR HACKATHON, 2026-11-01 to 2026-11-14 ([disclosure](#hackathon-disclosure)) |
-| Tracks | Privacy & Private AI · Unstoppable DeFi · AI Security & Defense |
-| NEAR used | NEAR Intents (1Click API) · NEAR accounts and NEP-141 · NEAR AI Cloud (TEE inference with attestation) |
+| Tracks | Privacy & Private AI, Unstoppable DeFi, AI Security & Defense |
+| NEAR used | NEAR Intents (1Click API), NEAR accounts and NEP-141, NEAR AI Cloud (TEE inference with attestation) |
 | License | MIT ([LICENSE](LICENSE)) |
 
 ---
@@ -44,7 +44,7 @@ device per day. Without a key, the enclave check in step 4 still runs, and a mes
 
 ### (b) No iPhone: the same NEAR code paths on Linux or macOS
 
-Python 3.10 or later. No keys or funds are needed for steps 1 to 4.
+Python 3.10 or later (3.12 or later for the optional `--sdk` check in step 5). No keys or funds are needed for steps 1 to 4.
 
 ```sh
 git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
@@ -57,8 +57,8 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 | 2 | `.venv/bin/python near/intents-quote.py --selftest` | `8 passed, 0 failed`. The Python port of the quote-signature check gives the same hashes as the Swift tests and the official SDK, and it rejects a swapped deposit address. |
 | 3 | `.venv/bin/python near/near-account.py` | From the public test phrase `abandon ×11 about`: path `m/44'/397'/0'`, `ed25519:6j4b6zUa…`, implicit account `5510e2b4…ee412`, and three `[PASS]` lines against the Swift test vector. Then the account's NEAR and NEP-141 balances on mainnet, read-only. |
 | 4 | `.venv/bin/python near/verify-attestation.py` | A fresh nonce, then the live NEAR AI Cloud report, verified step by step. You see `23 passed, 0 failed, 1 skipped`. The one skip is the response signature, which needs a key. |
-| 5 | `NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py` | Also one completion on the attested TLS connection and its enclave signature. You see `27 passed, 0 failed, 0 skipped`, or 29 with `--sdk`. |
-| 6 | macOS with Xcode 26: `bash scripts/core-tests.sh` | `Executed 105 tests, with 8 tests skipped and 0 failures`. The 8 skips are live tests. This includes the prompt-injection attack demo ([docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md)). |
+| 5 | `NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py` | Also one completion on the attested TLS connection and its enclave signature. You see `27 passed, 0 failed, 0 skipped`. With `--sdk` added you see `29 passed`; that needs Python 3.12 and `.venv/bin/pip install -r near/requirements-sdk.txt` first. |
+| 6 | macOS with Xcode 26: `bash scripts/core-tests.sh` | A last line `Executed N tests, with S tests skipped and 0 failures`. `0 failures` is the result to look for. The skips are the live network tests (`HERMIT_LIVE`, `HERMIT_LIVE_DAPP`, `ONECLICK_LIVE`) and, on a Mac without one, the Secure Enclave test. N grows as tests are added; the recorded run is under [Tests](#tests). This includes the prompt-injection attack demo ([docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md)). |
 
 Real outputs from 2026-11-08 are in [`docs/logs/`](docs/logs). Excerpts:
 
@@ -81,6 +81,7 @@ Real outputs from 2026-11-08 are in [`docs/logs/`](docs/logs). Excerpts:
   quote hash         HBvnGK15WDgU3EbCKsH4suAp6HUXpGtMEHN85ieuXjaD
   [PASS] 1Click signature by ed25519:reYaWhvwu8Jzo3WUM3zhn6VrhuMEF4eADL17qtRVifc
 ```
+The destination reads `wNEAR` because 1Click quotes native NEAR as `wrap.near`; the app shows it as NEAR.
 Other pairs: `--from ETH:arbitrum --to USDC:solana --amount 0.01`, `--from NEAR:near --to USDC:hyperliquid --amount 5`.
 Chains: ethereum, base, arbitrum, bnb, polygon, monad, robinhood, solana, near, bitcoin, hyperliquid, or any 1Click
 chain code. Amounts and prices move, so your numbers will differ.
@@ -158,7 +159,7 @@ Completion
   [PASS] Signed text covers our exact request and response bytes  (kind provider_tee)
   [PASS] Signer is the attested model enclave  (0x835AB53d20294Ef795906DFf21aE4C045336aa26)
 ```
-That is 27 passed, or 29 with `--sdk`, which adds NEAR's `nearai-inference-sdk` `verify(model)`. Offline, against the
+That is 27 passed, or 29 with `--sdk` (Python 3.12 and `near/requirements-sdk.txt`), which adds NEAR's `nearai-inference-sdk` `verify(model)`. Offline, against the
 recorded reports the Swift tests use:
 `F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures; .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline`
 prints `17 passed, 0 failed, 4 skipped`.
@@ -188,6 +189,9 @@ BNB, Polygon, Monad, Robinhood), Solana and NEAR, and it can deliver to Bitcoin 
   followed until it lands. The deposit can come from an exchange or any wallet, and nothing is signed in Hermit.
 - **Best route**: Swap and Bridge ask 1Click and Relay at the same time and pick the larger amount out.
 - **Partner JWT**: optional (Q-006). Without one, 1Click adds 0.2%, and Hermit shows it as the fee.
+- **NEAR is quoted as wNEAR.** 1Click prices native NEAR as the token `wrap.near` (`nep141:wrap.near`), and Hermit maps
+  NEAR to it (`IntentsAssets.wrappedNear`). Hermit lists the asset as NEAR and hides wNEAR from its pickers, but the quote
+  JSON, `near/intents-quote.py` and the explorer name it `wNEAR` or `wrap.near`. Hermit does not unwrap anything itself.
 
 Code: `Packages/HermitKit/Sources/HermitWallet/NearIntents.swift` (client, token mapping, signature, status),
 `IntentsSwap.swift` (deposit through the policy and the approval sheet), `WalletTools.swift` (`get_quote`, `prepare_swap`),
@@ -248,9 +252,10 @@ log, flipped quote byte, expired certificate, wrong TLS key and forged response 
 ### 4. The assistant's tool loop and the spending policy (security)
 
 The on-device model, Hermit 1.1 (Qwen3-4B-Instruct-2507, MLX 4-bit), and the Private Cloud model call the same
-12 tools: `calculator`, `get_price`, `get_balances`, `hyperliquid_account`, `position_math`, `search_markets`,
-`get_yields`, `prepare_trade`, `prepare_swap`, `prepare_send`, `open_add_funds` and `get_quote`. Money tools only
-prepare: they open the review sheet, and the user approves with Face ID. Safeguards:
+15 tools: `calculator`, `get_price`, `get_balances`, `hyperliquid_account`, `position_math`, `search_markets`,
+`get_yields`, `prepare_trade`, `prepare_swap`, `prepare_send`, `prepare_multisend`, `prepare_deposit`,
+`prepare_withdraw`, `open_add_funds` and `get_quote`. Money tools only prepare: they open the review sheet, and the user
+approves with Face ID. Safeguards:
 
 - **Tool results are data.** Text in a result that reads like an instruction is hidden, and chat control tokens are
   broken up.
@@ -272,19 +277,19 @@ flowchart LR
     UI["SwiftUI app<br/>HermitUI"]
     LLM["On-device model<br/>Hermit 1.1 (MLX)"]
     Loop["Tool loop + ToolGuard<br/>HermitCore"]
-    Tools["Toolbox<br/>get_quote · prepare_swap · prepare_send …"]
-    Policy["SpendPolicy<br/>daily limit · $100 agent cap · own-address swaps"]
+    Tools["Toolbox<br/>get_quote, prepare_swap, prepare_send …"]
+    Policy["SpendPolicy<br/>daily limit, $100 agent cap, own-address swaps"]
     Sheet["Approval sheet<br/>+ Face ID"]
-    Vault["KeyVault<br/>seed sealed by Secure Enclave key<br/>EVM · Solana · NEAR m/44'/397'/0'"]
-    Verify["Attestation verifier<br/>TDX quote · nonce · RTMR3 · TLS SPKI<br/>response signature"]
+    Vault["KeyVault<br/>seed sealed by Secure Enclave key<br/>EVM, Solana, NEAR m/44'/397'/0'"]
+    Verify["Attestation verifier<br/>TDX quote, nonce, RTMR3, TLS SPKI<br/>response signature"]
   end
   subgraph NEAR["NEAR"]
-    OneClick["NEAR Intents 1Click API<br/>quote · deposit/submit · status"]
+    OneClick["NEAR Intents 1Click API<br/>quote, deposit/submit, status"]
     Solvers["Intents solvers<br/>(settle on NEAR)"]
-    RPC["NEAR RPC<br/>accounts · NEP-141 · send_tx"]
+    RPC["NEAR RPC<br/>accounts, NEP-141, send_tx"]
     Cloud["NEAR AI Cloud<br/>gateway + model in Intel TDX / NVIDIA CC"]
   end
-  Chains["Origin / destination chains<br/>EVM · Solana · Bitcoin · Hyperliquid"]
+  Chains["Origin / destination chains<br/>EVM, Solana, Bitcoin, Hyperliquid"]
   NRAS["NVIDIA NRAS"]
 
   UI --> Loop
@@ -309,7 +314,7 @@ Hermit has no server. Chat history stays in memory on the device until New chat.
 
 | Claim | Verified where | Notes |
 | --- | --- | --- |
-| Quote came from 1Click, unmodified | **Phone** (ed25519 over the SDK's hash) | **Bitcoin routes don't verify** with the official SDK's algorithm either (`testSignatureMatchesSDKOnLiveQuotes`, and reproduced live with `intents-quote.py --from ETH:arbitrum --to BTC:bitcoin`). The app shows "Quote signature not confirmed" as a warning and does not block. |
+| Quote came from 1Click, unmodified | **Phone** (ed25519 over the SDK's hash) | **Bitcoin routes don't verify** with the official SDK's algorithm either (`testSignatureMatchesSDKOnLiveQuotes`, and reproduced live with `intents-quote.py --from ETH:arbitrum --to BTC:bitcoin`). The app shows "Quote signature not confirmed" (a warning on the approval sheet, an amber note on the Add funds sheet) and does not block. On those routes the signature protects nothing, so check the amount and the deposit address yourself before you send. |
 | Swap status (SUCCESS, REFUNDED, …) | **Not on the phone.** Hermit trusts the 1Click status API over HTTPS | The phone does not check the destination transaction on chain. Explorer links are shown. |
 | Swap output goes to the user | **Phone** | The recipient is the user's own derived address. For the assistant, the policy blocks anything else. |
 | NEAR balances and nonces | **Not proven.** Read from a public RPC (FastNEAR) | No light client. A lying RPC could show wrong balances. It cannot forge signatures. |
@@ -369,7 +374,8 @@ Hermit has no server. Chat history stays in memory on the device until New chat.
     [mlx-swift](https://github.com/ml-explore/mlx-swift) 0.32.3, [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) 3.32.3,
     [swift-transformers](https://github.com/huggingface/swift-transformers) 1.3.5, and Apple CryptoKit, Security and
     LocalAuthentication. Font: Newsreader (OFL).
-  - Scripts: requests, cryptography, eth-account, dcap-qvl, nearai-inference-sdk (`near/requirements.txt`).
+  - Scripts: requests, cryptography, eth-account, dcap-qvl (`near/requirements.txt`), and nearai-inference-sdk for the
+    optional `--sdk` check (`near/requirements-sdk.txt`, Python 3.12 or later).
   - Test vectors were cross-checked against near-seed-phrase 0.2.1, near-api-js 4,
     @defuse-protocol/one-click-sdk-typescript 0.1.26 and solders. Hermit uses none of them at runtime.
   - No templates or boilerplate.
@@ -405,18 +411,19 @@ CI (`.github/workflows/apple.yml`) builds both apps on a macOS 26 runner and ren
 ## Tests
 
 ```sh
-cd Packages/HermitKit && swift test                       # all 119 tests (macOS, Xcode 26), UI snapshots included
+cd Packages/HermitKit && swift test                       # every test (macOS, Xcode 26), UI snapshots included
 swift test --filter HermitWalletTests                     # NEAR keys and transactions, 1Click, spending policy
 swift test --filter HermitCloudTests                      # TDX attestation, TLS binding, response signatures
 swift test --filter HermitCoreTests                       # tool loop, prompt injection, tool-call parsing
 ONECLICK_LIVE=1 swift test --filter NearIntentsTests/testLiveDryQuote    # one live dry quote
 HERMIT_LIVE=1 swift test --filter HermitCloudTests/testLiveAttestation   # live attestation
-bash scripts/core-tests.sh                                # the 105 non-UI tests, without building MLX or the UI
+bash scripts/core-tests.sh                                # all non-UI tests, without building MLX or the UI
 ```
 
-Last run (2026-11-08, MacBook Air M3, macOS 26.5, Xcode 26.6): `scripts/core-tests.sh` gave
-`Executed 105 tests, with 8 tests skipped and 0 failures`
-([log](docs/logs/core-tests-2026-11-08.txt)). `ONECLICK_LIVE=1 … testLiveDryQuote` passed with
+Recorded run (2026-11-08, MacBook Air M3, macOS 26.5, Xcode 26.6), on an earlier state of the tree:
+`scripts/core-tests.sh` gave `Executed 105 tests, with 8 tests skipped and 0 failures`
+([log](docs/logs/core-tests-2026-11-08.txt)). Tests have been added since, so your counts will be higher. A clean run
+ends with `0 failures`. `ONECLICK_LIVE=1 … testLiveDryQuote` passed with
 `LIVE dry quote: 10 USDC on Base -> 2.688242055974723859290361 NEAR, 35s, fee 20 bps`.
 
 ## License
@@ -425,4 +432,6 @@ MIT. See [LICENSE](LICENSE).
 
 ## Team
 
-`TODO (team): names, roles, contact (contact@hermit.my?), X handles.`
+Contact: contact@hermit.my
+
+`TODO (team): names, roles and X handles.`

@@ -42,8 +42,13 @@ public struct ScriptedAgent: Agent {
     public var pace: Double
     public init(pace: Double = 1) { self.pace = pace }
 
+    /// Debug builds play the matching demo scenario; a release build only echoes, never a sample card.
     public func reply(to prompt: String) -> AsyncStream<AgentEvent> {
-        stream(Scenario.match(prompt)?.script ?? Script(tools: [], blocks: [.text(prompt)]))
+        #if DEBUG
+        return stream(Scenario.match(prompt)?.script ?? Script(tools: [], blocks: [.text(prompt)]))
+        #else
+        return stream(Script(tools: [], blocks: [.text(prompt)]))
+        #endif
     }
 
     /// Plain text as a reply, streamed like the model's.

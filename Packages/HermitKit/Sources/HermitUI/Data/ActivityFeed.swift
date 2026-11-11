@@ -164,6 +164,7 @@ final class ActivityFeed {
                                                                date: s.created, tx: s.txHash, status: st == .success ? "Confirmed" : st.headline, link: s.explorer)
         }
         for i in ActivityLedger.shared.items {
+            if chainItems.contains(where: { $0.id == i.id }) { continue }   // the chain's own record of the same transaction says more
             // The same transfer seen from the chain: keep one. Hermit's "Moved … to Hyperliquid" says more than a raw send.
             let twins = chainItems.filter { c in
                 c.chainID == i.chainID && c.symbol == i.symbol && abs(abs(c.amount ?? 0) - abs(i.amount ?? 0)) < 1e-6

@@ -22,6 +22,15 @@ extension WalletService {
         let from = EVMAddress(w.evmAddress)!
         let cid = try await client.chainId()
         guard cid == chain.chainId else { throw WalletError.badResponse("RPC for \(chain.name) reports chain \(cid)") }
+        // Calldata with no value sent to an address with no contract "succeeds" and does nothing (a wrong pool address,
+        // say), so refuse it before anything is signed. A call carrying value still moves it, as a plain transfer would.
+        let targets = Set(calls.filter { !$0.data.isEmpty && $0.value == 0 }.map(\.to))
+        for target in targets {
+            let code: [UInt8]
+            do { code = try await client.getCode(target) }
+            catch { throw WalletError.simulationFailed("Couldn't check the contract at \(target.checksummed) on \(chain.name).") }
+            guard !code.isEmpty else { throw WalletError.blocked("No contract found at \(target.checksummed) on \(chain.name). Nothing was sent.") }
+        }
         var hashes: [String] = []
         for call in calls {
             let est: UInt64
@@ -41,7 +50,11 @@ extension WalletService {
                 throw WalletError.blocked("Signed transaction failed its self-check. Nothing was sent.")
             }
             let hash = try await client.sendRawTransaction(signed.raw)
-            let r = try await client.waitForReceipt(hash)
+            let r: EVMReceipt
+            do { r = try await client.waitForReceipt(hash) } catch WalletError.timeout {
+                // Sent but not confirmed in time: say so with the hash, and stop (the next call may depend on this one).
+                throw WalletError.pending(hash: hash, explorer: chain.explorerURL(tx: hash)?.absoluteString)
+            }
             guard r.success else { throw WalletError.blocked("\(call.label) failed on chain (\(hash)).") }
             hashes.append(hash)
         }
@@ -57,12 +70,13 @@ extension WalletService {
     }
 }
 
-/// Aave v3: supply and withdraw an ERC-20 the wallet holds. Pool addresses from docs.aave.com/developers/deployed-contracts.
+/// Aave v3: supply and withdraw an ERC-20 the wallet holds. Pool addresses from docs.aave.com/developers/deployed-contracts,
+/// each checked against PoolAddressesProvider.getPool() on its network (a wrong one is an empty account where calls "succeed").
 public enum AaveV3 {
     public static let pools: [String: String] = [
         "ethereum": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
         "base": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
-        "arbitrum": "0x794a61358D6845594F94dc1DB02A234b7B5f3fe8",
+        "arbitrum": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
     ]
 
     public static func pool(on chain: Chain) -> EVMAddress? { pools[chain.id].flatMap(EVMAddress.init) }

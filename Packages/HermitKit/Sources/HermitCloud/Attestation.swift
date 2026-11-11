@@ -120,7 +120,7 @@ public enum AttestationVerifier {
         // Freshness and identity: report data = signer (zero-padded to 32, or SHA-256(signer || TLS SPKI hash)) || nonce.
         let ours = Data(hexString: nonce) ?? Data()
         out.append(c("echo", "Nonce echoed back", r.requestNonce?.lowercased() == nonce.lowercased()))
-        out.append(c("nonce", "Quote contains this phone's nonce", ours.count == 32 && q.reportData.suffix(32) == ours, "Proves the quote was made for this request"))
+        out.append(c("nonce", "Quote contains \(CloudDevice.here)'s nonce", ours.count == 32 && q.reportData.suffix(32) == ours, "Proves the quote was made for this request"))
         let ident = Data(hexString: r.signingAddress) ?? Data()
         let identOK = (r.signingAlgo == "ecdsa" && ident.count == 20) || (r.signingAlgo == "ed25519" && ident.count == 32)
         let bound: Data
@@ -143,7 +143,7 @@ public enum AttestationVerifier {
         out.append(c("rtmr3", "Event log replays to RTMR3", replay == q.rtmr[3], replay == nil ? "An event's digest is wrong" : "\(r.events.filter { $0.imr == 3 }.count) runtime events"))
 
         if r.nvidiaPayload != nil {
-            out.append(c("gpunonce", "GPU evidence carries this phone's nonce", r.gpuNonce?.lowercased() == nonce.lowercased(),
+            out.append(c("gpunonce", "GPU evidence carries \(CloudDevice.here)'s nonce", r.gpuNonce?.lowercased() == nonce.lowercased(),
                          "\(r.gpuCount) \(r.gpuArch.map { $0.capitalized } ?? "NVIDIA") GPUs"))
         }
         return out

@@ -21,6 +21,19 @@ public struct DappRPCError: Error, Sendable, Equatable {
     func notice(_ text: String)
 }
 
+/// A site's transaction the network accepted, for the app's Activity list. Public data only.
+public struct DappSentTransaction: Sendable, Equatable {
+    public let chain: Chain
+    public let hash: String
+    /// The approval sheet's title ("Send 25 USDC", "Contract call").
+    public let title: String
+    public let host: String
+    public let walletID: UUID
+    public init(chain: Chain, hash: String, title: String, host: String, walletID: UUID) {
+        self.chain = chain; self.hash = hash; self.title = title; self.host = host; self.walletID = walletID
+    }
+}
+
 /// The wallet behind `window.ethereum` in Hermit's browser. Each call arrives with the origin WebKit reported for the
 /// page's main frame (never one the page claims), and anything that signs goes through the approval sheet, where the
 /// wallet unlocks the key with Face ID / Touch ID. Keys never leave `KeyVault.withKey`; the page only ever gets back
@@ -35,6 +48,8 @@ public struct DappRPCError: Error, Sendable, Equatable {
     public var emit: ((DappOrigin, String, JSON) -> Void)?
     /// USD prices by symbol for the spending policy. Defaults to CoinGecko through `PriceFeed`.
     public var prices: @Sendable () async -> [String: Double] = { await PriceFeed.shared.quotes().mapValues(\.usd) }
+    /// Called after a site's transaction is broadcast (EVM and Solana sign-and-send), so the app can record it.
+    public var onSent: (@MainActor @Sendable (DappSentTransaction) -> Void)?
 
     /// The network each origin is on during this session (connected sites also remember it).
     private var chains: [DappOrigin: UInt64] = [:]
@@ -295,14 +310,17 @@ public struct DappRPCError: Error, Sendable, Equatable {
         let feed = prices, testnet = c.isTestnet
         async let pricesA: [String: Double] = testnet ? [:] : feed()
         async let preparedA = service.prepareDappTransaction(walletID: w.id, chain: c, req)
+        async let simA = Self.simulateTransfers(client, req)
         let prices = await pricesA
-        let intent = await DappDecoder.transaction(req, chain: c, client: client, prices: prices)
+        var intent = await DappDecoder.transaction(req, chain: c, client: client, prices: prices)
         let prepared = try await preparedA
+        // A call Hermit can't decode: what it sends and gets comes from the simulation, and the policy counts it.
+        await DappDecoder.applySimulation(&intent, await simA, request: req, chain: c, client: client, prices: prices)
 
         let h = header(origin, wallet: w, address: addr, chain: c)
         var lines = h.lines + intent.lines
         lines.append(["Network fee", "up to \(Units.format(prepared.networkFee, decimals: c.nativeDecimals, maxFraction: 8)) \(c.nativeSymbol)"])
-        var checks = h.checks + ["Built transaction matches the site's request, checked again after signing"]
+        var checks = h.checks + ["Built transaction matches the site's request, checked again after signing"] + intent.checks
         var warnings = h.warnings + intent.warnings
         if prepared.simulated { checks.append("Simulated on \(c.name): it doesn't fail") }
         else { warnings.insert("Simulation failed: \(prepared.simulationDetail) It will probably fail and still cost a fee.", at: 0) }
@@ -319,16 +337,29 @@ public struct DappRPCError: Error, Sendable, Equatable {
                 presenter?.notice(v.blocks.first ?? "Blocked by your spending policy")
                 throw DappRPCError(4001, "Blocked by Hermit's spending policy: \(v.blocks.joined(separator: " "))")
             }
-            checks += v.passed
+            // A contract call with no single payee: evaluate() says it pays out to your own address, which isn't known here.
+            checks += v.passed.filter { !(intent.payee == nil && $0 == "Pays out to your own address") }
             warnings += v.warnings
             spent = intent.outflowUSD
         }
-        let svc = service
+        let svc = service, sent = onSent, title = intent.title, host = origin.host
         let reason = "\(intent.title) on \(origin.host)"
         let a = Approval(kind: "Transaction from \(origin.host)", title: intent.title, lines: lines, checks: checks,
                          success: "Sent to \(c.name)", warnings: warnings,
-                         perform: { @MainActor in try await svc.executeDappTransaction(prepared, reason: reason, spentUSD: spent) })
+                         perform: { @MainActor in
+                             let hash = try await svc.executeDappTransaction(prepared, reason: reason, spentUSD: spent)
+                             sent?(DappSentTransaction(chain: c, hash: hash, title: title, host: host, walletID: prepared.walletID))
+                             return hash
+                         })
         return try await ask(a, origin)
+    }
+}
+
+extension DappProvider {
+    /// What a contract call would move in and out of the wallet, nil for a plain send or when the network can't say.
+    nonisolated static func simulateTransfers(_ client: EVMClient, _ r: DappTransactionRequest) async -> EVMSimulatedTransfers? {
+        guard !r.data.isEmpty else { return nil }
+        return try? await client.simulateDappTransfers(from: r.from, to: r.to, data: r.data, value: r.value)
     }
 }
 

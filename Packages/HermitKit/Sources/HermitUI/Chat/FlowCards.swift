@@ -57,8 +57,7 @@ struct BuildProgressCard: View {
                                 Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
                             } else if i == 2 {
                                 Circle().strokeBorder(Theme.accent, lineWidth: 2).frame(width: 18, height: 18)
-                                Circle().fill(Theme.accent).frame(width: 6, height: 6)
-                                    .phaseAnimator([1.0, 0.3]) { c, o in c.opacity(o) } animation: { _ in .smooth(duration: 0.8) }
+                                PulseDot(color: Theme.accent, low: 0.3, seconds: 0.8)
                             } else {
                                 Circle().strokeBorder(Theme.border, lineWidth: 1.5).frame(width: 18, height: 18)
                             }
@@ -102,8 +101,6 @@ struct ApiCheckoutCard: View {
                     HStack {
                         Text("sk-proj-7Hq2…a8F2").font(Theme.mono)
                         Spacer()
-                        Button { Clipboard.copy("sk-proj-7Hq2…a8F2"); model.toast("Key copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: 12)) }
-                            .buttonStyle(PressStyle()).foregroundStyle(Theme.muted)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 9))

@@ -140,17 +140,36 @@ final class CalendarStore {
         guard let ek, access == .full else { events = []; return }
         watch()
         let found = ek.events(matching: ek.predicateForEvents(withStart: r.start, end: r.end, calendars: nil))
+        let cal = CalendarData.cal, lo = cal.startOfDay(for: r.start)
         var id = -1_000_000
-        events = found.map { e in
-            id -= 1
+        var out: [CalItem] = []
+        // One item per day an event touches, so a 3-day trip or a 22:00 to 02:00 event shows on every day it covers.
+        // Timed events are clamped to each day: the first runs to midnight, the last starts at 00:00, any between are all day.
+        for e in found {
             let start = e.startDate ?? r.start
-            let comps = CalendarData.cal.dateComponents([.hour, .minute], from: start)
-            let mins = Int((e.endDate ?? start).timeIntervalSince(start) / 60)
-            return CalItem(id: id, t: e.title ?? "Event", date: CalendarData.cal.startOfDay(for: start),
-                           time: e.isAllDay ? nil : (comps.hour ?? 0) * 60 + (comps.minute ?? 0), dur: max(15, mins),
-                           event: true, hex: CalendarData.hex(e.calendar?.cgColor), ekID: e.eventIdentifier,
-                           calendar: e.calendar?.title, location: e.location)
+            let end = max(e.endDate ?? start, start)
+            let first = cal.startOfDay(for: start)
+            // An event ending exactly at midnight (and every all-day event) doesn't spill into the next day.
+            let last = max(first, cal.startOfDay(for: end.addingTimeInterval(-1)))
+            let comps = cal.dateComponents([.hour, .minute], from: start)
+            let startMins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+            let total = Int(end.timeIntervalSince(start) / 60)
+            var d = max(first, lo)
+            while d <= last && d < r.end {
+                let time: Int?, dur: Int
+                if e.isAllDay { time = nil; dur = total }
+                else if first == last { time = startMins; dur = total }
+                else if d == first { time = startMins; dur = 24 * 60 - startMins }
+                else if d == last { time = 0; dur = Int(end.timeIntervalSince(d) / 60) }
+                else { time = nil; dur = 24 * 60 }
+                id -= 1
+                out.append(CalItem(id: id, t: e.title ?? "Event", date: d, time: time, dur: max(15, dur),
+                                   event: true, hex: CalendarData.hex(e.calendar?.cgColor), ekID: e.eventIdentifier,
+                                   calendar: e.calendar?.title, location: e.location))
+                d = CalendarData.add(d, days: 1)
+            }
         }
+        events = out
     }
 
     /// Reload when the calendar changes outside Hermit.

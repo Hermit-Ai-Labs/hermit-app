@@ -101,6 +101,10 @@ struct BalanceCard<Sub: View>: View {
         let down = vm.unreachable.filter { !$0.isTestnet }
         if !down.isEmpty { return "Couldn't reach \(down.map(\.name).joined(separator: ", ")). Total unknown." }
         if vm.loaded && vm.totalUSD == nil && vm.prices.isEmpty { return "Prices unavailable right now." }
+        if vm.pricesStale, !vm.prices.isEmpty, let at = vm.pricesAt {
+            let mins = max(1, Int(Date().timeIntervalSince(at) / 60))
+            return "Prices from \(mins) min ago. Testnet coins count as $0."
+        }
         if let d = vm.lastUpdated { return "Mainnet value, updated \(d.formatted(date: .omitted, time: .shortened)). Testnet coins count as $0." }
         return "Mainnet value."
     }

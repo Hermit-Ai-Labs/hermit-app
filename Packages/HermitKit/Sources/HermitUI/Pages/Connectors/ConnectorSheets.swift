@@ -1,5 +1,7 @@
 import SwiftUI
+import LocalAuthentication
 import HermitCore
+import HermitWallet
 
 // MARK: Binance
 
@@ -25,7 +27,7 @@ struct BinanceConnectSheet: View {
             FormField(label: "API key") { secureField("Paste the API key", text: $key) }
             FormField(label: "Secret key") { secureField("Paste the secret key", text: $secret) }
             NoteBox(symbol: "key", text: "On Binance: Profile → API Management → Create API. Leave Withdrawals off. Turn on Spot trading only if you want Hermit to place orders.")
-            NoteBox(symbol: "lock.shield", text: "The key is saved in this iPhone's Keychain and sent only to Binance.")
+            NoteBox(symbol: "lock.shield", text: "The key is saved in \(Device.here)'s Keychain and sent only to Binance.")
             Button("Open Binance API Management") { openURL(URL(string: "https://www.binance.com/en/my/settings/api-management")!) }
                 .buttonStyle(.plain).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
@@ -54,7 +56,8 @@ struct BinanceConnectSheet: View {
     }
 }
 
-/// The connected Binance account: balances valued in USDT, a quick market buy/sell, open orders, disconnect.
+/// The connected Binance account: balances valued in USDT, a quick market buy/sell (through the review sheet with
+/// Face ID / Touch ID), open orders, disconnect.
 struct BinanceSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -65,7 +68,7 @@ struct BinanceSheet: View {
     @State private var amount = ""
     @State private var busy = false
     @State private var error: String?
-    @State private var confirming = false
+    @Environment(\.askApproval) private var ask
     private var store: ConnectorStore { .shared }
 
     private func usd(_ b: Binance.Balance) -> Double {
@@ -75,7 +78,7 @@ struct BinanceSheet: View {
     private var balances: [Binance.Balance] { (store.binanceAccount?.balances ?? []).sorted { usd($0) > usd($1) } }
     private var usdt: Double { store.binanceAccount?.balances.first { $0.asset == "USDT" }?.free ?? 0 }
     private var held: Double { store.binanceAccount?.balances.first { $0.asset == asset }?.free ?? 0 }
-    private var value: Double { Double(amount) ?? 0 }
+    private var value: Double { Double(amount).flatMap { $0.isFinite ? $0 : nil } ?? 0 }
 
     var body: some View {
         SheetChrome(title: "Binance", subtitle: store.binanceAccount.map { $0.canTrade ? "Spot trading on" : "Read-only key" } ?? "Loading") {
@@ -128,17 +131,13 @@ struct BinanceSheet: View {
                 .buttonStyle(.plain).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.red).padding(.top, 4)
         } foot: {
             if store.binanceAccount?.canTrade == true {
-                Button { confirming = true } label: {
+                Button { Task { await review() } } label: {
                     HStack(spacing: 6) { if busy { ProgressView().controlSize(.small).tint(.white) }; Text("\(side == "buy" ? "Buy" : "Sell") \(asset)") }
                 }
                 .buttonStyle(WideButton())
                 .disabled(busy || value <= 0 || (side == "buy" ? value > usdt : value > held))
             }
         }
-        .confirmationDialog(side == "buy" ? "Buy \(asset) with \(amount) USDT at market?" : "Sell \(amount) \(asset) at market?",
-                            isPresented: $confirming, titleVisibility: .visible) {
-            Button(side == "buy" ? "Buy \(asset)" : "Sell \(asset)") { Task { await place() } }
-        } message: { Text("Placed on your Binance account now, at the best available price.") }
         .task { await load() }
     }
 
@@ -149,16 +148,83 @@ struct BinanceSheet: View {
         orders = (try? await Binance.saved?.openOrders()) ?? []
     }
 
-    private func place() async {
-        guard let b = Binance.saved else { return }
+    /// Opens the review sheet for the order. Nothing is sent until Approve, and then Face ID / Touch ID, pass.
+    private func review() async {
+        guard value > 0, let b = Binance.saved else { return }
         busy = true; error = nil
         defer { busy = false }
-        do {
-            let f = try await b.market(symbol: asset + "USDT", buy: side == "buy", quote: side == "buy" ? value : nil, qty: side == "sell" ? value : nil)
-            model.toast("\(side == "buy" ? "Bought" : "Sold") \(Binance.Balance.fmt(f.filledQty)) \(asset) for \(Binance.Balance.fmt(f.quoteSpent)) USDT")
-            amount = ""
-            await load()
-        } catch { self.error = error.localizedDescription }
+        let buy = side == "buy", coin = asset, symbol = asset + "USDT", qty = value
+        guard let px = (try? await Binance.prices())?[symbol], px > 0 else {
+            error = "Couldn't get the \(coin) price from Binance. Try again."; return
+        }
+        let usd = buy ? qty : qty * px
+        let policy = WalletsViewModel.shared.service.policy
+        let verdict = policy.evaluate(usd: usd, payee: nil, origin: .user)
+        if verdict.decision == .block { error = verdict.blocks.first ?? "Blocked by your spending policy."; return }
+        var lines: [[String]] = [["Pair", "\(coin)/USDT"], ["Order", buy ? "Market buy" : "Market sell"]]
+        if buy {
+            lines += [["You spend", "\(Binance.Balance.fmt(qty)) USDT"], ["You get, about", "\(Binance.Balance.fmt(qty / px)) \(coin)"]]
+        } else {
+            lines += [["You sell", "\(Binance.Balance.fmt(qty)) \(coin)"], ["You get, about", "\(Binance.Balance.fmt(usd)) USDT"]]
+        }
+        lines += [["Price, about", MoneyFmt.usd(px, digits: px < 1 ? 4 : 2)], ["Fee, up to 0.1%", "about " + MoneyFmt.usd(usd * 0.001, digits: 2)],
+                  ["Account", "Your Binance account"]]
+        let title = "\(buy ? "Buy" : "Sell") \(coin) on Binance"
+        let limit = policy.limit
+        let note = BinanceOrder.Note()
+        let approval = Approval(
+            kind: "Binance", title: title, lines: lines,
+            checks: ["Requested by you in this app", "Spot order on your own Binance account", "Withdrawals are never used"]
+                + verdict.passed.filter { $0.hasPrefix("Within daily limit") },
+            success: "Order sent to Binance",
+            warnings: verdict.warnings + ["Market orders fill at the best price available, which can differ from the price shown."]
+        ) { @Sendable () async throws -> String in
+            // The review sheet only prompts for Face ID / Touch ID itself when there is no `perform`, so the order asks here.
+            try await BinanceOrder.confirm(title)
+            let fill: Binance.Fill
+            do { fill = try await b.market(symbol: symbol, buy: buy, quote: buy ? qty : nil, qty: buy ? nil : qty) }
+            catch { throw BinanceOrder.Failure(message: BinanceOrder.plain(error.localizedDescription)) }
+            // What really filled counts toward the daily limit; with no fill reported, the estimate does.
+            limit.record(usd: Decimal(fill.quoteSpent > 0 ? fill.quoteSpent : usd))
+            note.text = fill.filledQty > 0
+                ? "\(buy ? "Bought" : "Sold") \(Binance.Balance.fmt(fill.filledQty)) \(coin) for \(Binance.Balance.fmt(fill.quoteSpent)) USDT"
+                : "Order sent to Binance, status \(fill.status.lowercased())"
+            // A result line, not a bare order number: the review sheet shows it whole under the tick.
+            return note.text
+        }
+        ask(approval) { model.toast(note.text.isEmpty ? "Order sent to Binance" : note.text) }
+    }
+}
+
+/// A Binance order's helpers that run outside the view: the Face ID / Touch ID gate and plain error text.
+enum BinanceOrder {
+    /// What the order did, written once by the order and read by the toast after the review sheet closes.
+    final class Note: @unchecked Sendable { var text = "" }
+
+    struct Failure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Face ID, Touch ID or the device password. Fails closed: no passcode or no confirmation, no order.
+    static func confirm(_ reason: String) async throws {
+        let ctx = LAContext()
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            throw Failure(message: "Set a passcode on \(Device.here) to place orders.")
+        }
+        let ok = (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+        guard ok else { throw Failure(message: "Not confirmed, so no order was placed.") }
+    }
+
+    /// Binance's filter messages in words people can act on.
+    static func plain(_ m: String) -> String {
+        let l = m.lowercased()
+        if l.contains("market_lot_size") { return "That amount isn't allowed for a market order on this coin. Try a different amount." }
+        if l.contains("lot_size") || l.contains("lot size") { return "That amount is too small or has too many decimals for this coin. Try a round amount." }
+        if l.contains("notional") { return "The order is below Binance's minimum for this pair, usually $5." }
+        if l.contains("filter failure") { return "Binance's trading rules don't allow this order. Try a different amount." }
+        return m
     }
 }
 
@@ -179,7 +245,7 @@ struct MCPAddSheet: View {
     private var store: ConnectorStore { .shared }
 
     var body: some View {
-        SheetChrome(title: "Add an MCP server", subtitle: "Tools Hermit can use") {
+        SheetChrome(title: "Add an MCP server", subtitle: "Tools you can run") {
             FormField(label: "Server URL") {
                 TextField("https://example.com/mcp", text: $url).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                     .autocorrectionDisabled()
@@ -192,7 +258,7 @@ struct MCPAddSheet: View {
                 SecureField("Only if the server asks for one", text: $token).textFieldStyle(.plain).font(.system(size: 13, design: .monospaced))
                     .modifier(FieldBox())
             }
-            NoteBox(symbol: "info.circle", text: "Remote servers only (an https address). Hermit lists the server's tools and asks you before it runs one.")
+            NoteBox(symbol: "info.circle", text: "Remote servers only (an https address). Hermit lists the server's tools and you run them yourself. Coming soon: Hermit using them in chat.")
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
         } foot: {
             Button {

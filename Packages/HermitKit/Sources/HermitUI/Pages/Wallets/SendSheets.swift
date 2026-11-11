@@ -63,12 +63,16 @@ struct WalletSendSheet: View {
     @State private var newLabel = ""
     @State private var newKind: ChainKind = .evm
     @State private var newAddress = ""
+    /// From the prefill (Payments' Pay now): runs only after the send was approved. State, not let: init runs again
+    /// on re-render after sendPrefill was cleared.
+    @State private var onSent: (@MainActor (String, String, String) -> Void)?
 
     init(vm: WalletsViewModel, fromID: String, chain: Chain?, token: String?) {
         self.vm = vm
         let w = vm.wallet(fromID) ?? vm.wallets.first
         let pre = vm.sendPrefill
         vm.sendPrefill = nil
+        _onSent = State(initialValue: pre?.onSent)
         // Opened plainly: start on the biggest balance this wallet can send, not an empty ETH on Base.
         let plain = pre == nil && chain == nil && token == nil
         let biggest = plain ? Self.biggest(vm, wallet: w?.id) : nil
@@ -79,7 +83,10 @@ struct WalletSendSheet: View {
         let want = pre?.token ?? token ?? biggest?.symbol
         _token = State(initialValue: want.flatMap { t in vm.tokens(chain: c).contains(t) ? t : nil } ?? c.nativeSymbol)
         _address = State(initialValue: pre?.address ?? "")
-        _amount = State(initialValue: pre?.amount ?? "")
+        // A prefilled token this network doesn't carry falls back to the native coin: then the amount is cleared, so it
+        // never silently changes asset.
+        let tokenMissing = pre?.token.map { !vm.tokens(chain: c).contains($0) } ?? false
+        _amount = State(initialValue: tokenMissing ? "" : pre?.amount ?? "")
     }
 
     private var wallet: WalletAccount? { vm.wallet(fromID) }
@@ -256,7 +263,9 @@ struct WalletSendSheet: View {
             do {
                 let p = try await vm.prepareSend(from: f, chain: c, to: to, amount: a, token: t)
                 busy = false
-                ask(try vm.approval(for: p))
+                // `then` runs only once the approval went through, so onSent fires on a real send only.
+                let done = onSent
+                ask(try vm.approval(for: p)) { done?(to, a, t) }
             } catch {
                 busy = false
                 self.error = error.localizedDescription

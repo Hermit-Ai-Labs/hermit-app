@@ -9,7 +9,8 @@ response signature against the attested model signer.
     .venv/bin/python near/verify-attestation.py --model z-ai/glm-5.3-flash
     .venv/bin/python near/verify-attestation.py --report Packages/HermitKit/Tests/HermitCloudTests/Fixtures/qwen-report.json \
         --nonce "$(cat Packages/HermitKit/Tests/HermitCloudTests/Fixtures/qwen-report.nonce)" --offline
-    .venv/bin/python near/verify-attestation.py --sdk                 # also cross-check with NEAR's official SDK
+    NEARAI_API_KEY=... .venv/bin/python near/verify-attestation.py --sdk   # also cross-check with NEAR's official SDK
+    (--sdk needs Python 3.12+ and `.venv/bin/pip install -r near/requirements-sdk.txt` first)
 
 Checks follow https://docs.near.ai/cloud/verification (gateway attestation, model attestations,
 quote/nonce/signer reference, response signatures). Exit code 1 if any required check fails.
@@ -231,7 +232,10 @@ async def main():
     if a.sdk and not a.offline:
         print("\nNEAR official SDK (nearai-inference-sdk) verify(model)")
         try:
-            from nearai_inference_sdk import InferenceClient
+            try:
+                from nearai_inference_sdk import InferenceClient
+            except ImportError as e:
+                raise RuntimeError("needs Python 3.12+ and: pip install -r near/requirements-sdk.txt") from e
             async with InferenceClient(key) as c:
                 v = await c.verify(a.model)
             check("sdk", "SDK gateway verification", True, f"TCB {v.gateway.tcb_status}")

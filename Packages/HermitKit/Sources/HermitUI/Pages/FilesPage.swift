@@ -1,6 +1,12 @@
 import SwiftUI
 import Observation
 import UniformTypeIdentifiers
+import HermitCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Files: the files you add, copied into Hermit's own folder on this device. Search, a type filter,
 /// Add files, and the viewer for text, tables, images and PDFs.
@@ -158,6 +164,8 @@ final class FilesStore {
     var files: [HFile]
     var openFiles: [HFile] = []
     var active: String?
+    /// A file is being read for Ask (a second tap waits for the first).
+    @ObservationIgnored private var asking = false
 
     init() { files = LocalJSON.load("files.json", as: [HFile].self) ?? [] }
 
@@ -218,24 +226,63 @@ final class FilesStore {
     }
     func closeAll() { withAnimation(.smooth(duration: 0.25)) { openFiles = []; active = nil } }
 
-    /// The words in a file, for the viewer and for Ask (text, code, tables, PDF text). Capped so a huge file stays quick.
+    /// The words in a file, for the viewer (text, code, tables, PDF text). Capped so a huge file stays quick.
     func text(of f: HFile, limit: Int = 400_000) -> String? {
         switch f.kind {
         case .pdf: return PDFText.read(f.url, limit: limit)
         case .text, .code, .table:
             guard let data = try? Data(contentsOf: f.url, options: .mappedIfSafe) else { return nil }
-            let s = String(decoding: data.prefix(limit), as: UTF8.self)
-            return s
+            // Rich text is read as its words, not its control codes.
+            if f.ext == "rtf", let plain = Self.rtfText(data) { return String(plain.prefix(limit)) }
+            return String(decoding: Self.utf8Prefix(data, limit), as: UTF8.self)
         default: return nil
         }
     }
 
-    /// Starts a chat about the file, with its text in the message so the on-device model can read it.
+    /// The first `limit` bytes, cut back so a multi-byte UTF-8 character is never split in two.
+    nonisolated static func utf8Prefix(_ data: Data, _ limit: Int) -> Data {
+        guard limit > 0 else { return Data() }
+        guard data.count > limit else { return data }
+        var end = limit
+        // A continuation byte right after the cut means the last character crosses it: step back to its first byte.
+        while end > 0, limit - end < 4, data[data.startIndex + end] & 0xC0 == 0x80 { end -= 1 }
+        return data.prefix(end)
+    }
+
+    /// The plain words of an RTF file.
+    nonisolated static func rtfText(_ data: Data) -> String? {
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: NSAttributedString.DocumentType.rtf]
+        return (try? NSAttributedString(data: data, options: options, documentAttributes: nil))?.string
+    }
+
+    /// The file as a chat attachment, read the same way as a file picked in the chat box, under its own name.
+    private func attachment(for f: HFile) async -> Attachment {
+        let read = await AttachmentReader.read(f.url)
+        var a = Attachment(f.name, size: read.size, source: "Files", text: read.text, truncated: read.truncated)
+        a.cutNote = read.cutNote; a.detail = read.detail; a.recipients = read.recipients
+        if f.ext == "rtf", let plain = text(of: f) {
+            let (cut, note) = FileBudget.cut(plain)
+            a.text = cut; a.cutNote = note; a.truncated = note != nil
+            a.recipients = RecipientTable.parse(plain)
+        }
+        return a
+    }
+
+    /// Starts a chat about the file. It goes in as an attachment, so the model gets it between file markers (an address
+    /// inside the file never counts as typed by you) and is told when only the start of a long file fits.
     func ask(_ f: HFile, model: AppModel) {
-        guard let body = text(of: f, limit: 8_000), !body.isEmpty else { model.toast("Hermit can't read this file yet"); return }
-        closeAll()
-        model.newChat(project: f.project)
-        model.send("Here is \(f.name):\n\n\(body)\n\nWhat's in it? Give me the key points.")
+        guard !asking else { return }
+        asking = true
+        Task {
+            defer { asking = false }
+            let a = await attachment(for: f)
+            guard let body = a.text, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                model.toast("Hermit can't read this file yet"); return
+            }
+            closeAll()
+            model.newChat(project: f.project)
+            model.send("What's in \(f.name)? Give me the key points.", attachment: a)
+        }
     }
 
     private func save() { LocalJSON.save(files, "files.json") }

@@ -24,10 +24,10 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
     public static func systemPrompt(name: String, memory: [String]) -> String {
         var s = """
         You are Hermit, a private AI assistant. Right now you run in Hermit's Private Cloud mode: on NEAR AI Cloud, inside a \
-        hardware enclave (Intel TDX with NVIDIA confidential GPUs) that the user's phone verified before sending this. \
-        Hermit keeps the chat on the phone and has no server of its own.
+        hardware enclave (Intel TDX with NVIDIA confidential GPUs) that the user's \(CloudDevice.noun) verified before sending this. \
+        Hermit keeps the chat on the \(CloudDevice.noun) and has no server of its own.
         You can use tools for prices, the user's balances and Hyperliquid account, maths, markets and yields. Use them instead of guessing; \
-        never invent prices or balances. The prepare_ tools only open a review screen: the user approves with Face ID. \
+        never invent prices or balances. The prepare_ tools only open a review screen: the user approves with \(ToolChat.bioWord). \
         Never say a trade, swap or transfer happened; say it is ready for review.
         Keep answers short and plain: a few sentences, simple words, no filler. Do not use middle dots as separators. \
         If you don't know something, say so.
@@ -76,14 +76,29 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                 let pre: Preflight
                 do { pre = try await preflight(model: model) } catch {
                     cont.yield(.steps(0))
-                    cont.yield(.text("I couldn't reach NEAR AI Cloud to check its enclave, so your message stayed on this phone. \(Self.describe(error))"))
+                    // NEAR retires and renames models; a saved one that's gone answers 400. Switch to one that's listed.
+                    if case .http(400, _)? = error as? NearAICloud.Failure, let next = await Self.replacement(for: model, cloud: cloud) {
+                        NearAICloud.model = next.id
+                        cont.yield(.text("\(model.split(separator: "/").last.map(String.init) ?? model) is no longer on NEAR AI Cloud, so Private Cloud now uses \(next.name). Your message stayed on \(CloudDevice.here). Send it again."))
+                        return
+                    }
+                    cont.yield(.text("I couldn't reach NEAR AI Cloud to check its enclave, so your message stayed on \(CloudDevice.here). \(Self.describe(error))"))
                     return
                 }
                 guard pre.passed else {
                     cont.yield(.steps(0))
                     let failed = pre.checks.filter { $0.status == .fail }.map(\.title)
-                    cont.yield(.text("I didn't send your message. The enclave's evidence failed: \(failed.prefix(3).joined(separator: ", ")). Nothing left this phone."))
+                    cont.yield(.text("I didn't send your message. The enclave's evidence failed: \(failed.prefix(3).joined(separator: ", ")). Nothing left \(CloudDevice.here)."))
                     cont.yield(.proof(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: [])))
+                    await state.clearPreflight()
+                    return
+                }
+                // Only NVIDIA's service verifies the GPU evidence itself: without its verdict nothing is sent.
+                guard pre.gpuVerdicts else {
+                    cont.yield(.steps(0))
+                    cont.yield(.text("I couldn't get NVIDIA's verdict on the enclave's GPUs, so I didn't send your message. Nothing left \(CloudDevice.here). Try again in a moment."))
+                    cont.yield(.proof(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: [])))
+                    pre.connection?.invalidate()
                     await state.clearPreflight()
                     return
                 }
@@ -95,35 +110,47 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
                     cont.yield(.proof(pre.proof(completions: 0, signed: 0, kind: nil, replyChecks: [])))
                     return
                 }
-                if NearAICloud.usesSharedKey { SharedQuota.consume() }
-                await run(prompt: prompt, model: model, key: key, preflight: pre, cont: cont)
+                await run(prompt: prompt, model: model, key: key, shared: NearAICloud.usesSharedKey, preflight: pre, cont: cont)
             }
             cont.onTermination = { _ in task.cancel() }
         }
     }
 
-    private func run(prompt: String, model: String, key: String, preflight pre: Preflight, cont: AsyncStream<AgentEvent>.Continuation) async {
+    /// A model id that's no longer listed: the default model, or the first listed one. nil when it's still listed or the
+    /// list can't be read.
+    static func replacement(for model: String, cloud: NearAICloud) async -> NearAICloud.Model? {
+        guard let list = try? await cloud.models(), !list.isEmpty, !list.contains(where: { $0.id == model }) else { return nil }
+        return list.first { $0.id == NearAICloud.defaultModel } ?? list[0]
+    }
+
+    /// `shared`: the message goes out on Hermit's shared key, so it counts toward today's free messages once a
+    /// completion comes back (a failed request costs none).
+    private func run(prompt: String, model: String, key: String, shared: Bool, preflight pre: Preflight, cont: AsyncStream<AgentEvent>.Continuation) async {
         await state.append(["role": "user", "content": prompt])
         cont.yield(.status("Thinking in the enclave…"))
         var steps = 0, actions: [Action] = []
         var signatures: [Task<SignedCheck, Never>] = []
         var uses: [GatewayConnection.Use?] = []
         var finalText = ""
+        var cut = false
+        var counted = false
         do {
             for round in 0..<Self.maxRounds {
                 try Task.checkCancellation()
                 let body = try await state.body(model: model, tools: toolbox == nil || round == Self.maxRounds - 1 ? nil : CloudTools.schemaData)
                 let (raw, use) = try await cloud.complete(body: body, key: key, on: pre.connection)
                 uses.append(use)
-                guard let j = try? JSONSerialization.jsonObject(with: raw) as? [String: Any], let id = j["id"] as? String,
-                      let msg = ((j["choices"] as? [[String: Any]])?.first)?["message"] as? [String: Any] else {
+                if shared && !counted { SharedQuota.consume(); counted = true }
+                guard let reply = Self.completion(raw) else {
                     throw NearAICloud.Failure.bad("NEAR AI Cloud sent a reply I couldn't read.")
                 }
+                let id = reply.id, msg = reply.message
                 let cloud = self.cloud
                 signatures.append(Task { await Self.checkSignature(cloud: cloud, id: id, key: key, request: body, response: raw, model: model, preflight: pre) })
                 let calls = (msg["tool_calls"] as? [[String: Any]]) ?? []
                 if calls.isEmpty || toolbox == nil {
                     finalText = Self.clean(msg["content"] as? String ?? "")
+                    cut = reply.finish == "length"
                     await state.append(["role": "assistant", "content": finalText])
                     break
                 }
@@ -161,7 +188,9 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
             return
         }
         cont.yield(.steps(steps))
-        if finalText.isEmpty { finalText = actions.isEmpty ? "I didn't get an answer back. Try again." : "Ready for your review." }
+        if finalText.isEmpty && !cut { finalText = actions.isEmpty ? "I didn't get an answer back. Try again." : "Ready for your review." }
+        // The reply ran into the token limit: say so instead of ending mid-sentence as if it were done.
+        if cut { finalText += (finalText.isEmpty ? "" : "\n\n") + "That reply hit the length limit. Ask me to continue." }
         // Text appears at a reading pace; the full reply has already arrived.
         cont.yield(.block(.text("")))
         for word in finalText.split(separator: " ", omittingEmptySubsequences: false) {
@@ -169,11 +198,14 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
             cont.yield(.text(String(word) + " "))
             try? await Task.sleep(for: .milliseconds(12))
         }
-        if !actions.isEmpty { cont.yield(.block(.actions(actions))) }
-
         cont.yield(.status("Checking the reply's signature…"))
         var results: [SignedCheck] = []
         for t in signatures { results.append(await t.value) }
+        // Review buttons only for a reply the attested model enclave signed (money still needs the review and biometrics).
+        if !actions.isEmpty {
+            if !results.isEmpty && results.allSatisfy(\.modelSigned) { cont.yield(.block(.actions(actions))) }
+            else { cont.yield(.block(.text("The reply's signature didn't verify, so I left out its review buttons. Try again."))) }
+        }
         cont.yield(.steps(steps))
         cont.yield(.proof(Self.proof(pre, results, tls: Self.tlsCheck(pre, uses))))
     }
@@ -234,13 +266,13 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
         func st(_ ok: Bool) -> CloudProof.Status { ok ? .pass : .fail }
         let available = sigs.allSatisfy(\.available)
         var checks: [CloudProof.Check] = [
-            .init(id: "reply.pre", group: g, title: "Enclave checked before the prompt left the phone",
+            .init(id: "reply.pre", group: g, title: "Enclave checked before the prompt left \(CloudDevice.here)",
                   detail: "Evidence fetched \(Int(Date().timeIntervalSince(pre.fetchedAt)))s before this reply", status: .pass),
             .init(id: "reply.sig", group: g, title: n == 1 ? "Reply signed by the enclave" : "All \(n) completions signed by the enclave",
                   detail: available ? (kinds == ["provider_tee"] ? "Signed by the model enclave" : "Kinds: \(kinds.sorted().joined(separator: ", "))")
                                     : (sigs.first { !$0.available }?.detail ?? ""), status: st(available && n > 0)),
             .init(id: "reply.bytes", group: g, title: "Signature covers the exact request and response bytes",
-                  detail: "SHA-256 of what this phone sent and received", status: available ? st(sigs.allSatisfy(\.textMatches)) : .skipped),
+                  detail: "SHA-256 of what \(CloudDevice.here) sent and received", status: available ? st(sigs.allSatisfy(\.textMatches)) : .skipped),
             .init(id: "reply.signer", group: g, title: "Signer is the attested model key",
                   detail: sigs.first { !$0.signerMatches }?.detail ?? sigs.first?.detail ?? "",
                   status: available ? st(sigs.allSatisfy(\.signerMatches) && kinds == ["provider_tee"]) : .skipped),
@@ -255,6 +287,13 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
 
     // MARK: Helpers
 
+    /// A completion's id, its first message and why it stopped ("stop", "tool_calls", "length"...).
+    static func completion(_ raw: Data) -> (id: String, message: [String: Any], finish: String?)? {
+        guard let j = try? JSONSerialization.jsonObject(with: raw) as? [String: Any], let id = j["id"] as? String,
+              let choice = (j["choices"] as? [[String: Any]])?.first, let msg = choice["message"] as? [String: Any] else { return nil }
+        return (id, msg, choice["finish_reason"] as? String)
+    }
+
     /// Drops any reasoning block and middle-dot separators.
     static func clean(_ s: String) -> String {
         var t = s
@@ -268,7 +307,7 @@ public final class NearCloudAgent: Agent, @unchecked Sendable {
 
     static func describe(_ e: Error) -> String {
         if let f = e as? NearAICloud.Failure { return f.description }
-        if (e as? URLError)?.code == .notConnectedToInternet { return "This phone is offline. On-device mode still works." }
+        if (e as? URLError)?.code == .notConnectedToInternet { return "\(CloudDevice.capitalHere) is offline. On-device mode still works." }
         return e.localizedDescription
     }
 }
@@ -296,7 +335,10 @@ actor CloudState {
     /// The request body, built once: these exact bytes are sent and hashed.
     func body(model: String, tools: Data?) throws -> Data {
         var b: [String: Any] = ["model": model, "messages": [["role": "system", "content": instructions]] + history,
-                                "stream": false, "max_tokens": 1200, "temperature": 0.6]
+                                "stream": false, "max_tokens": 4096, "temperature": 0.6]
+        // Qwen models on NEAR reason by default, and the reasoning is billed against max_tokens: chat answers without it
+        // (docs.near.ai/cloud/reasoning-models). Part of this one body, so the signed hash still covers it.
+        if model.hasPrefix("Qwen/") { b["chat_template_kwargs"] = ["enable_thinking": false] }
         if let tools, let t = try? JSONSerialization.jsonObject(with: tools) { b["tools"] = t; b["tool_choice"] = "auto" }
         guard JSONSerialization.isValidJSONObject(b) else { throw NearAICloud.Failure.bad("Couldn't build the request.") }
         return try JSONSerialization.safeData(withJSONObject: b, options: [.sortedKeys, .withoutEscapingSlashes])

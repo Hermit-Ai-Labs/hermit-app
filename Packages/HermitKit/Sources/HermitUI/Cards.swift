@@ -2,6 +2,8 @@ import SwiftUI
 import HermitCore
 
 /// Cards the agent posts under its answers. Numbers always come with a chart.
+/// Cards that only the scripted demo produces (sample prices, approvals with nothing behind them, and the live trade
+/// card, since no order is placed yet) are wrapped in DemoOnly so a release build never shows them as real.
 struct CardView: View {
     let card: Card
     var body: some View {
@@ -9,28 +11,28 @@ struct CardView: View {
         case .bars(let title, let rows): BarsCard(title: title, rows: rows)
         case .receipt(let title, let rows): ReceiptCard(title: title, rows: rows)
         case .result(let r): ResultCard(receipt: r)
-        case .token(let t): TokenCard(spec: t)
-        case .price(let title, let total, let days, let seed): PriceCard(title: title, total: total, days: days, seed: seed)
-        case .pnl(let title, let total, let days, let seed): PnlCard(title: title, total: total, days: days, seed: seed)
-        case .holders(let verdict, let clusters, let legend): HoldersCard(verdict: verdict, clusters: clusters, legend: legend)
-        case .kols(let n, let rows): KolCard(onboarded: n, rows: rows)
-        case .perpTicket(let a): PerpTicket(base: a)
+        case .token(let t): DemoOnly { TokenCard(spec: t) }
+        case .price(let title, let total, let days, let seed): DemoOnly { PriceCard(title: title, total: total, days: days, seed: seed) }
+        case .pnl(let title, let total, let days, let seed): DemoOnly { PnlCard(title: title, total: total, days: days, seed: seed) }
+        case .holders(let verdict, let clusters, let legend): DemoOnly { HoldersCard(verdict: verdict, clusters: clusters, legend: legend) }
+        case .kols(let n, let rows): DemoOnly { KolCard(onboarded: n, rows: rows) }
+        case .perpTicket(let a): DemoOnly { PerpTicket(base: a) }
         case .flow(let title, let steps): FlowCard(title: title, steps: steps)
-        case .news(let items): NewsCard(items: items)
-        case .opportunities(let title, let items): OpportunitiesCard(title: title, items: items)
-        case .catalog(let group): CatalogCard(group: group)
-        case .agentPaid(let to, let amount, let what, let budget): AgentPaidCard(to: to, amount: amount, what: what, budget: budget)
+        case .news(let items): DemoOnly { NewsCard(items: items) }
+        case .opportunities(let title, let items): DemoOnly { OpportunitiesCard(title: title, items: items) }
+        case .catalog(let group): DemoOnly { CatalogCard(group: group) }
+        case .agentPaid(let to, let amount, let what, let budget): DemoOnly { AgentPaidCard(to: to, amount: amount, what: what, budget: budget) }
         case .code(let code): CodeCard(code: code)
-        case .quests(let q): QuestCard(quests: q)
-        case .inbox(let items, let approval): InboxCard(items: items, approval: approval)
-        case .injection(let source, let quote): InjectionCard(source: source, quote: quote)
-        case .apiBuy(let a): ApiBuyCard(approval: a)
-        case .buildProgress: BuildProgressCard()
-        case .apiCheckout: ApiCheckoutCard()
+        case .quests(let q): DemoOnly { QuestCard(quests: q) }
+        case .inbox(let items, let approval): DemoOnly { InboxCard(items: items, approval: approval) }
+        case .injection(let source, let quote): DemoOnly { InjectionCard(source: source, quote: quote) }
+        case .apiBuy(let a): DemoOnly { ApiBuyCard(approval: a) }
+        case .buildProgress: DemoOnly { BuildProgressCard() }
+        case .apiCheckout: DemoOnly { ApiCheckoutCard() }
         case .batchSend(let id): BatchSendCard(id: id)
-        case .flapLaunch: FlapLaunchCard()
+        case .flapLaunch: DemoOnly { FlapLaunchCard() }
         case .memory(let item): MemoryCard(item: item)
-        case .liveTrade(let t): LiveTradeCard(trade: t)
+        case .liveTrade(let t): DemoOnly { LiveTradeCard(trade: t) }
         case .suggestions(let prompts): SuggestionsCard(prompts: prompts)
         }
     }
@@ -88,8 +90,6 @@ struct ResultCard: View {
         ChatCard {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green).font(.system(size: 15))
             CardTitle(receipt.title)
-            Spacer()
-            Text("0x8f2c…a91d").font(Theme.mono).foregroundStyle(Theme.faint)
         } content: {
             VStack(alignment: .leading, spacing: 0) {
                 if !receipt.alloc.isEmpty {
@@ -277,11 +277,12 @@ struct QuestCard: View {
             }
             .buttonStyle(PlainCardButton())
             Button {
-                model.addAutomation(Automation(name: "Monad quests", trigger: "Daily 08:00", action: "Finish open Monad quests", limit: "$1 gas / day", on: true, last: "Just created",
-                                               runs: [("Just now", "Set up. First run tomorrow at 08:00.")]))
-                model.react("Run daily", "Run daily set. I will finish open Monad quests every day at 08:00 with gas capped at $1 a day. It is in Automations, and you can pause it anytime.")
+                // Saved, not scheduled: nothing runs by itself yet, so nothing promises it will.
+                model.addAutomation(Automation(name: "Monad quests", trigger: "Every day 08:00", action: "Finish open Monad quests", limit: "$1 gas / day",
+                                               on: false, last: "Not run yet"))
+                model.react("Save to Automations", "Saved to Automations. Press Run now there to start it. Schedules are coming soon, so it won't run by itself yet.")
             } label: {
-                Label("Run daily", systemImage: "bolt.fill")
+                Label("Save to Automations", systemImage: "plus")
             }
             .buttonStyle(BlackButton())
         }
@@ -439,13 +440,10 @@ struct CatalogCard: View {
                                 Text(o.risk).font(.system(size: 12.5)).foregroundStyle(o.risk == "Low" ? Theme.green : o.risk == "Medium" ? Theme.amber : Theme.red)
                             }
                             HStack(spacing: 6) {
+                                // Nothing runs behind Start yet, so it opens no approval: greyed out until it is built.
                                 if o.start {
-                                    Button("Start") {
-                                        model.approval = Approval(kind: group, title: "Start \(o.name.lowercased())",
-                                                                  lines: [["Using", o.ex.components(separatedBy: ",").first ?? o.ex], ["Amount", "1,000 USDC"], ["Expected", o.ret]],
-                                                                  checks: Approval.checks(), success: "Started")
-                                    }
-                                    .buttonStyle(SmallChip(on: true))
+                                    Button("Start, coming soon") {}
+                                        .buttonStyle(SmallChip()).comingSoon().opacity(0.5)
                                 }
                                 Button("Explain") { model.ask("How does \(o.name.lowercased()) work?") }.buttonStyle(SmallChip())
                             }

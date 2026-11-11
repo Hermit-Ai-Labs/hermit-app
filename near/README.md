@@ -29,8 +29,9 @@ quote-bound `tls_cert_fingerprint`. The GPU evidence itself is sent to NVIDIA's 
 non-streamed with `x-no-aliasing: true` so that the **model enclave** (`signature_kind: provider_tee`) signs
 `model:sha256(request bytes):sha256(response bytes)`; the phone fetches `/v1/signature/{id}`, recomputes both hashes
 from the bytes it actually sent and received, recovers the EIP-191 signer with libsecp256k1, and requires it to equal
-exactly one verified model report's `signing_address`. Tool calls use the same 11 agent tools as the on-device model
-(OpenAI `tools` field); tools run on the phone, and money tools (trade, send, swap) only prepare the existing Face ID
+exactly one verified model report's `signing_address`. Tool calls use the same 15 agent tools as the on-device model
+(OpenAI `tools` field); tools run on the phone, and money tools (trade, send, multi-send, swap, Aave deposit and
+withdraw) only prepare the existing Face ID
 approval sheet. Hermit has no server: the conversation is kept in memory on the phone until New chat.
 
 ### Checked on the phone vs not
@@ -57,15 +58,17 @@ expected output. The scripts in this folder:
 
 | Script | What it shows | Key needed |
 | --- | --- | --- |
-| `verify-attestation.py` | NEAR AI Cloud attestation, checked step by step as the phone does: `23 passed, 0 failed, 1 skipped` without a key, `27 passed` with `NEARAI_API_KEY` (one completion and its enclave signature), or 29 with `--sdk` | No (attestation); yes (completion) |
+| `verify-attestation.py` | NEAR AI Cloud attestation, checked step by step as the phone does: `23 passed, 0 failed, 1 skipped` without a key, `27 passed` with `NEARAI_API_KEY` (one completion and its enclave signature), or `29 passed` with the key and `--sdk` (Python 3.12 and `requirements-sdk.txt`) | No (attestation); yes (completion) |
 | `intents-quote.py` | A live dry 1Click quote, any pair (default 10 USDC on Base to NEAR), with the quote signature checked; `--selftest` checks the signature code against the Swift fixtures | No |
 | `near-account.py` | The NEAR implicit account derived from the public test phrase at m/44'/397'/0', compared with the Swift test vector, and its NEAR and NEP-141 balances over public RPC | No |
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt    # Python 3.10 or later
 .venv/bin/python near/verify-attestation.py            # fresh nonce, live report, all checks, exit 1 on failure
-.venv/bin/python near/verify-attestation.py --sdk      # also cross-check with NEAR's nearai-inference-sdk verify(model)
 NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py   # plus one completion and its signature check
+# Optional, Python 3.12 or later: also cross-check with NEAR's nearai-inference-sdk verify(model)
+.venv/bin/pip install -r near/requirements-sdk.txt
+NEARAI_API_KEY=… .venv/bin/python near/verify-attestation.py --sdk
 ```
 
 Do: run the first command. See: 23 `[PASS]` lines for the gateway and the model enclave, including

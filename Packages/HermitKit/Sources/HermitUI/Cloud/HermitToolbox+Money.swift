@@ -7,20 +7,32 @@ import HermitWallet
 extension HermitToolbox {
     enum ChainPick { case chain(Chain), ask(ToolOutcome) }
 
+    /// The wallet chat's money tools act for: the one selected in Wallets, which get_balances and prepare_swap read too,
+    /// else the first.
+    @MainActor static var agentWallet: WalletAccount? {
+        let vm = WalletsViewModel.shared
+        return vm.service.selected.flatMap { s in vm.wallets.first { $0.record.id == s.id } } ?? vm.wallets.first
+    }
+
     /// The chain a money tool runs on. A chain the user named wins; otherwise the only candidate, or the only one where
     /// the user holds the token; otherwise a question back to the user, listing where they hold it.
     @MainActor static func pickChain(_ given: String?, symbol: String, candidates: [Chain], doing: String) async throws -> ChainPick {
         let vm = WalletsViewModel.shared
         if !vm.loaded { await vm.refresh() }
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
+        guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         func holding(_ c: Chain) -> Holding? { vm.holdings(wallet: w.id, chain: c).first { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame } }
         if let g = given?.trimmingCharacters(in: .whitespaces), !g.isEmpty {
             guard let c = findChain(g) else { throw ToolError("Unknown chain \(g)") }
-            // A named network where the user holds none of the token, while they hold it on exactly one other: that one.
-            // (The model tends to say "Ethereum" when nobody did.)
-            if holding(c) == nil, candidates.contains(c) {
+            // A named network where the user holds none of the token, while they hold it on exactly one other: ask, never
+            // switch silently (the model tends to say "Ethereum" when nobody did). Not when that network's balance is unknown.
+            if holding(c) == nil, candidates.contains(c), !vm.unreachable.contains(c) {
                 let elsewhere = candidates.filter { $0 != c && holding($0) != nil }
-                if elsewhere.count == 1 { return .chain(elsewhere[0]) }
+                if elsewhere.count == 1, let o = elsewhere.first {
+                    let sym = symbol.uppercased()
+                    return .ask(json(["status": "needs_chain", "prepared": false, "question": "You hold \(sym) on \(o.name), not \(c.name). Use \(o.name)?",
+                                      "options": [o.id, c.id],
+                                      "note": "Nothing was prepared. Ask the user, in one short question. They hold no \(sym) on \(c.name), so a \(doing) there would fail."]))
+                }
             }
             return .chain(c)
         }
@@ -61,14 +73,15 @@ extension HermitToolbox {
 
     /// prepare_multisend: checks every recipient and opens the Batch send review (one Face ID for all of it).
     /// `origin` is .agent when the model asked; .user when the app read the user's own attached list.
-    @MainActor static func prepareMultisend(_ a: [String: Any], origin: ActionOrigin, source: String? = nil) async throws -> ToolOutcome {
+    /// `fromPicture`: the chat holds text read from a picture, so rows without an EIP-55 checksum are refused.
+    @MainActor static func prepareMultisend(_ a: [String: Any], origin: ActionOrigin, source: String? = nil, fromPicture: Bool = false) async throws -> ToolOutcome {
         guard let symbol = (a["symbol"] as? String)?.trimmingCharacters(in: .whitespaces), !symbol.isEmpty else { throw ToolError("Needs symbol and recipients") }
         let rows: [(address: String, amount: String)] = ((a["recipients"] as? [Any]) ?? []).compactMap { $0 as? [String: Any] }.map { r in
             ((r["address"] as? String) ?? "", (r["amount"] as? NSNumber)?.stringValue ?? (r["amount"] as? String) ?? "")
         }
         guard !rows.isEmpty else { throw ToolError("Needs at least one recipient with an address and an amount") }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
+        guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         let candidates = Chain.mainnets.filter { WalletService.batchSupported($0) && hasToken(symbol, on: $0) }
         let chain: Chain
         switch try await pickChain(a["chain"] as? String, symbol: symbol, candidates: candidates, doing: "batch send") {
@@ -77,14 +90,15 @@ extension HermitToolbox {
         }
         let plan: BatchPlan
         do {
-            plan = try await vm.service.planBatch(walletID: w.record.id, chain: chain, symbol: symbol, recipients: rows, origin: origin, source: source)
+            plan = try await vm.service.planBatch(walletID: w.record.id, chain: chain, symbol: symbol, recipients: rows, origin: origin, source: source, fromPicture: fromPicture)
         } catch {
-            return json(["status": "blocked", "prepared": false, "reasons": [(error as? WalletError)?.errorDescription ?? error.localizedDescription],
+            return json(["status": "blocked", "prepared": false, "reasons": [message(error)],
                          "note": "Nothing was prepared. Tell the user why."])
         }
         let leftOut = plan.invalid.prefix(6).map { "row \($0.line): \($0.problem ?? "invalid")" }
         var out: [String: Any] = ["kind": "multisend", "executed": false, "network": chain.name, "recipients": plan.valid.count,
                                   "total": "\(plan.total) \(plan.symbol)", "fees_up_to": plan.feeText]
+        if vm.wallets.count > 1 { out["wallet"] = w.name }
         if !leftOut.isEmpty { out["left_out"] = leftOut; out["left_out_count"] = plan.invalid.count }
         guard plan.blocks.isEmpty else {
             out["status"] = "blocked"; out["reasons"] = plan.blocks
@@ -129,7 +143,7 @@ extension HermitToolbox {
                          + Chain.mainnets.flatMap { c in AaveV3.tokens(on: c).map { "\($0.symbol) on \(c.name)" } }.joined(separator: ", ") + "."])
         }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
+        guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         if !vm.loaded { await vm.refresh() }
         let held = vm.holding(token.symbol, wallet: w.id, chain: chain)?.amount ?? 0
         guard held >= amount else {
@@ -145,7 +159,8 @@ extension HermitToolbox {
         var out: [String: Any] = ["status": "review_opened", "kind": "deposit", "executed": false, "pool": "Aave v3 on \(chain.name)",
                                   "amount": "\(Units.approx(amount)) \(token.symbol)",
                                   "note": "Waiting for the user to review the deposit and approve it with \(Device.bio)."]
-        if let p = pool { out["apy_pct"] = (p.apy * 100).rounded() / 100 }
+        if let p = pool { out["apy_pct"] = (p.depositAPY * 100).rounded() / 100 }
+        if vm.wallets.count > 1 { out["wallet"] = w.name }
         var o = json(out)
         o.action = Action("Review deposit", primary: true, symbol: "leaf", open: EarnFlow.depositLink(chain: chain, symbol: token.symbol, amount: amount))
         return o

@@ -13,7 +13,7 @@ enum ChatMode: String, CaseIterable, Identifiable {
     static var current: ChatMode { UserDefaults.standard.string(forKey: key).flatMap(ChatMode.init) ?? .device }
     var title: String { self == .device ? "On-device" : "Private Cloud" }
     var detail: String { self == .device ? "Flight-mode private, runs on \(Device.here)" : "NEAR AI, in a verified enclave (TEE)" }
-    var symbol: String { self == .device ? "iphone" : "lock.shield" }
+    var symbol: String { self == .device ? Device.symbol : "lock.shield" }
 }
 
 /// Sends each prompt to the on-device model or to Private Cloud, by the mode picked in the chat box.
@@ -66,9 +66,17 @@ final class CloudStatus {
         }
     }
 
-    func loadModels() async {
-        guard models.isEmpty, !SnapshotMode.active else { return }
+    /// Reads NEAR's model list once. NEAR retires and renames models, so a saved one that's no longer listed switches to
+    /// the default (or the first listed); the returned line says so, for a toast.
+    @discardableResult
+    func loadModels() async -> String? {
+        guard models.isEmpty, !SnapshotMode.active else { return nil }
         models = (try? await NearAICloud().models()) ?? []
+        guard !models.isEmpty, !models.contains(where: { $0.id == model }) else { return nil }
+        let next = models.first { $0.id == NearAICloud.defaultModel } ?? models[0]
+        let old = model.split(separator: "/").last.map(String.init) ?? model
+        model = next.id
+        return "Switched to \(next.name). \(old) is no longer on NEAR AI Cloud"
     }
 
     func setKey(_ key: String?) {
@@ -116,7 +124,7 @@ struct ModeMenu: View {
     private func pick(_ m: ChatMode) {
         guard m != current else { return }
         withAnimation(.snappy) { mode = m.rawValue }
-        model.toast(m == .cloud ? "Private Cloud: checked enclave on NEAR AI" : "On-device: nothing leaves \(Device.here)")
+        model.toast(m == .cloud ? "Private Cloud on. The enclave is checked before every message" : "On-device: nothing leaves \(Device.here)")
     }
 }
 
@@ -150,7 +158,10 @@ struct CloudPrompt: View {
                     in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
         .onTapGesture { if let p = status.proof { proof = p } }
-        .task { if status.preflight == nil { await status.check() } }
+        .task {
+            if let note = await status.loadModels() { model.toast(note) }
+            if status.preflight == nil { await status.check() }
+        }
         .sheet(item: $proof) { ProofSheet(proof: $0) }
         #if DEBUG
         .onChange(of: status.proof?.id) { _, _ in if let p = status.proof, DebugLaunch.take("proof") { proof = p } }
@@ -166,6 +177,7 @@ struct CloudPrompt: View {
         case .done:
             guard let p = status.preflight else { return "" }
             if !p.passed { return "The enclave's evidence failed a check. Nothing will be sent." }
+            if !p.gpuVerdicts { return "NVIDIA's verdict on the GPUs didn't come back. Nothing is sent until it does." }
             return status.hasKey ? "\(name) in an enclave \(Device.here) just verified" : "Enclave verified, no key needed for that. Chat needs a NEAR AI Cloud key."
         }
     }

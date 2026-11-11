@@ -11,6 +11,9 @@ struct CloudSettings: View {
     @State private var status = CloudStatus.shared
     @State private var draft = ""
     @State private var proof: CloudProof?
+    /// The key is being checked with NEAR before it's saved; why it wasn't saved.
+    @State private var checkingKey = false
+    @State private var keyError: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -41,7 +44,7 @@ struct CloudSettings: View {
             NoteBox(symbol: "lock", text: "Hermit has no server. The chat stays on \(Device.here); the prompt leaves it only to the attested enclave, over HTTPS. Money actions from the cloud model only prepare a review: you approve with \(Device.bio), as always.")
                 .padding(.top, 18)
         }
-        .task { await status.loadModels() }
+        .task { if let note = await status.loadModels() { model.toast(note) } }
         .task { if status.preflight == nil { await status.check() } }
         .onChange(of: status.model) { Task { await status.check() } }
         .sheet(item: $proof) { ProofSheet(proof: $0) }
@@ -75,8 +78,12 @@ struct CloudSettings: View {
                             .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))
                             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(focused ? Theme.faint : Theme.border))
                             .onSubmit(save)
+                        if checkingKey { ProgressView().controlSize(.small) }
                         Button("Save", action: save).buttonStyle(BlackButton())
-                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+                            .disabled(checkingKey || draft.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+                    }
+                    if let keyError {
+                        Text(keyError).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 14) {
                         Button("Get a key") { openURL(NearAICloud.dashboard) }.buttonStyle(.plain)
@@ -106,15 +113,29 @@ struct CloudSettings: View {
         case .done:
             guard let p = status.preflight else { return "" }
             let n = p.checks.filter { $0.status == .pass }.count
+            if p.passed && !p.gpuVerdicts { return "NVIDIA's verdict on the GPUs didn't come back, so chat won't send yet. Check again in a moment." }
             return p.passed ? "Verified just now, no key needed: \(n) checks passed for the gateway and \(p.bundle.models.count == 1 ? "the model" : "\(p.bundle.models.count) model instances")"
                             : "Failed: \(p.checks.filter { $0.status == .fail }.map(\.title).prefix(2).joined(separator: ", "))"
         }
     }
 
+    /// Asks NEAR whether the key works before saving it, and only says it's saved once the Keychain has it.
     private func save() {
         let k = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard k.count >= 8 else { return }
-        status.setKey(k); draft = ""; focused = false
-        model.toast("Key saved on this device")
+        guard k.count >= 8, !checkingKey else { return }
+        checkingKey = true; keyError = nil
+        Task { @MainActor in
+            let check = await NearAICloud().checkKey(k)
+            checkingKey = false
+            if check == .rejected { keyError = "NEAR AI didn't accept this key. Check it and try again."; return }
+            status.setKey(k)
+            guard NearAICloud.ownKey == k else { keyError = "Couldn't save the key in the Keychain. Try again."; return }
+            draft = ""; focused = false
+            switch check {
+            case .valid: model.toast("Key saved on \(Device.here)")
+            case .noCredits: model.toast("Key saved. It has no credits left: add some at cloud.near.ai")
+            case .rejected, .unchecked: model.toast("Key saved, not checked yet")
+            }
+        }
     }
 }

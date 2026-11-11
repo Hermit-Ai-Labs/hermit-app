@@ -47,6 +47,13 @@ public final class EVMClient: Sendable {
         return b
     }
 
+    /// The deployed bytecode at an address; empty for an account with no contract.
+    public func getCode(_ a: EVMAddress, block: String = "latest") async throws -> [UInt8] {
+        let r = try await rpc.call("eth_getCode", [.string(a.checksummed), .string(block)])
+        guard let s = r.string, let b = [UInt8](hex: s) else { throw WalletError.badResponse("eth_getCode") }
+        return b
+    }
+
     public func tokenBalance(token: EVMAddress, owner: EVMAddress, block: String = "latest") async throws -> UInt128 {
         let out = try await call(to: token, data: ERC20.balanceOf(owner), block: block)
         guard out.count == 32, let v = UInt128(bigEndian: out) else { throw WalletError.badResponse("balanceOf") }

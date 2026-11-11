@@ -41,8 +41,9 @@ public struct WalletRecord: Codable, Identifiable, Hashable, Sendable {
 ///   app's Application Support folder (the sandbox container on the Mac). No Keychain is involved, so this works in a
 ///   Developer ID build without a provisioning profile. The enclave can't do secp256k1 or ed25519, hence the wrap.
 /// - `.keychain`: no Secure Enclave. On iOS (the simulator) the entropy is a data-protection Keychain item guarded by
-///   `.userPresence`. On a Mac without an enclave it is a login-keychain item limited to this app, and the Touch ID /
-///   password check before reading it is enforced by the app, not by hardware. Weaker; the label says so.
+///   `.userPresence`. On a Mac without an enclave it goes to the data-protection keychain with `.userPresence` too when
+///   the build allows it (a provisioned build); otherwise it is a login-keychain item limited to this app, and the
+///   Touch ID / password check before reading it is enforced by the app, not by hardware. Weaker; the label says so.
 /// - `.memoryOnly`: tests only. Nothing touches disk.
 public protocol SealedStore: Sendable {
     var protection: KeyVault.Protection { get }
@@ -353,18 +354,19 @@ class KeychainBase: @unchecked Sendable {
     #endif
     init(service: String) { self.service = service }
 
-    func baseQuery(_ account: String) -> [String: Any] {
+    /// `dataProtection` picks the keychain: the platform default, or a Mac opting one item into the data-protection one.
+    func baseQuery(_ account: String, dataProtection: Bool = KeychainBase.dataProtection) -> [String: Any] {
         var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
-        if Self.dataProtection { q[kSecUseDataProtectionKeychain as String] = true }
+        if dataProtection { q[kSecUseDataProtectionKeychain as String] = true }
         return q
     }
 
-    func put(_ data: Data, account: String, access: SecAccessControl? = nil) throws {
-        SecItemDelete(baseQuery(account) as CFDictionary)
-        var q = baseQuery(account)
+    func put(_ data: Data, account: String, access: SecAccessControl? = nil, dataProtection: Bool = KeychainBase.dataProtection) throws {
+        SecItemDelete(baseQuery(account, dataProtection: dataProtection) as CFDictionary)
+        var q = baseQuery(account, dataProtection: dataProtection)
         q[kSecValueData as String] = data
-        if Self.dataProtection {
+        if dataProtection {
             if let access { q[kSecAttrAccessControl as String] = access } else {
                 q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             }
@@ -373,11 +375,11 @@ class KeychainBase: @unchecked Sendable {
         guard st == errSecSuccess else { throw keychainError(st, "save") }
     }
 
-    func get(_ account: String, context: LAContext? = nil) throws -> Data? {
-        var q = baseQuery(account)
+    func get(_ account: String, context: LAContext? = nil, dataProtection: Bool = KeychainBase.dataProtection) throws -> Data? {
+        var q = baseQuery(account, dataProtection: dataProtection)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
-        if let context, Self.dataProtection { q[kSecUseAuthenticationContext as String] = context }
+        if let context, dataProtection { q[kSecUseAuthenticationContext as String] = context }
         var out: CFTypeRef?
         let st = SecItemCopyMatching(q as CFDictionary, &out)
         if st == errSecItemNotFound { return nil }
@@ -385,7 +387,9 @@ class KeychainBase: @unchecked Sendable {
         return out as? Data
     }
 
-    func del(_ account: String) { SecItemDelete(baseQuery(account) as CFDictionary) }
+    func del(_ account: String, dataProtection: Bool = KeychainBase.dataProtection) {
+        SecItemDelete(baseQuery(account, dataProtection: dataProtection) as CFDictionary)
+    }
 
     func loadIndex() -> Data? { try? get("index") }
     func saveIndex(_ data: Data) throws { try put(data, account: "index") }
@@ -396,13 +400,38 @@ final class KeychainStore: KeychainBase, SealedStore, @unchecked Sendable {
     var protection: KeyVault.Protection { .keychain }
 
     func seal(_ secret: [UInt8], id: UUID) throws {
-        var access: SecAccessControl?
+        let account = "seed.\(id.uuidString)"
+        var err: Unmanaged<CFError>?
+        let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .userPresence, &err)
         if Self.dataProtection {
-            var err: Unmanaged<CFError>?
-            access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .userPresence, &err)
-            guard access != nil else { throw WalletError.vault("Couldn't set up key protection.") }
+            guard let access else { throw WalletError.vault("Couldn't set up key protection.") }
+            try put(Data(secret), account: account, access: access)
+            return
         }
-        try put(Data(secret), account: "seed.\(id.uuidString)", access: access)
+        // A Mac: try the data-protection keychain with .userPresence, so the keychain itself asks for Touch ID or the
+        // password. It needs a provisioned build; without one (errSecMissingEntitlement) the login keychain, as before.
+        if let access {
+            do {
+                try put(Data(secret), account: account, access: access, dataProtection: true)
+                del(account, dataProtection: false)
+                return
+            } catch {
+                del(account, dataProtection: true)
+            }
+        }
+        try put(Data(secret), account: account)
+    }
+
+    /// The seed item. iOS has one keychain; a Mac looks in the data-protection keychain first, then the login keychain.
+    private func readSeed(_ account: String, context: LAContext) throws -> Data? {
+        if Self.dataProtection { return try get(account, context: context) }
+        var protectedError: Error?
+        do {
+            if let d = try get(account, context: context, dataProtection: true) { return d }
+        } catch { protectedError = error }
+        if let d = try get(account, context: context) { return d }
+        if let protectedError { throw protectedError }
+        return nil
     }
 
     func open(id: UUID, reason: String) async throws -> SecretBytes {
@@ -414,7 +443,7 @@ final class KeychainStore: KeychainBase, SealedStore, @unchecked Sendable {
         return try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    guard let d = try self.get("seed.\(id.uuidString)", context: ctxBox.value) else {
+                    guard let d = try self.readSeed("seed.\(id.uuidString)", context: ctxBox.value) else {
                         throw WalletError.vault("This wallet's key is missing.")
                     }
                     var b = [UInt8](d); let s = SecretBytes(b); b.wipe()
@@ -424,7 +453,10 @@ final class KeychainStore: KeychainBase, SealedStore, @unchecked Sendable {
         }
     }
 
-    func remove(id: UUID) throws { del("seed.\(id.uuidString)") }
+    func remove(id: UUID) throws {
+        del("seed.\(id.uuidString)")
+        if !Self.dataProtection { del("seed.\(id.uuidString)", dataProtection: true) }
+    }
 }
 
 struct UncheckedBox<T>: @unchecked Sendable { let value: T; init(_ v: T) { value = v } }

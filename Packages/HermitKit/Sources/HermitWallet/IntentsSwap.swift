@@ -107,8 +107,13 @@ extension WalletService {
                                   detail: "Made for this quote only. 1Click watches it and swaps what arrives."))
         checks.append(quote.signatureValid
             ? HazardCheck(title: "Quote signed by 1Click", status: .pass, detail: "Ed25519 signature checked against 1Click's key.")
-            : HazardCheck(title: "Quote signature not confirmed", status: .warn, detail: "Fetched from 1Click over HTTPS, but its signature didn't check out here."))
+            : HazardCheck(title: "Quote signature not confirmed", status: .warn,
+                          detail: "Fetched from 1Click over HTTPS, but its signature didn't check out here. Check the amount and the deposit address before you approve."))
         checks.append(HazardCheck(title: "Refunds come back to you", status: .pass, detail: "If solvers can't fill it, 1Click refunds \(Self.short(quote.request.refundTo))."))
+        if quote.request.originAsset == IntentsAssets.wrappedNear || quote.request.destinationAsset == IntentsAssets.wrappedNear {
+            checks.append(HazardCheck(title: "Moves as wNEAR", status: .pass,
+                                      detail: "NEAR Intents carries NEAR as the token wNEAR (wrap.near), so 1Click and the explorer name it that."))
+        }
         return (p.with(checks: checks, recipientInput: "1Click deposit"), verdict)
     }
 
@@ -118,13 +123,21 @@ extension WalletService {
         guard let deposit = quote.depositAddress else { throw WalletError.blocked("No deposit address.") }
         var tracked = TrackedSwap(depositAddress: deposit, depositMemo: quote.depositMemo, walletID: p.walletID, from: from, to: to,
                                   fromChainID: p.chain.id, toPlaceName: toPlace.name, deadline: quote.deadline)
-        let receipt = try await execute(p)
-        tracked.txHash = receipt.hash
+        // Broadcast but not confirmed in time: the deposit may still land, so it is tracked and 1Click told all the same,
+        // then the pending error goes up so the user doesn't send it again.
+        let hash: String
+        var pendingError: WalletError? = nil
+        do { hash = try await execute(p).hash } catch WalletError.pending(let h, let explorer) {
+            hash = h
+            pendingError = .pending(hash: h, explorer: explorer)
+        }
+        tracked.txHash = hash
         Self.intentsLedger.upsert(tracked)
-        if p.usdValue == nil, let usd = quote.amountInUSD { spendLimit.record(usd: Decimal(usd)) }   // stables are counted by execute
+        if p.usdValue == nil, let usd = quote.amountInUSD { spendLimit.record(usd: Decimal(usd)) }   // priced coins are counted by execute
         let sender = p.chain.kind == .near ? wallets.first { $0.id == p.walletID }?.nearAccount : nil
-        try? await oneClick.submitDeposit(txHash: receipt.hash, depositAddress: deposit, nearSender: sender, memo: quote.depositMemo)
-        return receipt.hash
+        try? await oneClick.submitDeposit(txHash: hash, depositAddress: deposit, nearSender: sender, memo: quote.depositMemo)
+        if let pendingError { throw pendingError }
+        return hash
     }
 
     /// Reads the status once and stores it in the ledger.

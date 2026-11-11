@@ -299,6 +299,32 @@ final class SolanaDappTests: XCTestCase {
         XCTAssertNil(d.sites.site(jup))
     }
 
+    /// A sign-only request (the site broadcasts it itself) counts toward the daily limit, so repeating it can't get around it.
+    func testSignOnlyTransactionCountsTowardDailyLimit() async throws {
+        let (s, p, d) = try setup()
+        let key = SolanaPublicKey(s.wallets[0].solanaAddress)!
+        p.approve = [true]
+        _ = try await call(d, "sol_connect").get()
+        s.spendLimit.dailyLimitUSD = 200
+        // 1 SOL at the test price of $150 is 75% of the limit. The made-up blockhash means simulation fails (or can't run),
+        // so the policy prices the decoded transfer.
+        let tx = try legacy([.transfer(from: key, to: other, lamports: 1_000_000_000)], payer: key)
+        let params: JSON = ["transaction": .string(Data(tx.serialized).base64EncodedString())]
+        p.approve = [true]
+        let first = await call(d, "sol_signTransaction", params)
+        guard case .success = first else { return XCTFail("first request should be signed: \(first)") }
+        XCTAssertEqual(s.spendLimit.spentLast24h(), 150)
+        // The second one is over what is left and never reaches a sheet.
+        let shown = p.shown.count
+        p.approve = [true]
+        let second = await call(d, "sol_signTransaction", params)
+        guard case .failure(let e) = second else { return XCTFail("second request should be blocked") }
+        XCTAssertEqual(e.code, 4001)
+        XCTAssertTrue(e.message.contains("spending policy"), e.message)
+        XCTAssertEqual(p.shown.count, shown)
+        XCTAssertEqual(s.spendLimit.spentLast24h(), 150)
+    }
+
     /// Live (HERMIT_LIVE=1): a fresh empty wallet signs-and-sends 0.001 SOL to itself on devnet with a real blockhash.
     /// The review simulates it on devnet and the sheet is cancelled, so nothing is signed or sent.
     func testLiveCancelledSignAndSendOnDevnet() async throws {

@@ -1,10 +1,11 @@
 import SwiftUI
 import Observation
+import HermitWallet
 
 // Payments: the payees you save and the payments you schedule, kept on this device. Nothing here moves money
-// yet: paying needs the wallet, and sending from Hermit is not live, so Pay now stays greyed out.
+// itself: Pay now and Transfer open the wallet's Send filled in, which reviews, scans and asks for Face ID.
 
-/// Someone you pay: a name and where the money goes (an address or ENS name).
+/// Someone you pay: a name and where the money goes (an address, an ENS name or a NEAR account).
 struct Payee: Identifiable, Hashable, Codable {
     var id = UUID()
     var name: String
@@ -28,8 +29,17 @@ struct ScheduledPayment: Identifiable, Hashable, Codable {
     var next: Date
     var repeats: PayRepeat
     var paused = false
+    // Added later, so optional: payments.json files saved before them still decode.
+    /// The saved payee this pays. Editing that payee updates `payee` and `addr` here too (see PaymentsStore.save).
+    var payeeID: UUID? = nil
+    /// The amount exactly as typed and checked ("1200.50"), what Send gets. `amount` is for display and totals.
+    var exact: String? = nil
+    /// When Pay now last went through for this payment.
+    var lastPaid: Date? = nil
 
     var due: Bool { !paused && next < Date() }
+    /// The decimal string Send is filled in with.
+    var sendAmount: String { exact ?? PayAmount.plain(amount) }
     var amountText: String { "\(PayFormat.amount(amount).replacingOccurrences(of: "$", with: "")) \(token)" }
     var whenText: String {
         if paused { return "Paused" }
@@ -77,7 +87,10 @@ enum PaymentsData {
     ]
     static let apiCategories = ["All", "AI", "Search", "Data", "Crypto"]
 
-    static let tokens = ["USDC", "USDT", "ETH", "SOL"]
+    /// What Payments can send. The network follows the address and the token (see `payChain`).
+    static let tokens = ["USDC", "USDT", "ETH", "SOL", "NEAR"]
+    /// Counted in dollars in the next-7-days chart.
+    static let usdTokens: Set<String> = ["USDC", "USDT"]
 
     /// "Explore more services" under APIs: asking Hermit about one of them.
     static var moreServices: [PayMoreItem] {
@@ -106,19 +119,36 @@ final class PaymentsStore {
 
     init() {
         let saved = LocalJSON.load("payments.json", as: Saved.self)
-        payees = saved?.payees ?? []
-        schedule = saved?.schedule ?? []
+        let payees = saved?.payees ?? []
+        self.payees = payees
+        // Payments saved before payee links existed: link the ones whose payee still has the same name and address.
+        schedule = (saved?.schedule ?? []).map { s in
+            guard s.payeeID == nil, let p = payees.first(where: { $0.name == s.payee && $0.addr == s.addr }) else { return s }
+            var linked = s
+            linked.payeeID = p.id
+            return linked
+        }
     }
 
     /// Soonest first.
     var upcoming: [ScheduledPayment] { schedule.sorted { $0.next < $1.next } }
 
-    /// Amount due on each of the next 7 days, starting today (USD-pegged tokens only).
+    /// Amount due on each of the next 7 days, starting today (USD-pegged tokens only). Today also counts what is overdue.
     var next7Days: [Double] {
-        (0..<7).map { i in
+        let usd = schedule.filter { PaymentsData.usdTokens.contains($0.token) }
+        return (0..<7).map { i in
             let d = CalendarData.day(i)
-            return schedule.filter { ["USDC", "USDT"].contains($0.token) }
-                .reduce(0) { $0 + ($1.dates(from: d, to: CalendarData.day(i + 1)).isEmpty ? 0 : $1.amount) }
+            return usd.reduce(0) { sum, p in
+                let on = !p.dates(from: d, to: CalendarData.day(i + 1)).isEmpty || (i == 0 && p.due)
+                return sum + (on ? p.amount : 0)
+            }
+        }
+    }
+
+    /// True when a payment in another token (ETH, SOL, NEAR) falls in the next 7 days, so the chart leaves it out.
+    var next7LeavesOut: Bool {
+        schedule.contains { p in
+            !PaymentsData.usdTokens.contains(p.token) && (p.due || !p.dates(from: CalendarData.day(0), to: CalendarData.day(7)).isEmpty)
         }
     }
 
@@ -134,6 +164,7 @@ final class PaymentsStore {
     }
 
     func payee(named name: String) -> Payee? { payees.first { $0.name.caseInsensitiveCompare(name) == .orderedSame } }
+    func payee(id: UUID?) -> Payee? { id.flatMap { id in payees.first { $0.id == id } } }
 
     func save(_ p: ScheduledPayment) {
         withAnimation(.snappy) {
@@ -149,11 +180,46 @@ final class PaymentsStore {
 
     func removePayment(_ id: UUID) { withAnimation(.snappy) { schedule.removeAll { $0.id == id } }; persist() }
 
+    /// Pay now went through: a one-off payment is done and leaves the list; a repeating one moves on one period.
+    func markPaid(_ id: UUID) {
+        guard let i = schedule.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(.snappy) {
+            switch schedule[i].repeats {
+            case .once:
+                schedule.remove(at: i)
+            case .weekly:
+                schedule[i].lastPaid = Date()
+                schedule[i].next = CalendarData.add(schedule[i].next, days: 7)
+            case .monthly:
+                schedule[i].lastPaid = Date()
+                schedule[i].next = CalendarData.cal.date(byAdding: .month, value: 1, to: schedule[i].next) ?? CalendarData.add(schedule[i].next, days: 30)
+            }
+        }
+        persist()
+    }
+
+    /// Saves a payee, updates every scheduled payment linked to it (so a fixed address fixes the schedule too), and
+    /// saves the address in the wallet's address book, which starts its 24-hour hold and makes it usable with
+    /// Whitelist only. ENS names stay out of the wallet's list: it only takes exact addresses.
     func save(_ p: Payee) {
         withAnimation(.snappy) {
             if let i = payees.firstIndex(where: { $0.id == p.id }) { payees[i] = p } else { payees.append(p) }
+            for i in schedule.indices where schedule[i].payeeID == p.id {
+                schedule[i].payee = p.name
+                schedule[i].addr = p.addr
+            }
         }
         persist()
+        if !SnapshotMode.active, let kind = Chain.kind(of: p.addr) {
+            WalletsViewModel.shared.addAddress(label: p.name, address: p.addr, kind: kind)
+        }
+    }
+
+    /// "Usable in Send in 5 h" while the wallet's 24-hour hold on this payee's address runs, else nil.
+    func holdText(_ p: Payee) -> String? {
+        guard let s = WalletsViewModel.shared.saved(p.addr), s.hold, let added = s.added else { return nil }
+        let hours = max(1, Int((added.addingTimeInterval(86_400).timeIntervalSinceNow / 3600).rounded(.up)))
+        return "Usable in Send in \(hours) h"
     }
 
     func removePayee(_ id: UUID) { withAnimation(.snappy) { payees.removeAll { $0.id == id } }; persist() }
@@ -167,4 +233,32 @@ enum PayFormat {
     }
     /// $0.41 for small amounts, $1,200 otherwise.
     static func amount(_ v: Double) -> String { v < 1 ? usd(v, 2) : usd(v, v.rounded() == v ? 0 : 2) }
+}
+
+/// Typed amounts. Commas only count as thousands separators ("1,200.50"); "1,5" is refused rather than read as 15.
+enum PayAmount {
+    /// The exact decimal string for a positive typed amount ("1,200.50" -> "1200.50", ".5" -> "0.5"), or nil.
+    static func exact(_ raw: String) -> String? {
+        guard let s = wellFormed(raw), let d = Decimal(string: s, locale: Locale(identifier: "en_US_POSIX")), d > 0 else { return nil }
+        return s
+    }
+    static func value(_ raw: String) -> Double? { exact(raw).flatMap { Double($0) } }
+    /// Why an amount can't be used, for the line under the field. nil when it is empty, zero or half typed ("0."), or fine.
+    static func problem(_ raw: String) -> String? {
+        if raw.trimmingCharacters(in: .whitespaces).isEmpty || wellFormed(raw) != nil { return nil }
+        return raw.contains(",") && !raw.contains(".") ? "Use a dot for decimals, like 1.5" : "Enter an amount, like 25 or 1,200.50"
+    }
+    /// Digits, optional thousands commas and one decimal dot, cleaned to "1200.50". nil for anything else.
+    private static func wellFormed(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, t.range(of: #"^(\d{1,3}(,\d{3})+|\d*)(\.\d*)?$"#, options: .regularExpression) != nil else { return nil }
+        var s = t.replacingOccurrences(of: ",", with: "")
+        if s.hasSuffix(".") { s.removeLast() }
+        if s.hasPrefix(".") { s = "0" + s }
+        return s.isEmpty ? nil : s
+    }
+    /// A stored amount as a plain decimal string ("2400", "0.005"): no grouping, no exponent.
+    static func plain(_ v: Double) -> String {
+        v.formatted(.number.grouping(.never).precision(.fractionLength(0...9)).locale(Locale(identifier: "en_US_POSIX")))
+    }
 }

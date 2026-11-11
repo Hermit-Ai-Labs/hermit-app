@@ -38,6 +38,69 @@ final class BatchAaveTests: XCTestCase {
         XCTAssertTrue(AaveV3.tokens(on: .polygon).isEmpty, "no Aave pool configured there")
     }
 
+    func testAavePoolAddresses() {
+        // Checked against PoolAddressesProvider.getPool() on each network; a wrong one is an empty account where deposits "succeed".
+        XCTAssertEqual(AaveV3.pools, [
+            "ethereum": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+            "base": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+            "arbitrum": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+        ])
+        for c in [Chain.ethereum, Chain.base, Chain.arbitrum] { XCTAssertNotNil(AaveV3.pool(on: c), "\(c.id) pool must pass its checksum") }
+    }
+
+    /// Native coins count toward the daily limit at their price, stablecoins at face value, and an unpriced send says so.
+    @MainActor func testDailyLimitCountsPricedCoins() {
+        let d = UserDefaults(suiteName: "hermit.wallet.tests.\(UUID())")!
+        let svc = WalletService(vault: KeyVault(store: HermitWallet.MemoryStore()), addressBook: AddressBook(defaults: d),
+                                spendLimit: SpendLimit(defaults: d), sendLog: SendLog(defaults: d))
+        let to = "0x1111111111111111111111111111111111111111"
+        func limitCheck(_ chain: Chain, _ token: Token?, _ value: UInt128, usd: Decimal?) -> HazardCheck? {
+            svc.hazardChecks(chain: chain, token: token, value: value, recipient: to, simOK: true, simDetail: "", usd: usd)
+                .first { $0.title.lowercased().contains("daily limit") }
+        }
+        // 0.25 ETH priced at $600: over the default $500 limit, so the send is blocked.
+        XCTAssertEqual(limitCheck(.ethereum, nil, 250_000_000_000_000_000, usd: 600)?.status, .fail)
+        let ok = limitCheck(.ethereum, nil, 1_000_000_000_000_000, usd: Decimal(string: "2.4")!)
+        XCTAssertEqual(ok?.status, .pass)
+        XCTAssertEqual(ok?.detail, "$497.60 of $500 left today after this.")
+        // Stablecoins still count at face value without a price.
+        XCTAssertEqual(limitCheck(.base, Chain.base.token("USDC"), 1_250_000, usd: nil)?.detail, "$498.75 of $500 left today after this.")
+        // No price: a warning, never a silent pass.
+        XCTAssertEqual(limitCheck(.ethereum, nil, 1, usd: nil)?.status, .warn)
+    }
+
+    func testPendingSendSaysNotToResend() {
+        let e = WalletError.pending(hash: "0xabc", explorer: "https://basescan.org/tx/0xabc")
+        XCTAssertTrue(e.errorDescription?.contains("don't send it again") == true)
+        XCTAssertTrue(e.errorDescription?.contains("0xabc") == true)
+    }
+
+    func testRateLimitBackoff() {
+        XCTAssertEqual(JSONRPCClient.retrySeconds(retryAfter: "2", reset: nil, attempt: 1), 2)
+        XCTAssertEqual(JSONRPCClient.retrySeconds(retryAfter: nil, reset: "8", attempt: 1), 5, "capped at 5 s")
+        // An HTTP-date Retry-After isn't read: the growing pause applies.
+        XCTAssertEqual(JSONRPCClient.retrySeconds(retryAfter: "Wed, 21 Oct 2026 07:28:00 GMT", reset: nil, attempt: 3), 1.5)
+        XCTAssertEqual(JSONRPCClient.maxRetries, 4)
+    }
+
+    /// When CoinGecko fails, prices come from 1Click's token list, matched by chain (a look-alike elsewhere is ignored).
+    func testIntentsPriceFallback() throws {
+        let json = """
+        [{"assetId":"nep141:eth.omft.near","decimals":18,"blockchain":"eth","symbol":"ETH","price":2400.5,"contractAddress":null},
+         {"assetId":"nep141:wrap.near","decimals":24,"blockchain":"near","symbol":"wNEAR","price":2.1,"contractAddress":"wrap.near"},
+         {"assetId":"nep141:pol.omft.near","decimals":18,"blockchain":"pol","symbol":"POL","price":0.0877,"contractAddress":null},
+         {"assetId":"nep141:fake.omft.near","decimals":18,"blockchain":"base","symbol":"SOL","price":99999,"contractAddress":"0x1234"}]
+        """
+        let list = try JSONDecoder().decode([IntentsToken].self, from: Data(json.utf8))
+        let q = PriceFeed.quotes(fromIntents: list)
+        XCTAssertEqual(q["ETH"]?.usd, 2400.5)
+        XCTAssertEqual(q["POL"]?.usd, 0.0877)
+        XCTAssertEqual(q["NEAR"]?.usd, 2.1)
+        XCTAssertEqual(q["wNEAR"]?.usd, 2.1)
+        XCTAssertNil(q["SOL"])
+        XCTAssertNil(q["ETH"]?.change24h)
+    }
+
     @MainActor func testBatchRejectsNonEVM() async {
         let svc = WalletService(vault: KeyVault(store: HermitWallet.MemoryStore()))
         _ = try? svc.importWallet(phrase: Array(repeating: "abandon", count: 11).joined(separator: " ") + " about", name: "T")

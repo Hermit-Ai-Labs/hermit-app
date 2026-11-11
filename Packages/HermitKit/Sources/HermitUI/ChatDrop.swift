@@ -9,7 +9,9 @@ struct ChatDropTarget: ViewModifier {
     func body(content: Content) -> some View {
         content
             .dropDestination(for: URL.self) { urls, _ in
-                guard let u = urls.first(where: \.isFileURL) else { return false }
+                let pick = DropPick.file(from: urls)
+                if let note = pick.note { model.toast(note) }
+                guard let u = pick.url else { return false }
                 model.droppedFile = u
                 if model.route != .home { model.open(.home) }
                 return true
@@ -27,6 +29,21 @@ struct ChatDropTarget: ViewModifier {
                     .transition(.opacity)
                 }
             }
+    }
+}
+
+/// Which dropped item becomes the attachment. A message takes one file and a folder can't be attached, so say so
+/// instead of dropping the rest in silence.
+enum DropPick {
+    static func file(from urls: [URL]) -> (url: URL?, note: String?) {
+        let items = urls.filter(\.isFileURL)
+        func isFolder(_ u: URL) -> Bool { (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        let files = items.filter { !isFolder($0) }
+        guard let first = files.first else {
+            return (nil, items.isEmpty ? nil : "Folders can't be attached. Drop a file.")
+        }
+        if items.count > 1 { return (first, "Hermit takes one file per message. Attached \(first.lastPathComponent).") }
+        return (first, nil)
     }
 }
 

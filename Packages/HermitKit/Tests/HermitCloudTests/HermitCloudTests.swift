@@ -210,6 +210,81 @@ final class HermitCloudTests: XCTestCase {
         XCTAssertEqual(NearCloudAgent.clean("reasoning</think>Answer"), "Answer")
     }
 
+    func testCompletionReadsFinishReason() throws {
+        let raw = Data(#"{"id":"chatcmpl-1","choices":[{"index":0,"finish_reason":"length","message":{"role":"assistant","content":"The first half of"}}]}"#.utf8)
+        let c = try XCTUnwrap(NearCloudAgent.completion(raw))
+        XCTAssertEqual(c.id, "chatcmpl-1")
+        XCTAssertEqual(c.finish, "length")
+        XCTAssertEqual(c.message["content"] as? String, "The first half of")
+        XCTAssertNil(NearCloudAgent.completion(Data(#"{"choices":[]}"#.utf8)))
+    }
+
+    func testRequestBodyTurnsQwenReasoningOff() async throws {
+        let state = CloudState()
+        let qwenBody = try await state.body(model: "Qwen/Qwen3.8-27B", tools: nil)
+        let qwen = try XCTUnwrap(JSONSerialization.jsonObject(with: qwenBody) as? [String: Any])
+        XCTAssertEqual(qwen["max_tokens"] as? Int, 4096)
+        XCTAssertEqual((qwen["chat_template_kwargs"] as? [String: Any])?["enable_thinking"] as? Bool, false)
+        let glmBody = try await state.body(model: "z-ai/glm-5.3-flash", tools: nil)
+        let glm = try XCTUnwrap(JSONSerialization.jsonObject(with: glmBody) as? [String: Any])
+        XCTAssertNil(glm["chat_template_kwargs"], "other families use other switches")
+    }
+
+    func testMissingGPUVerdictBlocksSending() throws {
+        let (bundle, nonce, _) = try report("qwen-report")
+        let missing = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, nvidia: [0: (nil, "NVIDIA NRAS unreachable")], at: recorded)
+        XCTAssertEqual(missing.checks.first { $0.id == "model0.nras" }?.status, .skipped, "shown honestly as not checked")
+        XCTAssertTrue(missing.passed)
+        XCTAssertFalse(missing.gpuVerdicts, "but chat must not send")
+        let good = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, nvidia: [0: (true, "ok")], at: recorded)
+        XCTAssertTrue(good.passed && good.gpuVerdicts)
+    }
+
+    // NRAS tokens: signed here with a throwaway P-384 key published in a test key set.
+    func b64url(_ d: Data) -> String {
+        d.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+    func nrasToken(_ key: P384.Signing.PrivateKey, kid: String = "test-kid", claims: [String: Any]) throws -> String {
+        let header = b64url(try JSONSerialization.data(withJSONObject: ["alg": "ES384", "kid": kid, "typ": "JWT"]))
+        let body = b64url(try JSONSerialization.data(withJSONObject: claims))
+        let sig = try key.signature(for: Data((header + "." + body).utf8))
+        return header + "." + body + "." + b64url(sig.rawRepresentation)
+    }
+    func nrasKeys(_ key: P384.Signing.PrivateKey) throws -> Data {
+        let raw = key.publicKey.rawRepresentation
+        return try JSONSerialization.data(withJSONObject: ["keys": [["kty": "EC", "crv": "P-384", "kid": "test-kid",
+                                                                    "x": b64url(raw.prefix(48)), "y": b64url(raw.suffix(48))]]])
+    }
+
+    func testNRASTokenIsCheckedBeforeItsVerdict() throws {
+        let key = P384.Signing.PrivateKey()
+        let keys = try nrasKeys(key)
+        let nonce = AttestationVerifier.newNonce()
+        let now = Date()
+        let claims: [String: Any] = ["iss": "https://nras.attestation.nvidia.com", "x-nvidia-overall-att-result": true, "eat_nonce": nonce,
+                                     "nbf": Int(now.timeIntervalSince1970) - 10, "iat": Int(now.timeIntervalSince1970) - 10,
+                                     "exp": Int(now.timeIntervalSince1970) + 3600]
+        let good = try nrasToken(key, claims: claims)
+        XCTAssertTrue(NearAICloud.nrasVerdict(token: good, keys: keys, nonce: nonce, at: now).ok)
+        XCTAssertTrue(NearAICloud.nrasVerdict(token: good, keys: keys, nonce: nonce.uppercased(), at: now).ok, "hex compares case-insensitively")
+        // A token for another request's evidence can't be replayed.
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: good, keys: keys, nonce: AttestationVerifier.newNonce(), at: now).ok)
+        // Signed by a key that isn't in NVIDIA's set.
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: try nrasToken(P384.Signing.PrivateKey(), claims: claims), keys: keys, nonce: nonce, at: now).ok)
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: try nrasToken(key, kid: "other", claims: claims), keys: keys, nonce: nonce, at: now).ok)
+        // An edited payload no longer matches the signature.
+        var parts = good.split(separator: ".").map(String.init)
+        var edited = claims; edited["eat_nonce"] = AttestationVerifier.newNonce()
+        parts[1] = b64url(try JSONSerialization.data(withJSONObject: edited))
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: parts.joined(separator: "."), keys: keys, nonce: edited["eat_nonce"] as! String, at: now).ok)
+        // Expired, from another issuer, or a false verdict.
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: good, keys: keys, nonce: nonce, at: now.addingTimeInterval(7200)).ok)
+        var other = claims; other["iss"] = "https://example.com"
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: try nrasToken(key, claims: other), keys: keys, nonce: nonce, at: now).ok)
+        var no = claims; no["x-nvidia-overall-att-result"] = false
+        XCTAssertFalse(NearAICloud.nrasVerdict(token: try nrasToken(key, claims: no), keys: keys, nonce: nonce, at: now).ok)
+    }
+
     /// Live: fetch a fresh report and check it. Skipped unless HERMIT_LIVE=1 (needs network).
     func testLiveAttestation() async throws {
         guard ProcessInfo.processInfo.environment["HERMIT_LIVE"] == "1" else { throw XCTSkip("set HERMIT_LIVE=1") }

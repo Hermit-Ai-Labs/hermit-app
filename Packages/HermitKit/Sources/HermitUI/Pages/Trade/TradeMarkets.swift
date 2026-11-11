@@ -58,15 +58,28 @@ struct TradeTerminal: View {
     @State private var book: TradeData.Book?
     @State private var prints: [TradeData.Print] = []
     @State private var bookState: FeedState = .loading
+    /// When the book last arrived and how many polls in a row have failed since, so a frozen book isn't called live.
+    @State private var bookUpdated: Date?
+    @State private var bookFailures = 0
+    /// The TP and SL text the defaults last wrote: while the fields still hold them, a leverage change moves them too.
+    @State private var autoLevels = ""
 
     private var mkt: TradeData.Perp? { feed.perps[coin] }
     private var sym: String { coin.split(separator: ":").last.map(String.init) ?? coin }
     private var px: Double { mkt?.px ?? 0 }
     private var wide: Bool { width >= 760 }
-    private func parse(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: "")).flatMap { $0 > 0 ? $0 : nil } }
+    private func parse(_ s: String) -> Double? { TradeAmount.value(s).flatMap { $0 > 0 ? $0 : nil } }
     private var tp: Double? { parse(tpText) }
     private var sl: Double? { parse(slText) }
-    private var liq: Double { side == "long" ? px * (1 - 0.9 / lev) : px * (1 + 0.9 / lev) }
+    private var liq: Double { liqPrice(px, lev: lev, maxLev: mkt?.maxLev ?? 10) }
+    /// How far the price can move against an isolated position before liquidation: 1/leverage, less the maintenance
+    /// margin Hyperliquid keeps (half the initial margin at the market's top leverage). At 10x on a 10x market, 5%.
+    private func liqDistance(lev: Double, maxLev: Int) -> Double { max(0, 1 / max(lev, 1) - 0.5 / Double(max(maxLev, 1))) }
+    /// The same formula chat's prepare_trade uses (HermitToolbox.liquidation), so both show one estimate; for a short it
+    /// sits a little nearer than entry * (1 + distance).
+    private func liqPrice(_ p: Double, lev: Double, maxLev: Int) -> Double {
+        HermitToolbox.liquidation(entry: p, leverage: max(lev, 1), mm: 0.5 / Double(max(maxLev, 1)), long: side == "long")
+    }
     private var size: Double { margin * lev }
     /// The margin slider ends at what's on Hyperliquid, so it sits where your money is; $5,000 until that's known.
     private var marginTop: Double { hl.account != nil && hl.available >= 5 ? max(10, hl.available.rounded(.down)) : 5000 }
@@ -100,10 +113,11 @@ struct TradeTerminal: View {
             }
         }
         .tradeWidth($width)
-        .marketPoll(every: 15) { await feed.refreshPerps() }
-        .marketPoll(every: 30, id: coin + tf) { await loadCandles() }
-        .marketPoll(every: 5, id: coin) { await loadBook() }
+        .marketPollBackingOff(every: 15, id: 0) { await feed.refreshPerps(); return feed.perpFailures == 0 }
+        .marketPollBackingOff(every: 30, id: coin + tf) { await loadCandles() }
+        .marketPollBackingOff(every: 5, id: coin) { await loadBook() }
         .onChange(of: mkt?.px != nil, initial: true) { _, has in if has && defaultsFor != coin { setDefaults(side) } }
+        .onChange(of: lev) { _, _ in if tpText + "|" + slText == autoLevels { setDefaults(side) } }
         .onChange(of: tf) { candles = []; chartState = .loading; rangeLevels = [] }
     }
 
@@ -112,7 +126,7 @@ struct TradeTerminal: View {
     private var header: some View {
         let m = mkt
         let stats: [(String, String, Color)] = [
-            ("Mark", m.map { "$" + $0.px.tradePx } ?? "—", Theme.text),
+            (m != nil && feed.perpsStale ? "Mark, not updating" : "Mark", m.map { "$" + $0.px.tradePx } ?? "—", Theme.text),
             ("24h", m?.ch.tradePct ?? "—", (m?.ch ?? 0) >= 0 ? Theme.green : Theme.red),
             ("Volume", m?.vol.tradeCompactUSD ?? "—", Theme.text), ("Open interest", m?.oiUSD.tradeCompactUSD ?? "—", Theme.text),
             ("Funding / h", m.map { $0.fundPct.tradeTrim(4) + "%" } ?? "—", (m?.funding ?? 0) >= 0 ? Theme.green : Theme.red),
@@ -227,7 +241,7 @@ struct TradeTerminal: View {
             }
             Group {
                 if !candles.isEmpty {
-                    TradeCandleChart(data: candles, levels: levels, padTo: [tp, sl].compactMap { $0 })
+                    TradeCandleChart(data: candles, levels: levels, padTo: [tp, sl].compactMap { $0 }, rangeLabel: chartSpan)
                         .id(coin + tf)
                         .transition(.opacity)
                 } else if chartState == .failed {
@@ -242,28 +256,47 @@ struct TradeTerminal: View {
         }
     }
 
-    private func loadCandles() async {
+    /// What the candles on screen cover: "12 hours", "2 days".
+    private var chartSpan: String {
+        let t = TradeData.timeframes.first { $0.0 == tf } ?? TradeData.timeframes[1]
+        let seconds = Double(candles.count) * t.2, hours = Int((seconds / 3600).rounded())
+        if hours < 1 { return "\(Int(seconds / 60)) minutes" }
+        if hours < 48 { return hours == 1 ? "1 hour" : "\(hours) hours" }
+        return "\(hours / 24) days"
+    }
+
+    @discardableResult private func loadCandles() async -> Bool {
         let t = TradeData.timeframes.first { $0.0 == tf } ?? TradeData.timeframes[1]
         let want = coin + tf
         do {
             let c = try await TradeAPI.perpCandles(coin, interval: t.1, seconds: t.2)
-            guard want == coin + tf else { return }
+            guard want == coin + tf else { return true }
             candles = c; chartState = .ready
+            return true
         } catch {
             if candles.isEmpty { chartState = .failed }
+            return false
         }
     }
 
     // MARK: Order book and trades
 
-    private func loadBook() async {
+    @discardableResult private func loadBook() async -> Bool {
         let want = coin
         async let b = try? TradeAPI.book(want)
         async let p = try? TradeAPI.prints(want)
         let (bk, pr) = await (b, p)
-        guard want == coin else { return }
-        if let bk { book = bk; bookState = .ready } else if book == nil { bookState = .failed }
+        guard want == coin else { return true }
+        if let bk { book = bk; bookState = .ready; bookUpdated = Date(); bookFailures = 0 }
+        else { bookFailures += 1; if book == nil { bookState = .failed } }
         if let pr { prints = pr }
+        return bk != nil
+    }
+
+    /// "Live from Hyperliquid" while the book keeps arriving; after two misses in a row, how old it is.
+    private var bookSource: String {
+        if bookFailures >= 2, let u = bookUpdated { return "Not updating. Last update \(u.formatted(.relative(presentation: .named)))" }
+        return "Live from \(coin.hasPrefix("xyz:") ? "trade.xyz" : "Hyperliquid")"
     }
 
     private var bookPanel: some View {
@@ -271,7 +304,7 @@ struct TradeTerminal: View {
             HStack {
                 Segmented(options: [("book", "Order book"), ("trades", "Trades")], selection: $panel).fixedSize()
                 Spacer()
-                MarketSource(text: "Live from \(coin.hasPrefix("xyz:") ? "trade.xyz" : "Hyperliquid")")
+                MarketSource(text: bookSource)
             }
             VStack(spacing: 0) {
                 if let ob = book, !ob.asks.isEmpty, !ob.bids.isEmpty {
@@ -377,7 +410,7 @@ struct TradeTerminal: View {
             if lev > 10 {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle").font(.system(size: 13)).foregroundStyle(Theme.amber).padding(.top, 1)
-                    Text("A \(String(format: "%.1f", 90 / lev))% move against you liquidates you. 5x or less is safer.").font(.system(size: 13))
+                    Text("A \(String(format: "%.1f", liqDistance(lev: lev, maxLev: mkt?.maxLev ?? 10) * 100))% move against you liquidates you. 5x or less is safer.").font(.system(size: 13))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 10)
@@ -450,15 +483,33 @@ struct TradeTerminal: View {
     /// Builds the exact order, shows it on the review sheet, and signs + sends it only after Approve (Face ID).
     private func review() async {
         orderError = nil
-        guard let price = orderPrice, let trader = hl.trader() else { return }
+        guard orderPrice != nil, let trader = hl.trader() else { return }
         placing = true
         defer { placing = false }
+        // A market order prices off the mark: if the feed has stopped, get a fresh one or don't offer the order.
+        if type == "Market", feed.perpsStale {
+            await feed.refreshPerps()
+            if feed.perpsStale { orderError = "Prices from Hyperliquid aren't updating. Check your connection and try again."; return }
+        }
+        guard let price = orderPrice else { return }
         // Check the balance again right before review: never offer an order the account can't pay for.
         await hl.refresh()
         guard let acct = hl.account else { orderError = "Couldn't read your Hyperliquid balance. Try again."; return }
         guard acct.withdrawable >= margin else {
             orderError = "You have $\(acct.withdrawable.tradeGrouped(2)) on Hyperliquid; this order needs $\(margin.tradeGrouped()) of margin. Deposit USDC first."
             return
+        }
+        // In a standard account the main markets and trade.xyz each have their own balance; the order can only use its own.
+        let xyz = coin.hasPrefix("xyz:")
+        switch await hl.margin(dex: xyz ? "xyz" : nil) {
+        case .shared: break
+        case .unknown: orderError = "Couldn't read your \(xyz ? "trade.xyz" : "Hyperliquid") balance. Try again."; return
+        case .free(let free) where free < margin:
+            orderError = xyz
+                ? "trade.xyz markets have their own balance on Hyperliquid: $\(free.tradeGrouped(2)) there, and this order needs $\(margin.tradeGrouped()) of margin. Moving USDC to trade.xyz from Hermit is coming soon."
+                : "You have $\(free.tradeGrouped(2)) free on Hyperliquid's main markets; this order needs $\(margin.tradeGrouped()) of margin. Deposit USDC first."
+            return
+        case .free: break
         }
         guard let asset = await hl.asset(coin) else { orderError = "\(sym) isn't tradable on Hyperliquid right now."; return }
         let isBuy = side == "long"
@@ -469,13 +520,27 @@ struct TradeTerminal: View {
         let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: limit, size: size, tif: type == "Limit" ? .gtc : .ioc,
                                       takeProfit: tp, stopLoss: sl)
         let leverage = min(Int(lev), asset.maxLeverage)
+        let estLiq = liqPrice(price, lev: Double(leverage), maxLev: asset.maxLeverage)
+        // A stop on the wrong side fires at once; one past liquidation never fires at all.
+        if let sl {
+            if isBuy ? sl >= price : sl <= price {
+                orderError = "The stop loss has to be \(isBuy ? "below" : "above") the price for a \(isBuy ? "long" : "short")."; return
+            }
+            if isBuy ? sl <= estLiq : sl >= estLiq {
+                orderError = "The stop loss at $\(sl.tradePx) is past the estimated liquidation price, $\(estLiq.tradePx). Move it closer or lower the leverage."
+                return
+            }
+        }
+        if let tp, isBuy ? tp <= price : tp >= price {
+            orderError = "The take profit has to be \(isBuy ? "above" : "below") the price for a \(isBuy ? "long" : "short")."; return
+        }
         var lines: [[String]] = [
             ["Market", "\(sym) perp on \(coin.hasPrefix("xyz:") ? "trade.xyz" : "Hyperliquid")"],
             ["Side", isBuy ? "Long" : "Short"],
             ["Size", "\(Hyperliquid.wire(size)) \(sym), about $\((size * price).tradeGrouped())"],
             ["Margin", "$\(margin.tradeGrouped()) at \(leverage)x"],
             [type == "Limit" ? "Limit price" : "Worst price", "$" + limit.tradePx],
-            ["Liquidation, est.", "$" + liq.tradePx],
+            ["Liquidation, est.", "$" + estLiq.tradePx],
         ]
         if let tp { lines.append(["Take profit", "$" + tp.tradePx]) }
         if let sl { lines.append(["Stop loss", "$" + sl.tradePx]) }
@@ -557,10 +622,13 @@ struct TradeTerminal: View {
 
     /// Starting TP and SL around the live mark price, so the chart lines land somewhere sensible.
     private func setDefaults(_ s: String) {
-        guard px > 0 else { tpText = ""; slText = ""; return }
-        func raw(_ v: Double) -> String { v.formatted(.number.grouping(.never).precision(.fractionLength(0...max(0, px.tradeDecimals)))) }
-        tpText = raw(px * (s == "long" ? 1.08 : 0.92))
-        slText = raw(px * (s == "long" ? 0.95 : 1.05))
+        guard px > 0 else { tpText = ""; slText = ""; autoLevels = ""; return }
+        func raw(_ v: Double) -> String { TradeAmount.text(v, maxFraction: max(0, px.tradeDecimals)) }
+        // The stop sits well inside liquidation at this leverage (5% at most); take profit 1.6 times as far (8% at most).
+        let slDist = min(0.05, 0.6 * liqDistance(lev: lev, maxLev: mkt?.maxLev ?? 10)), tpDist = min(0.08, slDist * 1.6)
+        tpText = raw(px * (s == "long" ? 1 + tpDist : 1 - tpDist))
+        slText = raw(px * (s == "long" ? 1 - slDist : 1 + slDist))
+        autoLevels = tpText + "|" + slText
         defaultsFor = coin
     }
 
@@ -677,73 +745,20 @@ struct TradeMenuRow: ButtonStyle {
     }
 }
 
-// MARK: Token rows (spot and memes)
-
-/// One token: logo, name, mini candles, price and 24h change. The whole row selects it.
-struct TradeTokenRow<Trailing: View>: View {
-    let token: TradeData.Token
-    let selected: Bool
-    var showMini = true
-    let action: () -> Void
-    @ViewBuilder var trailing: () -> Trailing
-    private var feed: MarketFeed { .shared }
-
-    var body: some View {
-        let t = feed.tickers[token.sym]
-        Button(action: action) {
-            HStack(spacing: 12) {
-                MarketLogo(key: TradeData.logo(token.sym), name: token.sym)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(token.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text(t.map { "\(token.sym), \($0.vol.tradeCompactUSD) 24h" } ?? token.sym).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if showMini, let c = feed.minis[token.sym], c.count > 2 { TradeMiniCandles(data: c) }
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(t.map { "$" + $0.px.tradePx } ?? "—").font(.system(size: 14)).foregroundStyle(t == nil ? Theme.faint : Theme.text)
-                    Text(t?.ch.tradePct ?? "—").font(.system(size: 12.5)).foregroundStyle(t == nil ? Theme.faint : t!.ch >= 0 ? Theme.green : Theme.red)
-                }
-                .monospacedDigit().frame(minWidth: 76, alignment: .trailing)
-                trailing()
-            }
-            .padding(.vertical, 12)
-            .background(alignment: .leading) {
-                if selected { Capsule().fill(Theme.text).frame(width: 3, height: 22).offset(x: -10) }
-            }
-        }
-        .buttonStyle(TradeRowButton())
-    }
-}
-
-/// Quiet status for the shared ticker feed: loading, or failed with Retry, or the source once it's in.
-struct TradeTickerStatus: View {
-    private var feed: MarketFeed { .shared }
-    var body: some View {
-        if feed.tickers.isEmpty {
-            MarketStatus(kind: feed.tickerState == .failed ? .failed("Couldn't load prices") : .loading("Loading prices")) {
-                Task { await feed.refreshTickers() }
-            }
-        }
-    }
-}
-
 // MARK: Spot
 
 /// Spot on Solana: every liquid, verified token on Jupiter, bought from the wallet.
 struct TradeSpot: View { var body: some View { SolanaSwapScreen(memes: false) } }
 
-/// TradeRows wants Identifiable rows.
-struct TradeRowItem: Identifiable { var id: String { token.sym }; let token: TradeData.Token }
-
 // MARK: Memes
 
-/// Big meme coins with live prices; pick one for its candles and 24h range.
 /// Memes on Solana: Jupiter's verified meme coins, bought from the wallet.
 struct TradeMemes: View { var body: some View { SolanaSwapScreen(memes: true) } }
 
 // MARK: Predictions
 
-/// The busiest open Polymarket markets, with live odds.
+/// The busiest open Polymarket markets, with live odds. Read-only: a row opens the market on Polymarket, and betting
+/// from Hermit says Coming soon.
 struct TradePredictions: View {
     private var feed: MarketFeed { .shared }
 
@@ -756,10 +771,16 @@ struct TradePredictions: View {
                 case .loading: MarketStatus(kind: .loading("Loading markets"))
                 }
             }
-            TradeRows(data: feed.predictions) { m in row(m) }
+            TradeRows(data: feed.predictions) { m in
+                if let url = URL(string: "https://polymarket.com/event/\(m.slug)"), !m.slug.isEmpty {
+                    Link(destination: url) { row(m) }.buttonStyle(TradeRowButton())
+                } else {
+                    row(m)
+                }
+            }
             if !feed.predictions.isEmpty {
                 HStack {
-                    MarketSource(text: "Live odds from Polymarket, busiest first")
+                    MarketSource(text: "Live odds from Polymarket, busiest first. Tap one to open it on Polymarket. Betting from Hermit: Coming soon.")
                     Spacer()
                 }
                 .padding(.top, 8)
@@ -769,7 +790,9 @@ struct TradePredictions: View {
     }
 
     private func row(_ m: TradeData.Prediction) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        // Green and red only for Yes and No; two teams or names aren't good and bad.
+        let yesNo = m.outcomes.map { $0.lowercased() } == ["yes", "no"]
+        return HStack(alignment: .top, spacing: 12) {
             LogoMark("Polymarket", size: 30)
             VStack(alignment: .leading, spacing: 0) {
                 Text(m.q).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
@@ -779,14 +802,14 @@ struct TradePredictions: View {
                     Text("\(m.vol24.tradeCompactUSD) 24h").monospacedDigit()
                 }
                 .font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 4)
-                Capsule().fill(TradeColor.redSoft).frame(height: 6)
+                Capsule().fill(yesNo ? TradeColor.redSoft : Theme.hover).frame(height: 6)
                     .overlay(alignment: .leading) {
-                        Capsule().fill(Theme.green).scaleEffect(x: m.prices[0], anchor: .leading)
+                        Capsule().fill(yesNo ? Theme.green : Theme.text.opacity(0.55)).scaleEffect(x: m.prices[0], anchor: .leading)
                     }
                     .padding(.top, 8)
                 HStack(spacing: 14) {
-                    Text("\(m.outcomes[0]) \(cents(m.prices[0]))").foregroundStyle(Theme.green)
-                    Text("\(m.outcomes[1]) \(cents(m.prices[1]))").foregroundStyle(Theme.red)
+                    Text("\(m.outcomes[0]) \(cents(m.prices[0]))").foregroundStyle(yesNo ? Theme.green : Theme.text)
+                    Text("\(m.outcomes[1]) \(cents(m.prices[1]))").foregroundStyle(yesNo ? Theme.red : Theme.muted)
                 }
                 .font(.system(size: 13, weight: .medium)).monospacedDigit()
                 .padding(.top, 8)
@@ -842,7 +865,7 @@ struct TradeTypedValue: View {
     private func commit() {
         let t = text.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "").replacingOccurrences(of: "x", with: "")
             .trimmingCharacters(in: .whitespaces)
-        if let v = Double(t) { value = min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step)) }
+        if let v = TradeAmount.value(t) { value = min(range.upperBound, max(range.lowerBound, (v / step).rounded() * step)) }
         text = shown
     }
 }

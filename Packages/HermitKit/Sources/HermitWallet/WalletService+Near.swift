@@ -48,10 +48,11 @@ extension WalletService {
         guard let state = try await client.account(from) else {
             simOK = false
             simDetail = "This NEAR account isn't active yet. It starts once it receives NEAR (about 0.01 is enough)."
+            let usd = await usdEstimate(chain: chain, token: token, value: value)
             return PreparedSend(walletID: w.id, chain: chain, token: token, amount: value, recipientInput: input, recipient: to,
                                 networkFee: fee, checks: hazardChecks(chain: chain, token: token, value: value, recipient: to,
-                                                                      simOK: false, simDetail: simDetail),
-                                payload: .near(receiver: receiver, actions: actions))
+                                                                      simOK: false, simDetail: simDetail, usd: usd),
+                                payload: .near(receiver: receiver, actions: actions), usdEstimate: usd)
         }
         if state.available < attached + fee {
             simOK = false
@@ -64,10 +65,11 @@ extension WalletService {
         if token == nil, !NearAccount.isImplicit(to), try await client.account(to) == nil {
             simOK = false; simDetail = "\(to) doesn't exist on NEAR. Named accounts must be created first."
         }
-        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to, simOK: simOK, simDetail: simDetail)
+        let usd = await usdEstimate(chain: chain, token: token, value: value)
+        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to, simOK: simOK, simDetail: simDetail, usd: usd)
         return PreparedSend(walletID: w.id, chain: chain, token: token, amount: value, recipientInput: input.trimmingCharacters(in: .whitespaces),
                             recipient: to, networkFee: fee + (attached - (token == nil ? value : 0)), checks: checks,
-                            payload: .near(receiver: receiver, actions: actions))
+                            payload: .near(receiver: receiver, actions: actions), usdEstimate: usd)
     }
 
     /// Fresh nonce and block hash, Face ID, sign, verify our own signature, send, wait for execution.

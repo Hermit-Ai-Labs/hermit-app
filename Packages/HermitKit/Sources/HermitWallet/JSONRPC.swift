@@ -62,8 +62,9 @@ public final class JSONRPCClient: Sendable {
         while true {
             let (data, resp) = try await session.data(for: req)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 429, attempt < 3 { // public endpoints rate-limit: back off a little
-                attempt += 1; try await Task.sleep(for: .milliseconds(400 * attempt)); continue
+            if status == 429 { // public endpoints rate-limit: wait as long as they ask (capped), then try again
+                guard attempt < Self.maxRetries else { throw Self.busy }
+                attempt += 1; try await Task.sleep(for: .seconds(Self.retrySeconds(resp, attempt: attempt))); continue
             }
             guard (200..<300).contains(status) else { throw WalletError.rpc(code: status, message: "HTTP \(status) from \(url.host() ?? "node")") }
             let json = try JSONDecoder().decode(JSON.self, from: data)
@@ -73,5 +74,26 @@ public final class JSONRPCClient: Sendable {
             guard let result = json["result"] else { throw WalletError.badResponse(method) }
             return result
         }
+    }
+
+    /// Retries after an HTTP 429 before giving up.
+    static let maxRetries = 4
+    /// What a 429 that outlasted the retries says.
+    static let busy = WalletError.rpc(code: 429, message: "The network is busy. Try again in a few seconds.")
+
+    /// Seconds to wait before retry `attempt` (1-based) after a 429, plus a little jitter so parallel calls spread out.
+    static func retrySeconds(_ resp: URLResponse?, attempt: Int) -> Double {
+        let h = resp as? HTTPURLResponse
+        return retrySeconds(retryAfter: h?.value(forHTTPHeaderField: "Retry-After"),
+                            reset: h?.value(forHTTPHeaderField: "x-ratelimit-method-reset") ?? h?.value(forHTTPHeaderField: "x-ratelimit-reset"),
+                            attempt: attempt) + Double.random(in: 0...0.25)
+    }
+
+    /// The server's Retry-After (seconds) or rate-limit reset when it gives one, else a growing pause; never over 5 s.
+    static func retrySeconds(retryAfter: String?, reset: String?, attempt: Int) -> Double {
+        for header in [retryAfter, reset] {
+            if let v = header.flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }), v.isFinite, v >= 0 { return min(v, 5) }
+        }
+        return min(0.5 * Double(attempt), 5)
     }
 }

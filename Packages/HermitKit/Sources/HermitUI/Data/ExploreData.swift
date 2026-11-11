@@ -2,8 +2,9 @@ import SwiftUI
 import Observation
 
 // The Explore directory: apps and protocols worth knowing, newest and most used of the past year. The list itself is
-// editorial (name, category, chain, what it does). The only figures shown are TVL and its 7-day change from DefiLlama
-// (api.llama.fi/protocols), fetched live; apps DefiLlama doesn't track show none.
+// editorial (name, category, chain, what it does). The only figures shown are TVL from DefiLlama (api.llama.fi/tvl, one
+// small number per app) and its 7-day change (from api.llama.fi/protocols, ~9.5 MB, so at most once a day); apps
+// DefiLlama doesn't track show none.
 
 struct ExploreDapp: Identifiable, Hashable {
     var id: String { name }
@@ -17,7 +18,7 @@ struct ExploreDapp: Identifiable, Hashable {
 }
 
 extension ExploreDapp {
-    /// The app's own site, opened in Safari.
+    /// The app's own site, opened in Hermit's browser (or Safari from the small button).
     var url: URL? { ExploreData.sites[name].flatMap { URL(string: "https://" + $0) } }
 }
 
@@ -32,7 +33,7 @@ enum ExploreData {
         "Lido": "stake.lido.fi",
         "Pump.fun": "pump.fun",
         "Morpho": "app.morpho.org",
-        "Kamino": "app.kamino.finance",
+        "Kamino": "kamino.com",
         "Polymarket": "polymarket.com",
         "Legion": "legion.cc",
         "Lighter": "app.lighter.xyz",
@@ -55,7 +56,7 @@ enum ExploreData {
         "USD.AI": "usd.ai",
         "Falcon": "falcon.finance",
         "Maple": "maple.finance",
-        "Plasma": "plasma.to",
+        "Plasma": "www.plasma.org",
         "Kinetiq": "kinetiq.xyz",
         "Infrared": "infrared.finance",
         "Ondo": "ondo.finance",
@@ -63,7 +64,10 @@ enum ExploreData {
         "BUIDL": "securitize.io",
         "Virtuals": "app.virtuals.io",
         "x402": "x402.org",
-        "Infinex": "infinex.xyz"
+        "Infinex": "infinex.xyz",
+        "NEAR Intents": "near-intents.org",
+        "Rhea Finance": "app.rhea.finance",
+        "Meta Pool": "www.metapool.app",
     ]
 
     static let categories = ["All", "New", "Perps", "DEX", "Lending", "Yield", "Stablecoin", "Staking", "RWA",
@@ -105,12 +109,16 @@ enum ExploreData {
         .init(name: "Plasma", cat: "Stablecoin", chain: "Plasma", isNew: true, desc: "Zero-fee USDT chain"),
         .init(name: "Kinetiq", cat: "Staking", chain: "HyperEVM", isNew: true, desc: "HYPE liquid staking", llama: "parent#kinetiq"),
         .init(name: "Infrared", cat: "Staking", chain: "Berachain", desc: "Berachain staking", llama: "infrared-finance"),
-        .init(name: "Ondo", cat: "RWA", chain: "Multichain", isNew: true, desc: "Tokenized US stocks", llama: "parent#ondo-finance"),
-        .init(name: "xStocks", cat: "RWA", chain: "Solana", desc: "Tokenized stocks", llama: "xstocks"),
-        .init(name: "BUIDL", cat: "RWA", chain: "Ethereum", desc: "BlackRock treasury fund", llama: "blackrock-buidl"),
+        // Tokenized assets aren't TVL to DefiLlama (it reports 0), so these three have no figure.
+        .init(name: "Ondo", cat: "RWA", chain: "Multichain", isNew: true, desc: "Tokenized US stocks"),
+        .init(name: "xStocks", cat: "RWA", chain: "Solana", desc: "Tokenized stocks"),
+        .init(name: "BUIDL", cat: "RWA", chain: "Ethereum", desc: "BlackRock treasury fund"),
         .init(name: "Virtuals", cat: "AI agents", chain: "Base", desc: "AI agent launchpad"),
         .init(name: "x402", cat: "AI agents", chain: "Base", isNew: true, desc: "Agent payments"),
         .init(name: "Infinex", cat: "Wallet", chain: "20+ chains", isNew: true, desc: "Passkey wallet app"),
+        .init(name: "NEAR Intents", cat: "DEX", chain: "NEAR", desc: "Cross-chain swaps", llama: "near-intents"),
+        .init(name: "Rhea Finance", cat: "DEX", chain: "NEAR", desc: "NEAR swaps and lending", llama: "parent#rhea-finance"),
+        .init(name: "Meta Pool", cat: "Staking", chain: "NEAR", desc: "NEAR liquid staking", llama: "parent#meta-pool"),
     ]
 }
 
@@ -123,49 +131,101 @@ enum ExploreAPI {
         let parentProtocol: String?
         let tvl: Double?
         let change_7d: Double?
+        let excludeTvlFromParent: Bool?
     }
 
-    /// TVL per directory key. Parents are summed over their protocols; the 7-day change is worked out from each
-    /// protocol's own change so the sum stays honest.
-    static func tvls(keys: Set<String>) async throws -> [String: ExploreTVL] {
-        let rows = try JSONDecoder().decode([Raw].self, from: try await MarketHTTP.data("https://api.llama.fi/protocols"))
-        var now: [String: Double] = [:], before: [String: Double] = [:], known: [String: Bool] = [:]
+    /// DefiLlama's own slug for a directory key: "parent#jupiter" -> "jupiter". Two parents go by another name.
+    static func slug(_ key: String) -> String {
+        guard key.hasPrefix("parent#") else { return key }
+        let k = String(key.dropFirst("parent#".count))
+        return ["astherus": "aster", "kamino-finance": "kamino"][k] ?? k
+    }
+
+    /// TVL now per key, from api.llama.fi/tvl/<slug>: one small number each, and for a parent DefiLlama's own total, so
+    /// sub-protocols and tokens it keeps out of the parent aren't counted twice. Keys at 0 or not answered are left out.
+    static func tvls(keys: Set<String>) async throws -> [String: Double] {
+        let out = await withTaskGroup(of: (String, Double?).self) { g -> [String: Double] in
+            for k in keys {
+                g.addTask {
+                    let d = try? await MarketHTTP.data("https://api.llama.fi/tvl/\(ExploreAPI.slug(k))")
+                    let v = d.flatMap { String(data: $0, encoding: .utf8) }.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    return (k, v)
+                }
+            }
+            var got: [String: Double] = [:]
+            for await (k, v) in g { if let v, v.isFinite, v > 0 { got[k] = v } }
+            return got
+        }
+        guard !out.isEmpty else { throw MarketError.shape }
+        return out
+    }
+
+    /// The 7-day TVL change per key, in percent, from the protocols list. The ~9.5 MB decode runs off the main actor.
+    static func changes(keys: Set<String>, totals: [String: Double]) async throws -> [String: Double] {
+        let d = try await MarketHTTP.data("https://api.llama.fi/protocols", fresh: false)
+        return try await Task.detached(priority: .utility) { try ExploreAPI.parseChanges(d, keys: keys, totals: totals) }.value
+    }
+
+    /// A parent's change is worked out from its protocols' own changes, leaving out the ones DefiLlama keeps out of the
+    /// parent, and over the protocols that have a change. It's only given when those protocols add up to DefiLlama's
+    /// total (`totals`, within 2%; Jupiter's don't, as some of its tokens are kept out of the parent) and the ones with a
+    /// change hold at least 80% of it, so no wrong percentage is shown.
+    static func parseChanges(_ d: Data, keys: Set<String>, totals: [String: Double]) throws -> [String: Double] {
+        let rows = try JSONDecoder().decode([Raw].self, from: d)
+        var sum: [String: Double] = [:], known: [String: Double] = [:], before: [String: Double] = [:]
         for r in rows {
             guard let tvl = r.tvl, tvl > 0 else { continue }
-            for k in [r.slug, r.parentProtocol].compactMap({ $0 }) where keys.contains(k) {
-                now[k, default: 0] += tvl
-                if let c = r.change_7d, c > -100 { before[k, default: 0] += tvl / (1 + c / 100); known[k] = known[k] ?? true }
-                else { known[k] = false }
+            var hits: [String] = []
+            if let s = r.slug, keys.contains(s) { hits.append(s) }
+            if let p = r.parentProtocol, keys.contains(p), r.excludeTvlFromParent != true { hits.append(p) }
+            for k in hits {
+                sum[k, default: 0] += tvl
+                if let c = r.change_7d, c > -100 { known[k, default: 0] += tvl; before[k, default: 0] += tvl / (1 + c / 100) }
             }
         }
-        return now.reduce(into: [:]) { out, kv in
-            let b = before[kv.key] ?? 0
-            out[kv.key] = ExploreTVL(tvl: kv.value, change7d: known[kv.key] == true && b > 0 ? (kv.value / b - 1) * 100 : nil)
+        var out: [String: Double] = [:]
+        for (k, s) in sum {
+            guard let total = totals[k], total > 0, abs(s / total - 1) <= 0.02,
+                  let n = known[k], n >= 0.8 * s, let b = before[k], b > 0 else { continue }
+            out[k] = (n / b - 1) * 100
         }
+        return out
     }
 }
 
-/// Live TVL for the directory, cached on disk for an hour (the protocols list is ~9 MB).
+/// Live TVL for the directory. The last figures show at once (cached on disk up to 6 hours) and are fetched again
+/// after 15 minutes; the 7-day changes come from the big protocols list at most once a day.
 @MainActor @Observable
 final class ExploreStore {
     static let shared = ExploreStore()
     var tvl: [String: ExploreTVL] = [:]
     var state: FeedState = .loading
     private var updated: Date?
+    @ObservationIgnored private var change: [String: Double]?
+    @ObservationIgnored private var changeDate: Date?
 
     func value(_ d: ExploreDapp) -> ExploreTVL? { d.llama.flatMap { tvl[$0] } }
 
     func refresh(force: Bool = false) async {
         guard !SnapshotMode.active else { return }
-        if !force, tvl.isEmpty, let cached = MarketDiskCache.load("explore-tvl", maxAge: 3600, as: [String: ExploreTVL].self), !cached.isEmpty {
-            tvl = cached; state = .ready; updated = Date()
-            return
+        if tvl.isEmpty, let cached = MarketDiskCache.load("explore-tvl-v2", maxAge: 6 * 3600, as: [String: ExploreTVL].self), !cached.isEmpty {
+            tvl = cached; state = .ready; updated = MarketDiskCache.saved("explore-tvl-v2")
         }
         if !force, let updated, Date().timeIntervalSince(updated) < 900 { return }
+        let keys = Set(ExploreData.dapps.compactMap(\.llama))
         do {
-            let t = try await ExploreAPI.tvls(keys: Set(ExploreData.dapps.compactMap(\.llama)))
+            let now = try await ExploreAPI.tvls(keys: keys)
+            if change == nil, let c = MarketDiskCache.load("explore-change", maxAge: 86_400, as: [String: Double].self) {
+                change = c; changeDate = MarketDiskCache.saved("explore-change")
+            }
+            if change == nil || Date().timeIntervalSince(changeDate ?? .distantPast) > 86_400,
+               let c = try? await ExploreAPI.changes(keys: keys, totals: now) {
+                change = c; changeDate = Date()
+                MarketDiskCache.save("explore-change", c)
+            }
+            let t = now.reduce(into: [String: ExploreTVL]()) { out, kv in out[kv.key] = ExploreTVL(tvl: kv.value, change7d: change?[kv.key]) }
             tvl = t; state = .ready; updated = Date()
-            MarketDiskCache.save("explore-tvl", t)
+            MarketDiskCache.save("explore-tvl-v2", t)
         } catch { if tvl.isEmpty { state = .failed } }
     }
 }
@@ -173,6 +233,45 @@ final class ExploreStore {
 // MARK: Search
 
 extension ExploreData {
+    /// Apps for what's typed in search: every word of the query starts a word of the app's name, what it does, its
+    /// category or its chain. So "ai" finds the AI apps, not Plasma, and "solana" finds every Solana app. An empty
+    /// query keeps the whole list.
+    static func search(_ query: String, in list: [ExploreDapp]) -> [ExploreDapp] {
+        let q = words(query)
+        guard !q.isEmpty else { return list }
+        return list.filter { d in
+            let hay = words("\(d.name) \(d.desc) \(d.cat) \(d.chain)")
+            return q.allSatisfy { w in hay.contains { $0.hasPrefix(w) } }
+        }
+    }
+
+    /// The one app Enter opens for a search that matched nothing: only when the whole query is that app's whole name
+    /// with a slip ("uniswp", "polymrket", "morfo"): same first letter, at least 4 letters, one typo (two from 8
+    /// letters), and no other app as close. Looser matches ("apple" ~ Maple, "metamask" ~ MetaDAO) are only offered
+    /// under Did you mean, and Enter searches the web instead.
+    static func closeMatch(_ query: String, in list: [ExploreDapp]) -> ExploreDapp? {
+        let q = sound(fold(query).replacingOccurrences(of: " ", with: ""))
+        guard q.count >= 4 else { return nil }
+        let allow = q.count >= 8 ? 2 : 1
+        let scored = list.compactMap { d -> (ExploreDapp, Int)? in
+            let n = sound(fold(d.name).replacingOccurrences(of: " ", with: ""))
+            guard n.first == q.first else { return nil }
+            let s = distance(q, n)
+            return s <= allow ? (d, s) : nil
+        }.sorted { $0.1 < $1.1 }
+        guard let best = scored.first, scored.count < 2 || scored[1].1 > best.1 else { return nil }
+        return best.0
+    }
+
+    /// Lowercase words without accents or punctuation: "USD.AI" -> ["usd", "ai"].
+    private static func words(_ s: String) -> [String] {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split { !($0.isLetter || $0.isNumber) }.map(String.init)
+    }
+
+    /// Spelling by ear, so "morfo" reads as "morpho".
+    private static func sound(_ s: String) -> String { s.replacingOccurrences(of: "ph", with: "f") }
+
     /// Apps whose name is close to `query` even when it's misspelled ("uniswp", "morfo", "aave app"), best first.
     /// The query (and each word of it) is compared with the name and each word of the name by edit distance, allowing
     /// about one typo per three letters; a name that starts with the query counts as a match too.

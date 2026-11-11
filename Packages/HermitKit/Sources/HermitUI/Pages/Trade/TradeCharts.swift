@@ -8,16 +8,28 @@ struct TradeLevel: Hashable {
 }
 
 /// The terminal's price chart: candles (drawn exactly like the shared `Candles`) plus a dashed grid, a price axis
-/// and coloured, labelled levels. The range widens so TP and SL lines outside recent prices still show.
+/// and coloured, labelled levels. The range widens for a TP or SL a little outside recent prices; one far outside would
+/// squash the candles into a thin band, so it's pinned to the chart's edge with an arrow instead.
 struct TradeCandleChart: View {
     let data: [Candle]
     var levels: [TradeLevel] = []
     var padTo: [Double] = []
+    /// What the candles on screen span, for VoiceOver ("2 days").
+    var rangeLabel: String = "the chart"
+
+    /// VoiceOver: the last close, and the move from the first open to it.
+    private var spoken: String {
+        guard let first = data.first, let last = data.last, first.o > 0 else { return "" }
+        let changePct = (last.c - first.o) / first.o * 100
+        return "\(last.c.tradePx), \(changePct >= 0 ? "up" : "down") \(String(format: "%.1f", abs(changePct))) percent over \(rangeLabel)"
+    }
 
     var body: some View {
         Canvas { ctx, size in
-            let lows = data.map(\.l) + padTo, highs = data.map(\.h) + padTo
-            guard let lo = lows.min(), let hi = highs.max(), hi > lo else { return }
+            guard let clo = data.map(\.l).min(), let chi = data.map(\.h).max() else { return }
+            let r = max(chi - clo, abs(chi) * 0.002)
+            let near = padTo.filter { $0 >= clo - r * 0.5 && $0 <= chi + r * 0.5 }
+            guard let lo = ([clo] + near).min(), let hi = ([chi] + near).max(), hi > lo else { return }
             let axis: CGFloat = 58, w = size.width - axis
             let pad = (hi - lo) * 0.04, mn = lo - pad, mx = hi + pad
             func y(_ v: Double) -> CGFloat { 8 + (size.height - 22) * (1 - CGFloat((v - mn) / (mx - mn))) }
@@ -41,10 +53,11 @@ struct TradeCandleChart: View {
             }
 
             for m in levels {
-                let yy = y(m.value)
+                let above = m.value > mx, below = m.value < mn
+                let yy = above ? y(mx) : below ? y(mn) : y(m.value)
                 var p = Path(); p.move(to: CGPoint(x: 0, y: yy)); p.addLine(to: CGPoint(x: w, y: yy))
                 ctx.stroke(p, with: .color(m.color), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                let text = ctx.resolve(Text(m.label).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(.white))
+                let text = ctx.resolve(Text((above ? "↑ " : below ? "↓ " : "") + m.label).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(.white))
                 let ts = text.measure(in: CGSize(width: 300, height: 20))
                 let rect = CGRect(x: 4, y: max(2, yy - 17), width: ts.width + 12, height: 15)
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(m.color))
@@ -52,11 +65,6 @@ struct TradeCandleChart: View {
             }
         }
         .accessibilityLabel("Price chart")
+        .accessibilityValue(spoken)
     }
-}
-
-/// Small candles for list rows (prices are always candles).
-struct TradeMiniCandles: View {
-    let data: [Candle]
-    var body: some View { Candles(data: data).frame(width: 84, height: 28).accessibilityHidden(true) }
 }

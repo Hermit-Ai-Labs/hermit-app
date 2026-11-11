@@ -1,16 +1,50 @@
 import SwiftUI
 import HermitCore
+import HermitWallet
 
-/// Shown wherever a pay button is greyed out.
 /// Payments hands the money part to the wallet: Send opens filled in, with its review screen, safety check and Face ID.
-@MainActor func payViaWallet(_ model: AppModel, address: String, amount: String, token: String) {
-    WalletsViewModel.shared.sendPrefill = .init(address: address, amount: amount, token: token)
+/// The network follows the address and the token, so Send never swaps the asset. `onSent` runs only after the
+/// approval went through for exactly this payment (same address, token and amount), not when Send was edited.
+@MainActor func payViaWallet(_ model: AppModel, address: String, amount: String, token: String, onSent: (@MainActor () -> Void)? = nil) {
+    let addr = address.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let chain = payChain(address: addr, token: token) else {
+        model.toast("\(token) can't be sent to that address. Pick another token.")
+        return
+    }
+    let want = Decimal(string: AmountText.clean(amount), locale: Locale(identifier: "en_US_POSIX"))
+    var sent: (@MainActor (String, String, String) -> Void)? = nil
+    if let onSent {
+        sent = { (to: String, amt: String, symbol: String) -> Void in
+            let t = to.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sameAddress = t == addr || (addr.hasPrefix("0x") && t.caseInsensitiveCompare(addr) == .orderedSame)
+            guard sameAddress, symbol == token, let want,
+                  Decimal(string: AmountText.clean(amt), locale: Locale(identifier: "en_US_POSIX")) == want else { return }
+            onSent()
+        }
+    }
+    WalletsViewModel.shared.sendPrefill = .init(address: addr, amount: amount, token: token, chain: chain, onSent: sent)
     model.open(.wallets, tab: "send")
+}
+
+/// The network a payment goes out on: the address picks the family (EVM, Solana, NEAR), then the first network of
+/// that family that carries the token, Base first. nil when none does (SOL to a 0x address, ETH to a NEAR account).
+@MainActor func payChain(address: String, token: String) -> Chain? {
+    let family: ChainKind
+    switch PayAddress.kind(address) {
+    case .evm, .ens: family = .evm
+    case .solana: family = .solana
+    case .near: family = .near
+    case .none, .invalid: return nil
+    }
+    let vm = WalletsViewModel.shared
+    let pool = [Chain.defaultSend] + (WalletService.mainnetSendsEnabled ? Chain.mainnets : Chain.testnets)
+    return pool.first { $0.kind == family && vm.tokens(chain: $0).contains(token) }
 }
 
 // MARK: Schedule
 
 struct PaySchedule: View {
+    @Environment(AppModel.self) private var model
     let compact: Bool
     @State var open: ScheduledPayment?
     @State var creating = false
@@ -57,6 +91,13 @@ struct PaySchedule: View {
                         .buttonStyle(PayRowStyle())
                         .payLine(i > 0)
                         .contextMenu {
+                            if !p.paused {
+                                Button("Pay now") {
+                                    let id = p.id
+                                    payViaWallet(model, address: p.addr, amount: p.sendAmount, token: p.token) { PaymentsStore.shared.markPaid(id) }
+                                }
+                                .disabled(!PayAddress.valid(p.addr) || p.amount <= 0)
+                            }
                             Button(p.paused ? "Resume" : "Pause") { store.togglePause(p.id) }
                             Button("Edit") { open = p }
                             Divider()
@@ -75,6 +116,7 @@ struct PaySchedule: View {
 struct PayNext7Card: View {
     @State var shown = SnapshotMode.active
     private var days: [Double] { PaymentsStore.shared.next7Days }
+    private var leavesOut: Bool { PaymentsStore.shared.next7LeavesOut }
 
     var body: some View {
         let days = self.days
@@ -100,6 +142,9 @@ struct PayNext7Card: View {
             }
             .frame(height: 70, alignment: .bottom)
             .padding(.top, 14)
+            if leavesOut {
+                Text("USDC and USDT only").font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(.top, 8)
+            }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading).card()
         .onAppear { shown = true }
@@ -122,7 +167,7 @@ struct PayStatusCard: View {
             Text(due.isEmpty ? "Nothing due" : due.count == 1 ? "1 payment due" : "\(due.count) payments due")
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(due.isEmpty ? Theme.text : Theme.amber)
             if fill { Spacer(minLength: 0) }
-            Text("Scheduled payments show on your calendar. Open one and tap Pay now to send it from your wallet.")
+            Text("Scheduled payments show on your calendar. Open one and tap Pay now. Once it's sent, it moves to its next date.")
                 .font(.system(size: 12)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
         }
         .padding(18).frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .topLeading).card()
@@ -157,6 +202,9 @@ struct PayPayees: View {
                                 Text(p.name).font(.system(size: 14, weight: .medium)).lineLimit(1)
                                 Text(p.addr).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted)
                                     .lineLimit(1).truncationMode(.middle)
+                                if let hold = store.holdText(p) {
+                                    Text(hold).font(.system(size: 12)).foregroundStyle(Theme.amber).lineLimit(1)
+                                }
                             }
                             Spacer(minLength: 8)
                             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.faint)
@@ -182,25 +230,35 @@ struct PayPayees: View {
         #endif
         .sheet(item: $scheduling) { p in
             PayScheduleSheet(item: ScheduledPayment(payee: p.name, addr: p.addr, amount: 0, token: "USDC", note: "",
-                                                    next: CalendarData.day(1), repeats: .once), isNew: true)
+                                                    next: CalendarData.day(1), repeats: .once, payeeID: p.id), isNew: true)
         }
     }
 }
 
-/// Address checks shared by the payee and transfer forms.
+/// Address checks shared by the payee, schedule and transfer forms. The wallet's own checks: an EVM address with a
+/// correct EIP-55 checksum when mixed case, a 32-byte base58 Solana key, a valid NEAR account, or an ENS name.
 enum PayAddress {
-    enum Kind { case none, evm, ens, solana, invalid }
+    enum Kind { case none, evm, ens, solana, near, invalid }
     static func kind(_ raw: String) -> Kind {
-        let t = raw.trimmingCharacters(in: .whitespaces)
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return .none }
-        if t.lowercased().hasSuffix(".eth") && t.count > 4 && !t.contains(" ") { return .ens }
-        if t.hasPrefix("0x") { return t.count == 42 && t.dropFirst(2).allSatisfy(\.isHexDigit) ? .evm : .invalid }
-        let base58 = Set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-        if (32...44).contains(t.count), t.allSatisfy({ base58.contains($0) }) { return .solana }
-        return .invalid
+        if ENS.looksLikeName(t) { return t.count > 4 && !t.contains(" ") ? .ens : .invalid }
+        // NEAR accounts are lowercase; accept "Alice.near" as alice.near (normalized() saves it lowercased).
+        let found: ChainKind? = Chain.kind(of: t) ?? (Chain.kind(of: t.lowercased()) == .near ? .near : nil)
+        guard let k = found else { return .invalid }
+        switch k {
+        case .evm: return .evm
+        case .solana: return .solana
+        case .near: return .near
+        }
     }
     static func valid(_ raw: String) -> Bool {
-        switch kind(raw) { case .evm, .ens, .solana: true; default: false }
+        switch kind(raw) { case .evm, .ens, .solana, .near: true; default: false }
+    }
+    /// What gets saved: trimmed, and lowercased for ENS names and NEAR accounts (both are lowercase only).
+    static func normalized(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch kind(t) { case .ens, .near: return t.lowercased(); default: return t }
     }
 }
 
@@ -224,9 +282,18 @@ struct PayTransfer: View {
         case .ens: return ("ENS name", Theme.muted, "at")
         case .evm: return ("New address, double-check it", Theme.amber, "exclamationmark.triangle")
         case .solana: return ("Solana address, new", Theme.amber, "exclamationmark.triangle")
+        case .near: return ("NEAR account, new", Theme.amber, "exclamationmark.triangle")
         case .invalid: return ("Enter an address, an ENS name or a saved payee", Theme.red, "xmark.circle")
         }
     }
+
+    private var address: String { saved?.addr ?? PayAddress.normalized(to) }
+    /// Set when the address and token can't go together (SOL to a 0x address).
+    private var routeProblem: String? {
+        guard PayAddress.valid(address), payChain(address: address, token: token) == nil else { return nil }
+        return "\(token) can't be sent to this address. Pick another token."
+    }
+    private var canReview: Bool { PayAddress.valid(address) && PayAmount.exact(amount) != nil && routeProblem == nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -275,12 +342,16 @@ struct PayTransfer: View {
                 }
                 .frame(maxWidth: compact ? 130 : .infinity)
             }
+            if let problem = PayAmount.problem(amount) ?? routeProblem {
+                Label(problem, systemImage: "xmark.circle").font(.system(size: 12)).foregroundStyle(Theme.red)
+                    .padding(.top, -8).transition(.opacity)
+            }
             Button("Review") {
-                let addr = saved?.addr ?? to.trimmingCharacters(in: .whitespacesAndNewlines)
-                payViaWallet(model, address: addr, amount: amount, token: token)
+                guard let exact = PayAmount.exact(amount) else { return }
+                payViaWallet(model, address: address, amount: exact, token: token)
             }
             .buttonStyle(PayWideButton(kind: .accent))
-            .disabled(to.trimmingCharacters(in: .whitespaces).isEmpty || (saved == nil && PayAddress.kind(to) == .invalid))
+            .disabled(!canReview)
         }
         .animation(.snappy(duration: 0.25), value: to)
     }

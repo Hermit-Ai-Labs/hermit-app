@@ -15,6 +15,13 @@ public protocol AgentToolbox: Sendable {
 
 /// The small step lines shown while a tool runs ("Checking the HYPE price…").
 public enum ToolStatus {
+    /// "this Mac" or "this phone" (HermitCore can't see HermitUI's Device).
+    #if os(macOS)
+    static let here = "this Mac"
+    #else
+    static let here = "this phone"
+    #endif
+
     public static func label(_ name: String, arguments: [String: Any] = [:]) -> String {
         func s(_ k: String) -> String? {
             (arguments[k] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(24).description.nilIfEmpty
@@ -26,7 +33,7 @@ public enum ToolStatus {
         switch name {
         case "calculator": return "Calculating"
         case "get_price": return s("symbol").map { "Checking the \($0.uppercased()) price" } ?? "Checking the price"
-        case "get_balances": return "Reading your balances on this phone"
+        case "get_balances": return "Reading your balances on " + Self.here
         case "hyperliquid_account": return "Reading your Hyperliquid account"
         case "position_math": return "Working out the position"
         case "search_markets": return s("query").map { "Searching markets for \($0)" } ?? "Searching markets"

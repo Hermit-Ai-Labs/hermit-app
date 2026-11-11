@@ -15,6 +15,10 @@ public struct DappIntent: Sendable, Equatable {
     public var outflowUSD: Decimal?
     /// Something leaves the wallet directly (native value or a token transfer), so the spending policy applies.
     public var movesFunds = false
+    /// The call matched a known function. When false, `DappDecoder.applySimulation` fills in what it moves.
+    public var decoded = true
+    /// Extra approval-sheet check lines (the simulated balance changes).
+    public var checks: [String] = []
 }
 
 /// A token's symbol and decimals: from Hermit's own token table when it's a known token, otherwise read from the contract.
@@ -34,6 +38,7 @@ public enum DappDecoder {
     static let increaseSel = ERC20.selector("increaseAllowance(address,uint256)")   // 0x39509351
     static let approvalForAllSel = ERC20.selector("setApprovalForAll(address,bool)") // 0xa22cb465
     static let permit2ApproveSel = ERC20.selector("approve(address,address,uint160,uint48)") // 0x87517c45
+    static let undecodedWarning = "Hermit can't decode this call, so it can't tell which tokens it moves. Only approve it if you trust this site."
 
     /// The 32-byte word at `i` (after the selector).
     static func word(_ d: [UInt8], _ i: Int) -> ArraySlice<UInt8>? {
@@ -158,7 +163,8 @@ public enum DappDecoder {
         } else {
             i.title = native.map { "Contract call with \($0)" } ?? "Contract call"
             i.lines = [["Contract", short(r.to)], ["Function", "0x" + sel.hex + " (not decoded)"]]
-            i.warnings.append("Hermit can't decode this call, so it can't tell which tokens it moves. Only approve it if you trust this site.")
+            i.warnings.append(undecodedWarning)
+            i.decoded = false
         }
         if r.value > 0 {
             if let native { i.lines.insert(["Pays", native], at: 0) }

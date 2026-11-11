@@ -3,6 +3,12 @@ import HermitCore
 import MLX
 import MLXLLM
 import MLXLMCommon
+import os
+#if os(iOS)
+import UIKit
+#endif
+
+private let modelLog = os.Logger(subsystem: "my.hermit", category: "local-model")
 
 /// How one reply went, for tuning and the benchmark tool.
 public struct GenerationStats: Sendable, CustomStringConvertible {
@@ -41,6 +47,8 @@ public final class LocalAgent: Agent, @unchecked Sendable {
     /// Runs the model's tool calls. nil answers in plain text only (the tool block is still in the prompt so the
     /// model's format stays the trained one; calls then get an error result).
     public var toolbox: AgentToolbox?
+    /// Notification observers (iPhone), kept for as long as the agent lives.
+    private var observers: [NSObjectProtocol] = []
 
     @MainActor
     public init(store: ModelStore? = nil, toolbox: AgentToolbox? = nil, onStats: (@Sendable (GenerationStats) -> Void)? = nil) {
@@ -50,6 +58,20 @@ public final class LocalAgent: Agent, @unchecked Sendable {
         self.onStats = onStats
         let engine = self.engine
         store.onDelete { id in Task { await engine.unload(ifID: id) } }
+        #if os(iOS)
+        // iOS doesn't let an app that has left the screen use the GPU, and it ends apps that hold on to memory when the
+        // system runs short. Stop the reply when Hermit leaves the screen; on a memory warning also free the model
+        // (it wakes again on the next question).
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+                Task { await engine.interrupt(.background) }
+            },
+            center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
+                Task { await engine.interrupt(.memory) }
+            },
+        ]
+        #endif
     }
 
     /// Load the model ahead of the first question, and read the system prompt into the cache, so the first answer
@@ -86,6 +108,8 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                     cont.yield(.text("The on-device model isn't downloaded yet."))
                     return
                 }
+                await engine.beginReply()
+                var failure: Error?
                 do {
                     var loadTime: TimeInterval?
                     if await !engine.isLoaded(ready.spec.id) {
@@ -93,12 +117,27 @@ public final class LocalAgent: Agent, @unchecked Sendable {
                         loadTime = try await engine.load(id: ready.spec.id, directory: ready.directory)
                     }
                     await chat.setFamily(await engine.family)
-                    cont.yield(.status("Thinking…"))
+                    // A hot device slows the model down: say so instead of leaving the wait unexplained.
+                    let heat = ProcessInfo.processInfo.thermalState
+                    cont.yield(.status(heat == .serious || heat == .critical ? "Thinking, slower while this device is hot…" : "Thinking…"))
                     let generator = EngineGenerator(engine: engine, onStats: onStats, loadTime: loadTime)
                     await chat.reply(to: prompt, generator: generator, toolbox: toolbox, cont: cont)
-                } catch is CancellationError {
                 } catch {
-                    if !Task.isCancelled { cont.yield(.steps(0)); cont.yield(.text("The model stopped: \(error.localizedDescription)")) }
+                    failure = error
+                }
+                let end = await engine.endReply()
+                if Task.isCancelled { return }
+                if let why = end.interruption {
+                    cont.yield(.block(.text(why.note)))
+                } else if let failure, !(failure is CancellationError) {
+                    // Raw engine and file-system wording means nothing to the user: log it, show a next step.
+                    modelLog.error("on-device model failed to start: \(String(describing: failure), privacy: .public)")
+                    cont.yield(.steps(0))
+                    cont.yield(.text("The model couldn't start. Close some apps and ask again. If it keeps failing, download it again in Settings, Models."))
+                } else if failure == nil, end.cut {
+                    // The last turn ran into the token limit: say so instead of ending mid-sentence as if it were done.
+                    cont.yield(.block(.text("That reply hit the length limit.")))
+                    cont.yield(.block(.actions([HermitCore.Action("Continue", ask: "Continue")])))
                 }
             }
             cont.onTermination = { _ in task.cancel() }
@@ -158,7 +197,20 @@ final class LockedBox<T>: @unchecked Sendable {
 final class PromptCache: @unchecked Sendable {
     var cache: [KVCache]?
     var tokens: [Int] = []
+    /// The last turn stopped at the token limit, not at an end-of-turn token.
+    var cut = false
     func clear() { cache = nil; tokens = [] }
+}
+
+/// Why a reply was stopped from outside the chat, so the chat can say so.
+enum Interruption: Sendable, Equatable {
+    case background, memory
+    var note: String {
+        switch self {
+        case .background: "Stopped because Hermit left the screen. Ask again."
+        case .memory: "Stopped because this device ran low on memory. The model was unloaded. Ask again to wake it."
+        }
+    }
 }
 
 /// Owns the loaded model and the KV cache. One generation at a time, so it is an actor.
@@ -170,6 +222,32 @@ actor LocalEngine {
     private(set) var family: HermitPrompt.Family = .instruct
     /// The generation running now; the next one waits for it, so the cache is never touched by two at once.
     private var current: Task<Void, Never>?
+    /// The same generation as its own task: cancelling it stops the model (cancelling `current` only stops waiting).
+    private var currentRun: Task<Result<Void, Error>, Never>?
+    /// Replies under way (each spans all its turns and tool calls), why one was stopped from outside, and whether its
+    /// last turn ran out of tokens.
+    private var replies = 0
+    private var interruption: Interruption?
+    private var lastCut = false
+
+    /// A new reply starts clean: a stop from an earlier one no longer applies (the user is back and asking).
+    func beginReply() { replies += 1; interruption = nil; lastCut = false }
+
+    /// Ends a reply: whether it was stopped from outside, and whether its last turn hit the token limit.
+    func endReply() -> (interruption: Interruption?, cut: Bool) {
+        replies = max(replies - 1, 0)
+        let out = (interruption: interruption, cut: lastCut)
+        interruption = nil; lastCut = false
+        return out
+    }
+
+    /// Hermit left the screen, or the device is short of memory: stop generating now. Nothing new starts until the next
+    /// reply; on a memory warning the model is freed too.
+    func interrupt(_ why: Interruption) async {
+        if replies > 0 { interruption = why }
+        currentRun?.cancel()
+        if why == .memory { await unload() } else { await current?.value; Memory.clearCache() }
+    }
 
     func isLoaded(_ id: String) -> Bool { loadedID == id && container != nil }
     var isLoaded: Bool { container != nil }
@@ -235,7 +313,7 @@ actor LocalEngine {
 
     func unload(ifID id: String? = nil) async {
         guard id == nil || id == loadedID else { return }
-        current?.cancel()
+        currentRun?.cancel()
         await current?.value
         prompt.clear(); container = nil; loadedID = nil
         Memory.clearCache()
@@ -253,7 +331,7 @@ actor LocalEngine {
     func generate(_ text: String, parameters custom: GenerateParameters? = nil,
                   onText: @escaping @Sendable (String) -> Void, onInfo: @escaping @Sendable (GenerateCompletionInfo) -> Void) async throws {
         let previous = current
-        guard let container else { throw CancellationError() }
+        guard let container, interruption == nil else { throw CancellationError() }
         let params = custom ?? parameters
         let cache = prompt
         let run = Task<Result<Void, Error>, Never> {
@@ -266,13 +344,18 @@ actor LocalEngine {
             } catch { return .failure(error) }
         }
         let done = Task<Void, Never> { _ = await run.value }
-        current = done
+        current = done; currentRun = run
         let result = await withTaskCancellationHandler { await run.value } onCancel: { run.cancel() }
+        // Reply turns only (a prefill passes its own parameters).
+        if custom == nil {
+            if case .success = result { lastCut = cache.cut } else { lastCut = false }
+        }
         if case .failure(let e) = result { throw e }
     }
 
     private static func run(_ text: String, cache: PromptCache, parameters: GenerateParameters, context: ModelContext,
                             onText: @Sendable (String) -> Void, onInfo: @Sendable (GenerateCompletionInfo) -> Void) async throws {
+        cache.cut = false
         let tokenizer = context.tokenizer
         let tokens = tokenizer.encode(text: text, addSpecialTokens: false)
         guard !tokens.isEmpty else { return }
@@ -308,12 +391,19 @@ actor LocalEngine {
         }
         task.cancel()
         await task.value
+        // Stopped by the token limit: neither an end-of-turn token nor a cancel.
+        let limit = parameters.maxTokens ?? Int.max
+        cache.cut = !Task.isCancelled && generated.count >= limit && !(generated.last.map { stops.contains($0) } ?? false)
         // The cache now holds the prompt and as many generated tokens as the model has read.
         let known = cache.tokens + feed + generated
         let offset = cache.cache?.first?.offset ?? 0
         if offset <= known.count { cache.tokens = Array(known.prefix(offset)) } else { cache.clear() }
         if Task.isCancelled { throw CancellationError() }
     }
+
+    /// The longest reply turn, in tokens. Long enough for a full answer or a batch send with many recipients; a turn
+    /// that still runs out is flagged so the chat offers Continue.
+    static let replyTokenLimit = 1024
 
     /// Sampling for a small chat model on a phone. Some models ship temperature 1.0 and no repetition penalty, which
     /// lets them wander and loop, so Hermit caps the temperature at 0.6, uses top-p 0.9,
@@ -322,7 +412,7 @@ actor LocalEngine {
         let json = (try? Data(contentsOf: directory.appending(path: "generation_config.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         func num(_ k: String) -> Double? { (json[k] as? NSNumber)?.doubleValue }
-        var p = GenerateParameters(maxTokens: 640, temperature: Float(min(num("temperature") ?? 0.6, 0.6)),
+        var p = GenerateParameters(maxTokens: replyTokenLimit, temperature: Float(min(num("temperature") ?? 0.6, 0.6)),
                                    topP: Float(min(num("top_p") ?? 0.9, 0.9)), topK: Int(num("top_k") ?? 0))
         p.repetitionPenalty = Float(max(num("repetition_penalty") ?? 1.05, 1.05))
         p.repetitionContextSize = 256

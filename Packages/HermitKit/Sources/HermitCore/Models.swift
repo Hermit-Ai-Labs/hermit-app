@@ -89,6 +89,12 @@ public struct Attachment: Equatable, Sendable, Codable, Hashable, Identifiable {
         guard ext.isEmpty || textExtensions.contains(ext), let h = try? FileHandle(forReadingFrom: url) else { return a }
         defer { try? h.close() }
         let data = (try? h.read(upToCount: maxChars * 4)) ?? Data()
+        // UTF-16 with a byte-order mark (Windows exports): full of zero bytes, but text. An even byte count is read.
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]), let s = String(data: data, encoding: .utf16) {
+            a.text = String(s.prefix(maxChars))
+            a.truncated = s.count > maxChars || bytes > data.count
+            return a
+        }
         guard !data.contains(0) else { return a }
         let s = String(decoding: data, as: UTF8.self)
         // Mostly replacement characters means it isn't text after all.
@@ -339,10 +345,15 @@ public struct Approval: Equatable, Sendable, Identifiable, Codable {
             && a.receipt == b.receipt && a.live == b.live
     }
 
-    /// The hazard scan every money move runs, with any extra checks for this move.
+    /// The check list for a demo card. The fixed lines are claims nothing computes, so only Debug builds (snapshots,
+    /// the tour) show them; a release build lists only the caller's own lines. Real moves build their checks themselves.
     public static func checks(_ extra: [String] = []) -> [String] {
-        ["Requested by you, not by a web page or email", "Simulation matches summary", "Contract verified and audited",
-         "Exact-amount token approval"] + extra + ["Within daily limit"]
+        #if DEBUG
+        return ["Requested by you, not by a web page or email", "Simulation matches summary", "Contract verified and audited",
+                "Exact-amount token approval"] + extra + ["Within daily limit"]
+        #else
+        return extra
+        #endif
     }
 }
 

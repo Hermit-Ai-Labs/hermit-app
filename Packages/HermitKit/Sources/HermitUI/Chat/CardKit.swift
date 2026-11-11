@@ -86,6 +86,7 @@ struct TxLine: View {
         }
         .font(.system(size: 13))
         .padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -101,6 +102,7 @@ struct KVGrid: View {
                     Text(p.last ?? "").font(.system(size: 14, weight: .medium)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
                         .foregroundStyle(tones[p.first ?? ""]?.color ?? Theme.text)
                 }
+                .accessibilityElement(children: .combine)
             }
         }
     }

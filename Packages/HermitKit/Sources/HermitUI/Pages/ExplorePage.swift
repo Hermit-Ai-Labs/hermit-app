@@ -73,21 +73,18 @@ struct ExplorePage: View {
         return DappBrowserSession.normalize(t)
     }
 
-    /// Enter: a typed address opens; a search with no app matching opens the closest app, else a web search.
+    /// Enter: a typed address opens; a search with no app matching opens the app only when it's that app's name with
+    /// a typo (ExploreData.closeMatch), else a web search. Looser matches stay under Did you mean for a tap.
     private func submit() {
         let t = q.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
         if let u = typedSite { DappBrowser.shared.open(u, model: model); q = ""; return }
-        if !matches(t).isEmpty { return }
-        if let d = ExploreData.fuzzy(t, in: ExploreData.dapps).first, let u = d.url {
+        if !ExploreData.search(t, in: ExploreData.dapps).isEmpty { return }
+        if let d = ExploreData.closeMatch(t, in: ExploreData.dapps), let u = d.url {
             DappBrowser.shared.open(u, dapp: d, model: model); q = ""
         } else if let u = ExploreData.webSearch(t) {
             DappBrowser.shared.open(u, model: model); q = ""
         }
-    }
-
-    private func matches(_ text: String) -> [ExploreDapp] {
-        ExploreData.dapps.filter { "\($0.name) \($0.desc) \($0.cat)".localizedCaseInsensitiveContains(text) }
     }
 
     private func addSite(_ text: String) {
@@ -107,7 +104,9 @@ struct ExplorePage: View {
         let list = ExploreData.dapps.compactMap { d in store.value(d).flatMap { v in v.tvl >= 10_000_000 ? v.change7d.map { (d, $0) } : nil } }
             .sorted { $0.1 > $1.1 }.prefix(9).map(\.0)
         if list.isEmpty {
-            MarketStatus(kind: store.state == .failed ? .failed("Couldn't reach DefiLlama") : .loading("Loading TVL from DefiLlama")) {
+            let kind: MarketStatus.Kind = store.state == .failed ? .failed("Couldn't reach DefiLlama")
+                : store.tvl.isEmpty ? .loading("Loading TVL from DefiLlama") : .empty("No 7-day TVL changes from DefiLlama yet")
+            MarketStatus(kind: kind) {
                 Task { await store.refresh(force: true) }
             }
         } else {
@@ -119,10 +118,7 @@ struct ExplorePage: View {
     }
 
     private func all(_ compact: Bool) -> some View {
-        let list = ExploreData.dapps.filter { d in
-            (cat == "All" || d.cat == cat || (cat == "New" && d.isNew))
-                && (q.isEmpty || "\(d.name) \(d.desc) \(d.cat)".localizedCaseInsensitiveContains(q))
-        }
+        let list = ExploreData.search(q, in: ExploreData.dapps).filter { d in cat == "All" || d.cat == cat || (cat == "New" && d.isNew) }
         return VStack(alignment: .leading, spacing: 0) {
             if let u = typedSite {
                 HStack(spacing: 10) {

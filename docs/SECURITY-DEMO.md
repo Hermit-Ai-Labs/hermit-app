@@ -13,8 +13,9 @@ On macOS with Xcode 26. It builds HermitCore, HermitWallet and HermitCloud only,
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-Do: run the command. See: `Executed 21 tests, with 0 failures`. That is 19 ToolLoopTests, `testSpendPolicy` and
-`testNeutralize`. To run all 105 non-UI tests, leave out `--filter`.
+Do: run the command. See: a last line `Executed N tests, with 0 failures`. N is every ToolLoopTests test plus
+`testSpendPolicy`, `testSpendPolicyAgentTrade` (the filter matches it too) and `testNeutralize`, and it grows as tests are
+added (21 on 2026-11-08). To run all non-UI tests, leave out `--filter`.
 
 On Linux there is no Swift build of the app. Read the log below and the test source. The guard is about 30 lines of
 plain Swift, in `Packages/HermitKit/Sources/HermitCore/AgentTools.swift` (`ToolGuard`, `ToolResult`).
@@ -77,7 +78,7 @@ blocked while $150 from the user is allowed.
 
 ## Captured log
 
-Run on 2026-11-08 on a MacBook Air M3 (macOS 26.5, Xcode 26.6, Swift 6.3.3) with `bash scripts/core-tests.sh`. The
+Recorded on 2026-11-08, on an earlier state of the tree, on a MacBook Air M3 (macOS 26.5, Xcode 26.6, Swift 6.3.3) with `bash scripts/core-tests.sh`. The
 full filtered log is in [`docs/logs/core-tests-2026-11-08.txt`](logs/core-tests-2026-11-08.txt). Excerpt:
 
 ```text

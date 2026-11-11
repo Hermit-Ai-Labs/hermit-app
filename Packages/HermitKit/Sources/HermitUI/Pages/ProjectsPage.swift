@@ -217,7 +217,7 @@ private struct ProjectActions: ViewModifier {
 }
 
 extension AppModel {
-    /// Renames a project and everything that points at it (chats, project.md, files, to-dos).
+    /// Renames a project and everything that points at it (chats, project.md, files, to-dos, calendar tasks).
     func renameProject(_ old: String, to raw: String) {
         let new = raw.trimmingCharacters(in: .whitespaces)
         guard !new.isEmpty, new != old, project(new) == nil, let i = projectList.firstIndex(where: { $0.name == old }) else { return }
@@ -228,6 +228,7 @@ extension AppModel {
         if projectOpen == old { projectOpen = new }
         if chatProject == old { chatProject = new }
         FilesStore.shared.moveProject(old, to: new)
+        moveCalendarItems(old, to: new)
         toast("Renamed to \(new)")
     }
 
@@ -240,7 +241,19 @@ extension AppModel {
         if projectOpen == name { projectOpen = nil }
         if chatProject == name { chatProject = nil }
         FilesStore.shared.deleteProject(name)
+        moveCalendarItems(name, to: nil)
         toast("Project deleted")
+    }
+
+    /// Calendar tasks keep their project by name: a rename moves them along, a delete makes them plain tasks
+    /// (no project, no project colour) instead of pointing at a project that's gone.
+    private func moveCalendarItems(_ old: String, to new: String?) {
+        let calendar = CalendarStore.shared
+        for var item in calendar.local where item.project == old {
+            item.project = new
+            if new == nil { item.hex = nil }
+            calendar.save(item)
+        }
     }
 }
 

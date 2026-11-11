@@ -154,7 +154,12 @@ extension WalletService {
         let tx = try await vault.withKey(w.id, kind: .solana, reason: reason) { seed in var t = unsigned; try t.sign(ed25519Seed: seed); return t }
         guard tx.verifySignature(), tx.message == unsigned.message else { throw WalletError.blocked("Signed transaction failed its self-check. Nothing was sent.") }
         let sig = try await client.send(tx)
-        let (ok, _, _) = try await client.waitForConfirmation(sig)
+        // Sent but not confirmed in time: it may still land, so it reads as pending, never as a failure to retry.
+        let status: (Bool, UInt64, String?)
+        do { status = try await client.waitForConfirmation(sig) } catch WalletError.timeout {
+            throw WalletError.pending(hash: sig, explorer: chain.explorerURL(tx: sig)?.absoluteString)
+        }
+        let ok = status.0
         guard ok else { throw WalletError.blocked("The Solana transaction failed (\(sig)).") }
         Task { await refreshBalances(chains: [chain]) }
         return sig

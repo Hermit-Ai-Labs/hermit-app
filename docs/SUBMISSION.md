@@ -16,6 +16,10 @@ fixed at https://nearhackathon.com/request-changes, never by submitting again. N
       `…/compare/pre-hackathon...hackathon-submission` and `…/compare/8fe7b71...hackathon-submission`.
 - [ ] `LICENSE` is on the submitted branch (MIT).
 - [ ] The README placeholders are filled: demo video link, Team, and Q-015 (other projects by the same people, or "none").
+      Then `grep -n TODO README.md` prints nothing.
+- [ ] On the Mac, `bash scripts/core-tests.sh > /tmp/core.txt 2>&1` ends with `0 failures`. Save it as
+      `docs/logs/core-tests-<date>.txt` (XCTest lines only, as in the 2026-11-08 log) and point the README's Tests
+      section at it, with its date and its `Executed N tests, with S tests skipped` line.
 - [ ] The iPhone TestFlight link opens for a stranger (https://testflight.apple.com/join/ed9vUh7d). Add the Mac link
       only once Apple's beta review approves it.
 - [ ] Decide whether the TestFlight build carries the shared NEAR AI key. The README describes both cases.

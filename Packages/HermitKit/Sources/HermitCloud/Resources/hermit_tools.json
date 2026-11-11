@@ -22,7 +22,7 @@
     "type": "function",
     "function": {
       "name": "get_price",
-      "description": "Get the live price and 24h change of a coin or token (Hyperliquid, falling back to Binance). Always call this before stating a current price; never invent prices.",
+      "description": "Get the live price and 24h change of a coin or token (Hyperliquid, falling back to Binance). Always call this before stating a current price; never invent prices. PEPE, BONK and similar are priced per token even though Hyperliquid lists them per 1,000 (kPEPE).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -99,7 +99,15 @@
           },
           "maintenance_margin": {
             "type": "number",
-            "description": "Optional maintenance margin as a fraction, e.g. 0.005 for 0.5%. Defaults to 0."
+            "description": "Optional maintenance margin as a fraction, e.g. 0.0125. Defaults to Hyperliquid's: half the initial margin at the coin's max leverage."
+          },
+          "coin": {
+            "type": "string",
+            "description": "Optional ticker, e.g. 'BTC'. Sets the maintenance margin from the market's max leverage."
+          },
+          "max_leverage": {
+            "type": "number",
+            "description": "Optional market max leverage, if coin is not given."
           }
         },
         "required": [
@@ -115,7 +123,7 @@
     "type": "function",
     "function": {
       "name": "search_markets",
-      "description": "Search markets (perps, spot pairs, pools) matching a query. Returns name, type, price, funding (perps) and APY (pools).",
+      "description": "Search markets (perps, spot pairs, pools) matching a query. Returns name, type, price, funding (perps) and APY (pools). Some memecoins trade per 1,000 tokens (kPEPE): those rows carry unit, token and price_per_token; quote price_per_token as the coin's price.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -134,7 +142,7 @@
     "type": "function",
     "function": {
       "name": "get_yields",
-      "description": "Get the top yield pools: protocol, chain, asset, apy, tvl. Optionally filter by asset and/or chain.",
+      "description": "Get yield pools: protocol, chain, asset, apy (total, base, rewards, 30-day), tvl, il risk, and whether Hermit can deposit into it. Big lenders first. Quote the base APY and mention rewards apart. Optionally filter by asset and/or chain.",
       "parameters": {
         "type": "object",
         "properties": {

@@ -102,6 +102,9 @@ public final class AppModel {
     public var focusTick = 0
     /// iPhone: the sidebar drawer.
     public var drawerOpen = false
+    /// A photo, screenshot or scanned PDF was read with text recognition in this chat. A batch the assistant prepares
+    /// then refuses addresses without a checksum (a misread character still parses). Mirrored for the toolbox.
+    public var pictureInChat = false { didSet { HermitToolbox.pictureInChat = pictureInChat } }
     /// Sidebar shape kept for other pages: (name, colour).
     public var projects: [(String, Color)] { projectList.map { ($0.name, $0.color) } }
     /// Titles of standalone chats, newest first.
@@ -189,7 +192,7 @@ public final class AppModel {
         commit()
         pushContext()
         replyTask?.cancel(); agent.reset(); messages = []; busy = false; route = .home
-        currentID = nil; chatProject = project; drawerOpen = false; batchFile = nil
+        currentID = nil; chatProject = project; drawerOpen = false; batchFile = nil; pictureInChat = false
         focusTick += 1
     }
 
@@ -208,13 +211,13 @@ public final class AppModel {
         commit()
         // The model starts this one fresh: it doesn't carry the other chat's context in.
         replyTask?.cancel(); agent.reset(); busy = false
-        messages = c.messages; currentID = id; chatProject = c.project; batchFile = nil
+        messages = c.messages; currentID = id; chatProject = c.project; batchFile = nil; pictureInChat = false
         route = .home; drawerOpen = false
     }
 
     public func deleteConversation(_ id: String) {
         withAnimation(.snappy) { conversations.removeAll { $0.id == id } }
-        if currentID == id { messages = []; currentID = nil }
+        if currentID == id { messages = []; currentID = nil; pictureInChat = false }
         save()
     }
 
@@ -250,6 +253,7 @@ public final class AppModel {
             currentID = c.id
             withAnimation(.snappy) { conversations.insert(c, at: 0) }
         }
+        if attachment?.readFromPicture == true { pictureInChat = true }
         messages.append(Message(role: .user, text: text, attachment: attachment))
         let reply = Message(role: .assistant, done: false)
         messages.append(reply)
@@ -338,8 +342,9 @@ public final class AppModel {
                 if let c = p.chain { args["chain"] = c }
                 cont.yield(.status("Checking every address and your balance…"))
                 let out: ToolOutcome
-                do { out = try await HermitToolbox.prepareMultisend(args, origin: .user, source: file) }
-                catch { out = HermitToolbox.json(["error": (error as? CustomStringConvertible)?.description ?? "\(error)"]) }
+                // A list read from a picture can misread a character and still parse, so the checksum rule holds here too.
+                do { out = try await HermitToolbox.prepareMultisend(args, origin: .user, source: file, fromPicture: HermitToolbox.pictureInChat) }
+                catch { out = HermitToolbox.json(["error": HermitToolbox.message(error)]) }
                 cont.yield(.steps(2))
                 cont.yield(.block(.text("")))
                 cont.yield(.text(batchReply(out, file: file)))
@@ -426,12 +431,13 @@ public final class AppModel {
     /// Called by the approval sheet once Touch ID / Face ID passed and the move went through.
     public func approved(_ a: Approval, hash: String? = nil) {
         approval = nil
-        if a.kind == "Buy", let p = BuyRecord.pending {
-            BuyRecord.pending = nil
-            ActivityLedger.shared.record(ActivityItem(id: hash ?? p.id, kind: p.kind, chainID: p.chainID, walletID: p.walletID, what: p.what, detail: p.detail,
-                                                      amount: p.amount, symbol: p.symbol, date: Date(), tx: hash, status: p.status,
-                                                      link: hash.flatMap { Chain.with(id: "solana")?.explorerURL(tx: $0) }))
-        }
+        // A demo trade (no `perform`, only `live`) placed nothing: a release build never posts "Order filled" for it.
+        #if DEBUG
+        let demoOnly = false
+        #else
+        let demoOnly = !SnapshotMode.active && a.perform == nil && hash == nil && a.live != nil
+        #endif
+        if demoOnly { toast("Trading from chat is coming soon"); return }
         approvedIDs.insert(a.title)
         approvalCount += 1
         guard route == .home, inChat else { toast(a.success); return }
@@ -451,7 +457,8 @@ public final class AppModel {
                 messages.append(Message(role: .assistant, blocks: [.card(r)]))
             } else {
                 // "Sent 0.5 USDC. Tx 0xeb32…5a95": the hash is in Activity with its explorer link.
-                let tx = hash.map { h in h.count > 16 ? " Tx \(h.prefix(8))…\(h.suffix(6))" : " Tx \(h)" } ?? ""
+                // A Hyperliquid fill ("Filled 0.5 at $72.2") is a result line, not a hash: shown as it is.
+                let tx = hash.flatMap { $0.isEmpty ? nil : $0 }.map { h in !TxText.looksLikeHash(h) ? " " + h : h.count > 16 ? " Tx \(h.prefix(8))…\(h.suffix(6))" : " Tx \(h)" } ?? ""
                 messages.append(Message(role: .assistant, text: a.success + "." + tx, note: true))
             }
             if let live = a.live { messages.append(Message(role: .assistant, blocks: [.card(.liveTrade(live))])) }

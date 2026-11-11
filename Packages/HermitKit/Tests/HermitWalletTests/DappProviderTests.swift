@@ -89,6 +89,43 @@ final class DappProviderTests: XCTestCase {
         XCTAssertEqual(k.title, "Send 0.5 ETH"); XCTAssertEqual(k.outflowUSD, 1500)
     }
 
+    /// An undecoded contract call (a router swap with no ETH attached): the eth_simulateV1 answer becomes "You send" and
+    /// "You get" lines and the amount the spending policy counts. Shape as publicnode returned it on 2026-11-10.
+    func testSimulatedTransfersOnUndecodedCall() async throws {
+        let me = EVMAddress(Self.testAddress)!, router = EVMAddress("0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD")!
+        let usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", eth = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        func transfer(_ token: String, _ from: EVMAddress, _ to: EVMAddress, _ amount: UInt128) -> JSON {
+            .object(["address": .string(token),
+                     "topics": .array([.string(EVMClient.transferTopic), .string(ERC20.word(from).hex0x), .string(ERC20.word(to).hex0x)]),
+                     "data": .string(ERC20.word(amount).hex0x)])
+        }
+        func answer(_ logs: [JSON], status: String = "0x1") -> JSON {
+            .array([.object(["calls": .array([.object(["status": .string(status), "logs": .array(logs)])])])])
+        }
+        // 25 USDC out, 0.01 ETH back, plus a transfer between two other addresses that isn't ours.
+        let sim = try EVMClient.parseSimulatedTransfers(answer([transfer(usdc, me, router, 25_000_000), transfer(eth, router, me, 10_000_000_000_000_000),
+                                                                transfer(usdc, router, router, 7)]), wallet: me)
+        XCTAssertEqual(sim.changes, [EVMBalanceChange(token: nil, sent: 0, received: 10_000_000_000_000_000),
+                                     EVMBalanceChange(token: EVMAddress(usdc)!, sent: 25_000_000, received: 0)])
+        XCTAssertThrowsError(try EVMClient.parseSimulatedTransfers(answer([], status: "0x0"), wallet: me))
+        XCTAssertThrowsError(try EVMClient.parseSimulatedTransfers(.array([]), wallet: me))
+
+        let r = DappTransactionRequest(from: me, to: router, value: 0, data: [0x12, 0x34, 0x56, 0x78] + ERC20.word(UInt128(1)), gas: nil)
+        let client = EVMClient(url: Chain.base.rpc)
+        var i = await DappDecoder.transaction(r, chain: .base, client: client, prices: ["ETH": 3000])
+        XCTAssertFalse(i.decoded); XCTAssertFalse(i.movesFunds)
+        await DappDecoder.applySimulation(&i, sim, request: r, chain: .base, client: client, prices: ["ETH": 3000])
+        XCTAssertTrue(i.lines.contains(["You send", "25 USDC"]), "\(i.lines)")
+        XCTAssertTrue(i.lines.contains(["You get", "0.01 ETH"]), "\(i.lines)")
+        XCTAssertTrue(i.movesFunds); XCTAssertEqual(i.outflowUSD, 25); XCTAssertNil(i.payee)
+
+        // No simulation (the network lacks eth_simulateV1): still counted as moving funds, of unknown value.
+        var j = await DappDecoder.transaction(r, chain: .base, client: client, prices: [:])
+        await DappDecoder.applySimulation(&j, nil, request: r, chain: .base, client: client, prices: [:])
+        XCTAssertTrue(j.movesFunds); XCTAssertNil(j.outflowUSD)
+        XCTAssertTrue(j.warnings.contains { $0.hasPrefix("Hermit can't decode this call, so") }, "\(j.warnings)")
+    }
+
     func testDecodePermit2TypedData() async throws {
         let json = #"{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"chainId","type":"uint256"},{"name":"verifyingContract","type":"address"}],"PermitSingle":[{"name":"details","type":"PermitDetails"},{"name":"spender","type":"address"},{"name":"sigDeadline","type":"uint256"}],"PermitDetails":[{"name":"token","type":"address"},{"name":"amount","type":"uint160"},{"name":"expiration","type":"uint48"},{"name":"nonce","type":"uint48"}]},"primaryType":"PermitSingle","domain":{"name":"Permit2","chainId":"8453","verifyingContract":"0x000000000022D473030F116dDEE9F6B43aC78BA3"},"message":{"details":{"token":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","amount":"1461501637330902918203684832716283019655932542975","expiration":"1765000000","nonce":"0"},"spender":"0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD","sigDeadline":"1763000000"}}"#
         let t = try EIP712(json: Data(json.utf8))
@@ -204,6 +241,37 @@ final class DappProviderTests: XCTestCase {
         d.sites.disconnect(site.description)
         let v16 = try await call(d, "eth_accounts").get()
         XCTAssertEqual(v16, .array([]))
+    }
+
+    /// A connection belongs to one exact origin: another host, a subdomain, another port or plain http can't sign with it,
+    /// and none of them reaches a sheet.
+    func testPermissionIsBoundToItsOrigin() async throws {
+        let s = try service(), p = Presenter(), d = provider(s, p)
+        p.approve = [true]
+        _ = try await call(d, "eth_requestAccounts").get()
+        let hello = "0x" + Array("Hello from Hermit".utf8).hex
+        let shown = p.shown.count
+        let others = [DappOrigin(scheme: "https", host: "app.aave.com", port: nil),
+                      DappOrigin(scheme: "https", host: "evil.app.uniswap.org", port: nil),
+                      DappOrigin(scheme: "https", host: "app.uniswap.org", port: 8443)]
+        for o in others {
+            let accounts = try await call(d, "eth_accounts", [], o).get()
+            XCTAssertEqual(accounts, .array([]), o.description)
+            let sign = await call(d, "personal_sign", [.string(hello), .string(Self.testAddress)], o)
+            XCTAssertEqual(sign, .failure(.unauthorized), o.description)
+            let typed = await call(d, "eth_signTypedData_v4", [.string(Self.testAddress), .string(Self.mail)], o)
+            XCTAssertEqual(typed, .failure(.unauthorized), o.description)
+            let send = await call(d, "eth_sendTransaction", [["from": .string(Self.testAddress), "to": .string(Self.testAddress), "value": "0x1"]], o)
+            XCTAssertEqual(send, .failure(.unauthorized), o.description)
+            let sol = await call(d, "sol_signMessage", [["message": "aGk="]], o)
+            XCTAssertEqual(sol, .failure(.unauthorized), o.description)
+        }
+        let http = await call(d, "personal_sign", [.string(hello), .string(Self.testAddress)], DappOrigin(scheme: "http", host: "app.uniswap.org", port: nil))
+        XCTAssertEqual(http, .failure(.unauthorized))
+        XCTAssertEqual(p.shown.count, shown)
+        // The origin that connected still can.
+        let mine = try await call(d, "eth_accounts").get()
+        XCTAssertEqual(mine, .array([.string(Self.testAddress)]))
     }
 
     /// Live (HERMIT_LIVE=1): read-only RPC passthrough, and a transaction from a fresh empty wallet on Base Sepolia,

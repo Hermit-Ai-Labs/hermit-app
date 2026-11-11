@@ -57,6 +57,8 @@ public struct BatchPlan: Codable, Sendable, Identifiable, Equatable {
     /// "wallets.csv" when the list came from a file.
     public let source: String?
     public let created: Date
+    /// Dollars per whole unit of `symbol` when the plan was made (nil when unpriced): what each sent row adds to the daily limit.
+    public var unitUSD: String? = nil
 
     public var chain: Chain? { Chain.with(id: chainID) }
     public var valid: [BatchRow] { rows.filter { $0.status != .invalid } }
@@ -76,7 +78,7 @@ extension WalletService {
     /// amounts, the token and native balances against the total plus every network fee (one transfer simulated),
     /// the daily limit, the assistant's per-move cap when it prepared it, and first-time payees.
     public func planBatch(walletID: UUID?, chain: Chain, symbol: String, recipients: [(address: String, amount: String)],
-                          origin: ActionOrigin, source: String? = nil) async throws -> BatchPlan {
+                          origin: ActionOrigin, source: String? = nil, fromPicture: Bool = false) async throws -> BatchPlan {
         guard let w = walletID.flatMap({ id in wallets.first { $0.id == id } }) ?? selected else { throw WalletError.vault("Create or import a wallet first.") }
         guard Self.batchSupported(chain) else {
             throw WalletError.blocked("Batch sends work on EVM networks for now (Base, Ethereum, Arbitrum, BNB Chain, Polygon, Monad). On \(chain.name), send one at a time from Wallets.")
@@ -98,7 +100,13 @@ extension WalletService {
             var problem: String?, address = ""
             if let a = EVMAddress(input) {
                 address = a.checksummed
-                if a == me { problem = "That's this wallet" }
+                // Text read from a picture can swap a character and still parse. Without mixed case there is no
+                // checksum to catch it, so only addresses already saved or paid before get through.
+                let hex = input.dropFirst(2)
+                let noChecksum = hex == hex.lowercased() || hex == hex.uppercased()
+                let known = addressBook.entry(for: address, kind: .evm).map { $0.label != nil || $0.payments > 0 } ?? false
+                if fromPicture && noChecksum && !known { problem = "Read from a picture without a checksum. Paste this address instead." }
+                else if a == me { problem = "That's this wallet" }
                 else if let first = seen[address.lowercased()] { problem = "Same address as row \(first)" }
                 else { seen[address.lowercased()] = i + 1 }
             } else if ENS.looksLikeName(input) {
@@ -120,6 +128,7 @@ extension WalletService {
         }
         let validCount = rows.filter { $0.status == .ready }.count
         var checks: [String] = [], warnings: [String] = [], blocks: [String] = []
+        if fromPicture { warnings.append("Read from a picture. Compare every address with the original.") }
         if validCount == 0 { blocks.append("None of the rows can be sent.") }
         let bad = rows.count - validCount
         if bad > 0 { warnings.append("\(bad) row\(bad == 1 ? "" : "s") left out (listed below with the reason).") }
@@ -159,7 +168,8 @@ extension WalletService {
         } else if token != nil { checks.append("\(chain.nativeSymbol) covers \(validCount) network fees") }
 
         // Spending policy: the whole batch is one move.
-        let usd: Decimal? = token.flatMap { TokenTable.stableSymbols.contains($0.symbol) ? Decimal(string: Units.format(total, decimals: $0.decimals)) : nil }
+        let unit = await usdPerUnit(chain: chain, token: token)
+        let usd: Decimal? = unit.flatMap { u in Decimal(string: Units.format(total, decimals: decimals)).map { $0 * u } }
         let p = policy
         let left = p.limit.remaining()
         if let usd {
@@ -167,8 +177,10 @@ extension WalletService {
             else { checks.append("Within daily limit (\(SpendPolicy.money(left - usd)) left today)") }
         } else if origin == .agent {
             blocks.append("The assistant can't send tokens without a price. Send \(sym) from Wallets yourself.")
+        } else if chain.isTestnet {
+            warnings.append("Test coins have no price, so this isn't counted toward your \(SpendPolicy.money(p.limit.dailyLimitUSD)) daily limit.")
         } else {
-            warnings.append("No price for \(sym), so it isn't counted toward your \(SpendPolicy.money(p.limit.dailyLimitUSD)) daily limit.")
+            blocks.append("There is no price for \(sym) right now, so this can't be checked against your \(SpendPolicy.money(p.limit.dailyLimitUSD)) daily limit. Try again in a minute.")
         }
         if origin == .agent, let usd {
             if usd > p.agentCapUSD { blocks.append("The assistant can prepare up to \(SpendPolicy.money(p.agentCapUSD)) per move. Attach the list and ask again, or split it.") }
@@ -181,7 +193,8 @@ extension WalletService {
 
         return BatchPlan(id: UUID().uuidString, walletID: w.id, chainID: chain.id, symbol: sym, tokenAddress: token?.address, decimals: decimals,
                          rows: rows, total: Units.format(total, decimals: decimals), feeText: feeText, gasLimit: gas, checks: checks,
-                         warnings: warnings, blocks: blocks, origin: origin, source: source, created: Date())
+                         warnings: warnings, blocks: blocks, origin: origin, source: source, created: Date(),
+                         unitUSD: unit.map { "\($0)" })
     }
 
     /// Sends the rows still to go (ready, or failed on an earlier try): one Face ID / Touch ID unlock signs every
@@ -197,6 +210,9 @@ extension WalletService {
         guard !todo.isEmpty else { return }
         let token = plan.tokenAddress.flatMap { a in chain.tokens.first { $0.address == a } }
         guard plan.tokenAddress == nil || token != nil else { throw WalletError.unknownToken }
+        // What each row adds to the daily limit. A plan saved before it carried a price counts stablecoins at face value.
+        let isStable = token.map { TokenTable.stableSymbols.contains($0.symbol) } ?? false
+        let unit: Decimal? = plan.unitUSD.flatMap { Decimal(string: $0) } ?? (isStable ? Decimal(1) : nil)
         let client = evm(chain)
         let from = EVMAddress(w.evmAddress)!
         async let cidA = client.chainId()
@@ -256,11 +272,12 @@ extension WalletService {
                 // Not confirmed in time: it may still land. Keep it as sent, with the hash to check.
                 row.error = "Not confirmed yet"
             }
-            if row.status == .confirmed {
+            // A row still "sent" may yet land, so it counts as spent (one that failed on chain moved nothing).
+            if row.status == .confirmed || row.status == .sent {
                 sendLog.record(SendLog.Entry(hash: hash, chainID: chain.id, walletID: w.id, amount: row.amount, symbol: plan.symbol,
                                              recipient: row.address, label: nil, date: Date()))
-                addressBook.recordPayment(to: row.address, kind: .evm)
-                if let t = token, TokenTable.stableSymbols.contains(t.symbol), let usd = Decimal(string: row.amount) { spendLimit.record(usd: usd) }
+                if row.status == .confirmed { addressBook.recordPayment(to: row.address, kind: .evm) }
+                if let unit, let amount = Decimal(string: row.amount) { spendLimit.record(usd: amount * unit) }
             }
             update(row)
         }

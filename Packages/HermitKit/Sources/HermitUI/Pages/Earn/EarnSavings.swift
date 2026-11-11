@@ -28,10 +28,15 @@ struct EarnSavings: View {
     /// 0 for the cheap networks (Base, Arbitrum, Solana), 1 for Ethereum (gas costs dollars).
     private func gasRank(_ p: EarnData.Pool) -> Int { p.chain == "Ethereum" ? 1 : 0 }
 
-    /// Aave v3 on a network Hermit knows, even for a token it can't deposit itself (ETH, wBTC…): those open in Aave's app.
+    /// Aave v3's main market on a network Hermit knows, even for a token it can't deposit itself (ETH, wBTC…): those
+    /// open in Aave's app. Umbrella (slashable staking) and the Horizon RWA market aren't savings, so they stay in Explore.
     private func isAave(_ p: EarnData.Pool) -> Bool {
-        p.project == "aave-v3" && Chain.mainnets.contains { $0.id == p.chain.lowercased() && $0.kind == .evm }
+        p.isAaveMain && Chain.mainnets.contains { $0.id == p.chain.lowercased() && $0.kind == .evm }
     }
+
+    /// The rate a row shows: for a pool Hermit deposits into, only what the deposit earns (rewards aren't collected);
+    /// pools that open in their own app show their full rate, rewards included, since the app collects them.
+    private func rate(_ p: EarnData.Pool) -> Double { EarnRoute.aave(p) != nil ? p.depositAPY : p.apy }
 
     var body: some View {
         let list = feed.pools.filter { EarnRoute.aave($0) != nil || isAave($0) || opensApp($0) != nil }
@@ -39,10 +44,10 @@ struct EarnSavings: View {
                 let (ha, hb) = (held(a) > 0, held(b) > 0)
                 if ha != hb { return ha }
                 if gasRank(a) != gasRank(b) { return gasRank(a) < gasRank(b) }
-                return a.apy > b.apy
+                return rate(a) > rate(b)
             }
         VStack(alignment: .leading, spacing: 0) {
-            Text("Lend your dollars and earn interest every second. Withdraw any time. Base, Arbitrum and Solana cost cents; Ethereum costs dollars in gas.")
+            Text("Lend your dollars and earn interest every second. You can withdraw whenever the pool has spare cash, shown on each row as available. Base, Arbitrum and Solana cost cents; Ethereum costs dollars in gas.")
                 .font(.system(size: 14)).foregroundStyle(Theme.muted).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, 14)
             if feed.pools.isEmpty {
@@ -63,17 +68,20 @@ struct EarnSavings: View {
 
     private func row(_ p: EarnData.Pool) -> some View {
         let h = held(p)
+        // DefiLlama's 30-day mean includes rewards, so it's left off a row whose rate leaves them out.
+        let mean = EarnRoute.aave(p) != nil && (p.apyReward ?? 0) > 0 ? nil : p.apyMean30d
         return HStack(spacing: 12) {
             MarketLogo(key: TradeData.logo(p.symbol), name: p.symbol)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(p.symbol) on \(p.chainName)").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                Text([h > 0 ? "\(p.name), you have \(h.tradeGrouped(2))" : p.name, "\(p.tvlUsd.tradeCompactUSD) deposited",
-                      p.apyMean30d.map { "\(EarnPoolRow.pct($0)) 30-day avg" }].compactMap { $0 }.joined(separator: ", "))
+                // For a lender DefiLlama's TVL is what's supplied minus what's borrowed: the cash there to withdraw.
+                Text([h > 0 ? "\(p.name), you have \(h.tradeGrouped(2))" : p.name, "\(p.tvlUsd.tradeCompactUSD) available",
+                      mean.map { "\(EarnPoolRow.pct($0)) 30-day avg" }].compactMap { $0 }.joined(separator: ", "))
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(EarnPoolRow.pct(p.apy)).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.green)
+                Text(EarnPoolRow.pct(rate(p))).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.green)
                 Text("a year").font(.system(size: 12)).foregroundStyle(Theme.faint)
             }
             .monospacedDigit()

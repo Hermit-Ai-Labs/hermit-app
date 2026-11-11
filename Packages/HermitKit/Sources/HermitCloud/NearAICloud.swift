@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import HermitCore
 
 /// NEAR AI Cloud's OpenAI-compatible gateway (cloud-api.near.ai). Attestation and the model list need no key;
@@ -6,9 +7,18 @@ import HermitCore
 public struct NearAICloud: Sendable {
     public static let base = URL(string: "https://cloud-api.near.ai/v1")!
     public static let nras = URL(string: "https://nras.attestation.nvidia.com/v3/attest/gpu")!
+    /// NVIDIA's keys for NRAS tokens, and the issuer the tokens must name.
+    public static let nrasKeys = URL(string: "https://nras.attestation.nvidia.com/.well-known/jwks.json")!
+    static let nrasIssuer = "https://nras.attestation.nvidia.com"
     public static let dashboard = URL(string: "https://cloud.near.ai")!
     public static let builders = URL(string: "https://nearbuilders.org/join")!
     public static let verificationCenter = URL(string: "https://cloud.near.ai/verify")!
+    /// NEAR's Verification Center for one model.
+    public static func verifyURL(model: String) -> URL {
+        var c = URLComponents(url: verificationCenter, resolvingAgainstBaseURL: false)
+        c?.queryItems = [.init(name: "model", value: model)]
+        return c?.url ?? verificationCenter
+    }
     /// Same family as Hermit 1.1 on the phone (Qwen3), 27B, run by NEAR inside Intel TDX + NVIDIA confidential GPUs.
     public static let defaultModel = "Qwen/Qwen3.8-27B"
 
@@ -116,8 +126,8 @@ public struct NearAICloud: Sendable {
     }
 
     /// NVIDIA's attestation service: sends only the GPU evidence (no prompt, no key) and reads the overall verdict
-    /// from the returned token. The token's own signature is not checked on the phone.
-    public func nvidiaVerdict(_ payload: String) async -> (ok: Bool?, detail: String) {
+    /// from the returned token, after checking the token as NEAR's SDK does (`nrasVerdict`). nil: no verdict came back.
+    public func nvidiaVerdict(_ payload: String, nonce: String) async -> (ok: Bool?, detail: String) {
         var req = URLRequest(url: Self.nras, timeoutInterval: 60)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -128,17 +138,76 @@ public struct NearAICloud: Sendable {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200, let arr = try? JSONSerialization.jsonObject(with: data) as? [Any], let first = arr.first as? [Any],
               first.count == 2, let token = first[1] as? String else { return (false, "NVIDIA NRAS answered \(code)") }
-        guard let claims = Self.jwtClaims(token) else { return (false, "Unreadable NRAS token") }
+        guard let keys = try? await get(Self.nrasKeys) else { return (nil, "NVIDIA's token keys unreachable") }
+        let v = Self.nrasVerdict(token: token, keys: keys, nonce: nonce, at: Date())
+        return (v.ok, v.detail)
+    }
+
+    /// Checks an NRAS token the way NEAR's SDK does: an ES384 signature by the NVIDIA key its header names (from
+    /// NVIDIA's key set), NVIDIA as the issuer, inside its validity window, and `eat_nonce` equal to this request's
+    /// nonce (so a token for other evidence can't be replayed). Only then is the overall verdict read.
+    static func nrasVerdict(token: String, keys: Data, nonce: String, at date: Date) -> (ok: Bool, detail: String) {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, let headerData = base64URLDecode(parts[0]),
+              let header = try? JSONSerialization.jsonObject(with: headerData) as? [String: Any],
+              let claims = jwtClaims(token) else { return (false, "Unreadable NRAS token") }
+        guard header["alg"] as? String == "ES384", let kid = header["kid"] as? String else { return (false, "NRAS token isn't signed with ES384") }
+        let set = ((try? JSONSerialization.jsonObject(with: keys) as? [String: Any])?["keys"] as? [[String: Any]]) ?? []
+        guard let jwk = set.first(where: { $0["kid"] as? String == kid }), jwk["kty"] as? String == "EC", jwk["crv"] as? String == "P-384",
+              let x = (jwk["x"] as? String).flatMap({ base64URLDecode($0) }), let y = (jwk["y"] as? String).flatMap({ base64URLDecode($0) }),
+              x.count == 48, y.count == 48, let key = try? P384.Signing.PublicKey(rawRepresentation: x + y) else {
+            return (false, "NRAS token key isn't one of NVIDIA's")
+        }
+        guard let raw = base64URLDecode(parts[2]), raw.count == 96, let sig = try? P384.Signing.ECDSASignature(rawRepresentation: raw),
+              key.isValidSignature(sig, for: Data((parts[0] + "." + parts[1]).utf8)) else {
+            return (false, "NRAS token signature doesn't verify")
+        }
+        guard claims["iss"] as? String == nrasIssuer else { return (false, "NRAS token isn't from NVIDIA's issuer") }
+        // A minute of clock skew either way.
+        let now = date.timeIntervalSince1970
+        guard let exp = (claims["exp"] as? NSNumber)?.doubleValue, let nbf = (claims["nbf"] as? NSNumber)?.doubleValue,
+              nbf - 60 <= now, now < exp + 60 else { return (false, "NRAS token is out of date") }
+        guard let eat = claims["eat_nonce"] as? String, eat.lowercased() == nonce.lowercased() else {
+            return (false, "NRAS token is for another request's nonce")
+        }
         let ok = claims["x-nvidia-overall-att-result"] as? Bool == true
-        return (ok, ok ? "Verdict from NVIDIA NRAS: overall attestation true" : "NVIDIA NRAS verdict: false")
+        return (ok, ok ? "Verdict from NVIDIA NRAS: overall attestation true. Token signed by NVIDIA for this request's nonce"
+                       : "NVIDIA NRAS verdict: false")
     }
 
     static func jwtClaims(_ jwt: String) -> [String: Any]? {
         let parts = jwt.split(separator: ".")
         guard parts.count >= 2 else { return nil }
-        var b = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        return base64URLDecode(String(parts[1])).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
+    static func base64URLDecode(_ s: String) -> Data? {
+        var b = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while b.count % 4 != 0 { b += "=" }
-        return Data(base64Encoded: b).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return Data(base64Encoded: b)
+    }
+
+    // MARK: Key check
+
+    public enum KeyCheck: Sendable, Equatable { case valid, rejected, noCredits, unchecked }
+
+    /// Asks NEAR whether `key` works (POST /v1/check_api_key). Sends the key only, never a prompt.
+    /// `unchecked`: no clear answer (offline, busy, a server error).
+    public func checkKey(_ key: String) async -> KeyCheck {
+        var req = URLRequest(url: Self.base.appending(path: "check_api_key"), timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let result = try? await session.data(for: req) else { return .unchecked }
+        let (data, resp) = result
+        switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
+        case 200..<300:
+            let valid = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["valid"] as? Bool
+            return valid == false ? .rejected : .valid
+        case 401, 403: return .rejected
+        case 402: return .noCredits
+        default: return .unchecked
+        }
     }
 
     // MARK: Completions
@@ -212,6 +281,9 @@ public struct Preflight: Sendable {
 
     /// Every check passed, so prompts may go to this deployment.
     public var passed: Bool { !checks.contains { $0.status == .fail } && bundle.models.count > 0 }
+    /// NVIDIA gave its verdict on every model's GPUs. Only NRAS verifies the GPU evidence itself, so a missing verdict
+    /// (NRAS unreachable) shows as not checked and still keeps the prompt on the device.
+    public var gpuVerdicts: Bool { !checks.contains { $0.id.hasPrefix("model") && $0.id.hasSuffix(".nras") && $0.status != .pass } }
     /// Signers of model candidates that passed every check (docs: verify every candidate, keep the verified ones).
     public var verifiedModelSigners: [String] {
         bundle.models.enumerated().compactMap { i, m in
@@ -230,7 +302,7 @@ public struct Preflight: Sendable {
             await withTaskGroup(of: (Int, (Bool?, String)).self) { g in
                 for (i, m) in bundle.models.enumerated() {
                     if let p = m.nvidiaPayload {
-                        g.addTask { let v = await cloud.nvidiaVerdict(p); return (i, (v.ok, v.detail)) }
+                        g.addTask { let v = await cloud.nvidiaVerdict(p, nonce: nonce); return (i, (v.ok, v.detail)) }
                     }
                 }
                 for await (i, v) in g { nvidia[i] = v }
@@ -278,12 +350,12 @@ public struct Preflight: Sendable {
 
     /// What the phone can't check on its own, listed so nobody reads more into the proof than it says.
     public static let notChecked: [CloudProof.Check] = [
-        .init(id: "nc.tcb", group: "Not checked on this phone", title: "Intel TCB level and revocation",
+        .init(id: "nc.tcb", group: "Not checked on \(CloudDevice.here)", title: "Intel TCB level and revocation",
               detail: "Needs Intel's collateral (TCB info, QE identity, CRLs). near/verify-attestation.py checks it with dcap-qvl", status: .skipped, source: .none),
-        .init(id: "nc.provenance", group: "Not checked on this phone", title: "Image provenance of the containers",
+        .init(id: "nc.provenance", group: "Not checked on \(CloudDevice.here)", title: "Image provenance of the containers",
               detail: "The compose hash is bound to the quote; who built each image is not checked", status: .skipped, source: .none),
-        .init(id: "nc.hop", group: "Not checked on this phone", title: "Gateway to model hop for this request",
-              detail: "TLS binding covers the phone-to-gateway connection. NEAR doesn't yet prove which model instance served a request", status: .skipped, source: .none),
+        .init(id: "nc.hop", group: "Not checked on \(CloudDevice.here)", title: "Gateway to model hop for this request",
+              detail: "TLS binding covers the \(CloudDevice.noun)-to-gateway connection. NEAR doesn't yet prove which model instance served a request", status: .skipped, source: .none),
     ]
 
     /// The proof for a reply. `signed` is how many completions carried a verified model-enclave signature.
@@ -304,6 +376,7 @@ public enum SharedQuota {
         UserDefaults.standard.string(forKey: dayKey) == today ? UserDefaults.standard.integer(forKey: countKey) : 0
     }
     public static var left: Int { max(perDay - used, 0) }
+    /// One message spent. Called once a completion has come back, so a failed request costs nothing.
     static func consume() {
         let d = UserDefaults.standard
         d.set(used + 1, forKey: countKey); d.set(today, forKey: dayKey)

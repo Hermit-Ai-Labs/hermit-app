@@ -282,7 +282,7 @@ extension DappProvider {
             spent = outflow
         }
         review.changes = changes
-        let svc = service, wid = w.id
+        let svc = service, wid = w.id, onSent = self.onSent, title = review.title, host = origin.host
         let reason = "\(review.title) on \(origin.host)"
         let box = ResultBox()
         let a = Approval(kind: "Transaction from \(origin.host)", title: review.title, lines: lines, checks: checks,
@@ -291,12 +291,16 @@ extension DappProvider {
                              let signed = try await svc.dappSolanaSign(walletID: wid, tx, reason: reason)
                              guard signed.message.bytes == tx.message.bytes else { throw WalletError.blocked("Signed transaction failed its self-check.") }
                              if !send {
+                                 // The site broadcasts this itself, so the signature is what spends: count it now, or a site could
+                                 // ask for sign-only requests again and again, each passing the same remaining-limit check.
+                                 if let spent, spent > 0, !c.isTestnet { svc.spendLimit.record(usd: spent) }
                                  let b64 = Data(signed.serialized).base64EncodedString()
                                  box.set(b64); return Base58.encode(signed.signatures[slot])
                              }
                              let sig = try await client.sendRaw(signed, skipPreflight: skipPreflight)
                              guard sig == signed.id else { throw WalletError.badResponse("the node returned a different signature") }
                              if let spent, spent > 0, !c.isTestnet { svc.spendLimit.record(usd: spent) }
+                             onSent?(DappSentTransaction(chain: c, hash: sig, title: title, host: host, walletID: wid))
                              box.set(sig)
                              Task { @MainActor in
                                  _ = try? await client.waitForConfirmation(sig)

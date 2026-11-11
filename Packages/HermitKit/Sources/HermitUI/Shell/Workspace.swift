@@ -79,7 +79,8 @@ public struct Automation: Identifiable, Equatable, Codable {
         self.name = name; self.trigger = trigger; self.action = action; self.limit = limit; self.on = on; self.last = last
         self.prompt = prompt; self.asks = asks
         thread = [Message(role: .user, text: prompt ?? "\(trigger): \(action.prefix(1).lowercased() + action.dropFirst())"),
-                  Message(role: .assistant, text: "Saved. \(trigger), Hermit will \(action.prefix(1).lowercased() + action.dropFirst()).", note: true)]
+                  // Nothing runs on a schedule yet, so the reply doesn't promise it.
+                  Message(role: .assistant, text: "Saved. It runs when you press Run now. Schedules are coming soon.", note: true)]
             + (runs ?? []).reversed().map { Message(role: .assistant, text: $0.1, run: $0.0) }
     }
 

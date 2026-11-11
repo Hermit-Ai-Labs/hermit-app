@@ -32,6 +32,10 @@ final class WalletsViewModel {
     private(set) var refreshing = false
     private(set) var loaded = false
     private(set) var lastUpdated: Date?
+    /// The price feeds have been failing: the prices shown were fetched at `pricesAt` (over 5 min ago). Prices older
+    /// than 15 min aren't served at all.
+    private(set) var pricesStale = false
+    private(set) var pricesAt: Date?
     /// Networks that didn't answer on the last refresh (their balances are unknown, not zero).
     private(set) var unreachable: [Chain] = []
     var whitelistOnly: Bool {
@@ -60,7 +64,11 @@ final class WalletsViewModel {
     var hasFunds: Bool { holdings.contains { !$0.chain.isTestnet && $0.amount > 0 } }
 
     /// Set by Payments (Transfer, Pay now) just before opening Send, which reads it once.
-    struct SendPrefill { var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil }
+    /// `onSent` runs once the send it opens was approved and went through (Payments marks a payment paid with it).
+    struct SendPrefill {
+        var address: String; var amount: String; var token: String?; var chain: Chain? = nil; var label: String? = nil
+        var onSent: (@MainActor (_ to: String, _ amount: String, _ token: String) -> Void)? = nil
+    }
     @ObservationIgnored var sendPrefill: SendPrefill?
     /// A swap the assistant prepared (WalletTools.prepare_swap), waiting for Wallets to open its review.
     @ObservationIgnored var pendingSwap: SwapIntent?
@@ -127,6 +135,8 @@ final class WalletsViewModel {
             for c in r.failed { hs += holdings.filter { $0.walletID == w.id && $0.chain == c } }
         }
         let q = await quotes
+        let stale = await PriceFeed.shared.stale
+        let fetchedAt = await PriceFeed.shared.updated
         let positions = await aave
         _ = await hlDone
         var byWallet: [String: Double] = [:]
@@ -138,6 +148,8 @@ final class WalletsViewModel {
         withAnimation(.smooth) {
             aaveUSD = byWallet
             prices = q
+            pricesStale = stale
+            pricesAt = fetchedAt
             holdings = hs.map { h in var h = h; applyPrice(&h); return h }
             unreachable = Chain.all.filter { failed.contains($0) }
             loaded = true
@@ -263,8 +275,12 @@ final class WalletsViewModel {
     /// Simulates and checks a send (no signing). Throws for mainnet while sends are testnet-only.
     func prepareSend(from walletID: String, chain: Chain, to: String, amount: String, token: String) async throws -> PreparedSend {
         guard let u = UUID(uuidString: walletID) else { throw WalletError.vault("Pick a wallet.") }
-        service.selectedWalletID = u
-        return try await service.prepareSend(chain: chain, to: to.trimmingCharacters(in: .whitespacesAndNewlines), amount: amount, token: token)
+        // From this wallet, without changing which wallet is selected (chat's tools read the selected one).
+        let native = token.caseInsensitiveCompare(chain.nativeSymbol) == .orderedSame
+        let tok: Token? = native ? nil : chain.token(token)
+        guard native || tok != nil else { throw WalletError.unknownToken }
+        let value = try Units.parse(amount, decimals: tok?.decimals ?? chain.nativeDecimals)
+        return try await service.prepareSend(walletID: u, chain: chain, to: to.trimmingCharacters(in: .whitespacesAndNewlines), value: value, token: tok)
     }
 
     /// The approval sheet for a prepared send. Approve unlocks the key (Touch ID / Face ID), signs, sends and waits.
@@ -298,5 +314,6 @@ enum AmountText {
     static func clean(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "")
     }
-    static func value(_ s: String) -> Double? { Double(clean(s)) }
+    /// Strict, like Trade's: digits, one dot, commas. "inf", "nan", "1e3" and "0x10" are nil (Double() takes some of them).
+    static func value(_ s: String) -> Double? { TradeAmount.value(s) }
 }

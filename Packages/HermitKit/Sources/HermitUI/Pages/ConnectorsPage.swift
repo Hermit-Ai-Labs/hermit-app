@@ -23,7 +23,7 @@ struct ConnectorsPage: View {
 
     var body: some View {
         // Only what works today. Other apps, paid APIs, skills and MCP servers come back as each one is built.
-        Page(title: "Connectors", subtitle: "Apps and tools Hermit can use", tabs: [("apps", "Apps")], tab: $tab) {
+        Page(title: "Connectors", subtitle: "Apps and tools you connect", tabs: [("apps", "Apps")], tab: $tab) {
             Button { sheet = .addMCP } label: { Label("MCP", systemImage: "plus") }.buttonStyle(OutlineButton())
         } content: { t in
             switch t {
@@ -43,6 +43,8 @@ struct ConnectorsPage: View {
             }
             .environment(model).tint(Theme.text)
         }
+        // A Binance order closes its sheet and opens the shared review sheet (Face ID / Touch ID before it is sent).
+        .approvalHost(sheetOpen: sheet != nil) { sheet = nil }
         #if DEBUG
         .task {
             try? await Task.sleep(for: .seconds(1.2))
@@ -62,7 +64,7 @@ struct ConnectorsPage: View {
                 WalletSymbolTile(symbol: "calendar", size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Calendar").font(.system(size: 14, weight: .medium))
-                    Text("Your events, read on \(Device.here)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text("Shown in Calendar, not in chat yet").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
                 switch calendar.access {
@@ -91,6 +93,9 @@ struct ConnectorsPage: View {
             .padding(.vertical, 11)
             }
             Text("MCP servers").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 22).padding(.bottom, 4)
+            // The assistant has no MCP tools yet (HermitToolbox only runs Hermit's own), so say so instead of implying it.
+            Text("Coming soon: Hermit using these tools in chat. For now you run a tool yourself from its server.")
+                .font(.system(size: 12.5)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true).padding(.bottom, 6)
             if store.servers.isEmpty {
                 Button { sheet = .addMCP } label: {
                     HStack(spacing: 12) {

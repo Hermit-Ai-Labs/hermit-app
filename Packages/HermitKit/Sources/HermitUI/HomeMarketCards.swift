@@ -26,6 +26,7 @@ struct HomeMarketsCard: View {
     @AppStorage("home.marketStyle") private var styleRaw = MarketCardStyle.holo.rawValue
     @State private var spark: [String: [Double]] = [:]
     @State private var spot = 0
+    @Environment(\.scenePhase) private var phase
     private var feed: MarketFeed { .shared }
     static let coins = [("BTC", "Bitcoin"), ("ETH", "Ethereum"), ("SOL", "Solana"), ("HYPE", "Hyperliquid")]
     private var style: MarketCardStyle { MarketCardStyle(rawValue: styleRaw) ?? .holo }
@@ -41,10 +42,11 @@ struct HomeMarketsCard: View {
             .overlay(alignment: .topTrailing) {
                 if style != .holo && style != .swipe { hideButton(hide).padding(10) }
             }
-            .marketPoll(every: 30) { await feed.refreshPerps() }
+            .marketPoll(every: 60) { await feed.refreshPerps() }
             .task(id: style) { if [.stocks, .swipe, .spotlight].contains(style) { await loadSparks() } }
-            .task(id: style == .spotlight) {
-                guard style == .spotlight, !SnapshotMode.active else { return }
+            // Restarts when the scene comes back: no stepping while the app is in the background or inactive.
+            .task(id: style == .spotlight && phase == .active) {
+                guard style == .spotlight, phase == .active, !SnapshotMode.active else { return }
                 while !Task.isCancelled { try? await Task.sleep(for: .seconds(4.5)); withAnimation(.smooth) { spot = (spot + 1) % 4 } }
             }
     }

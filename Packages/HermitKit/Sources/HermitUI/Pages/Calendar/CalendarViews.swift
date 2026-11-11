@@ -64,15 +64,19 @@ struct CalWeekView: View {
             Color.clear.frame(width: CalGrid.gutter, height: 1)
             ForEach(days, id: \.self) { d in
                 let today = CalendarData.same(d, CalendarData.today)
-                HStack(spacing: 4) {
-                    Text(CalendarData.format(d, "EEE")).foregroundStyle(Theme.muted)
-                    Text("\(CalendarData.dayNumber(d))").fontWeight(.medium).foregroundStyle(today ? Theme.accent : Theme.text)
+                // A real button, so VoiceOver and full keyboard access can pick the day too.
+                Button { onPick(d) } label: {
+                    HStack(spacing: 4) {
+                        Text(CalendarData.format(d, "EEE")).foregroundStyle(Theme.muted)
+                        Text("\(CalendarData.dayNumber(d))").fontWeight(.medium).foregroundStyle(today ? Theme.accent : Theme.text)
+                    }
+                    .font(.system(size: 12.5))
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 12.5))
-                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
                 .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 1) }
-                .contentShape(Rectangle())
-                .onTapGesture { onPick(d) }
+                .accessibilityLabel(CalendarData.format(d, "EEEE, MMMM d"))
             }
         }
     }
@@ -333,10 +337,17 @@ private struct CalMonthCell: View {
     var body: some View {
         let today = CalendarData.same(day, CalendarData.today)
         VStack(alignment: .leading, spacing: 3) {
-            Text("\(CalendarData.dayNumber(day))").font(.system(size: 12.5, weight: today ? .semibold : .regular)).monospacedDigit()
-                .foregroundStyle(today ? .white : out ? Theme.faint : Theme.text)
-                .frame(minWidth: 22, minHeight: 22)
-                .background(today ? Theme.accent : .clear, in: Circle())
+            // The cell holds item buttons, so the day number is the button that VoiceOver and the keyboard reach;
+            // a tap anywhere else in the cell still opens the day.
+            Button { withAnimation(.smooth(duration: 0.3)) { onDay(day) } } label: {
+                Text("\(CalendarData.dayNumber(day))").font(.system(size: 12.5, weight: today ? .semibold : .regular)).monospacedDigit()
+                    .foregroundStyle(today ? .white : out ? Theme.faint : Theme.text)
+                    .frame(minWidth: 22, minHeight: 22)
+                    .background(today ? Theme.accent : .clear, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(CalendarData.format(day, "EEEE, MMMM d") + (items.isEmpty ? "" : ", \(items.count) \(items.count == 1 ? "item" : "items")"))
             if compact {
                 HStack(spacing: 2) {
                     ForEach(items.prefix(3)) { t in Capsule().fill(t.color).frame(height: 4) }
@@ -422,9 +433,15 @@ private struct CalBoardCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(item.t).font(.system(size: 14, weight: .medium)).strikethrough(item.status == .done)
-                .foregroundStyle(item.status == .done ? Theme.muted : Theme.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // The title is the card's button for VoiceOver and the keyboard (the card also holds Start / Mark done).
+            Button { onOpen(item) } label: {
+                Text(item.t).font(.system(size: 14, weight: .medium)).strikethrough(item.status == .done)
+                    .foregroundStyle(item.status == .done ? Theme.muted : Theme.text)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             HStack(spacing: 6) {
                 if item.project != nil { Circle().fill(item.color).frame(width: 7, height: 7) }
                 Text(item.project.map(CalendarData.short) ?? "Personal").foregroundStyle(Theme.muted).lineLimit(1)

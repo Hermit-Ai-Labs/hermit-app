@@ -14,12 +14,19 @@ public struct HermitToolbox: AgentToolbox {
 
     public static let onDevice = HermitToolbox(label: "Hermit on this device")
 
+    /// Set by AppModel.pictureInChat: text in this chat was read from a picture, so batch addresses need a checksum.
+    @MainActor static var pictureInChat = false
+
     public func run(_ name: String, arguments: String) async -> ToolOutcome {
         let args = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any]) ?? [:]
         do {
             switch name {
             case "calculator": return json(["result": Calc.text(try Calc.evaluate(args["expression"] as? String ?? ""))])
-            case "position_math": return json(try Self.positionMath(args))
+            case "position_math":
+                // The market's max leverage sets Hyperliquid's maintenance margin: look it up when the model named the coin.
+                var maxLev = (args["max_leverage"] as? NSNumber)?.doubleValue
+                if maxLev == nil, let coin = args["coin"] as? String, !coin.isEmpty, let c = try? await Self.market(coin) { maxLev = Double(c.maxLev) }
+                return json(try Self.positionMath(args, maxLeverage: maxLev))
             case "get_price": return json(try await Self.price(args["symbol"] as? String ?? ""))
             case "search_markets": return json(["markets": try await Self.searchMarkets(args["query"] as? String ?? "")])
             case "get_balances", "get_quote", "prepare_swap":
@@ -27,10 +34,14 @@ public struct HermitToolbox: AgentToolbox {
                 // Relay for prepare_swap), and prepare_swap runs the spending policy and opens the prefilled Swap review.
                 return ToolOutcome(content: await WalletsViewModel.shared.tools.call(name, arguments: args))
             case "hyperliquid_account": return json(try await Self.hlAccount())
-            case "get_yields": return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String)])
+            case "get_yields":
+                return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String),
+                             "note": "Quote apy_base_pct as the rate and name rewards apart: they can stop. Only pools with can_deposit_in_hermit can be deposited from chat."])
             case "prepare_trade": return try await Self.prepareTrade(args, label: label)
             case "prepare_send": return try await Self.prepareSend(args)
-            case "prepare_multisend": return try await Self.prepareMultisend(args, origin: .agent)
+            case "prepare_multisend":
+                let picture = await Self.pictureInChat
+                return try await Self.prepareMultisend(args, origin: .agent, fromPicture: picture)
             case "prepare_deposit": return try await Self.prepareDeposit(args)
             case "prepare_withdraw": return try await Self.prepareWithdraw(args, label: label)
             case "open_add_funds":
@@ -40,8 +51,17 @@ public struct HermitToolbox: AgentToolbox {
             default: return json(["error": "Unknown tool \(name)"])
             }
         } catch {
-            return json(["error": "\(error)"])
+            return json(["error": Self.message(error)])
         }
+    }
+
+    /// An error in words for the model and the user: WalletError's own text, ToolError's sentence, never the Swift enum
+    /// dump (`invalidAddress("0x12")`).
+    static func message(_ e: Error) -> String {
+        if let d = (e as? LocalizedError)?.errorDescription, !d.isEmpty { return d }
+        if let t = e as? ToolError { return t.description }
+        if let f = e as? Calc.Failure { return f.description }
+        return e.localizedDescription
     }
 
     private func json(_ v: Any) -> ToolOutcome { Self.json(v) }
@@ -57,10 +77,23 @@ public struct HermitToolbox: AgentToolbox {
 
     // MARK: Markets (Hyperliquid public info API)
 
-    struct Ctx { let coin: String; let mark: Double; let prev: Double; let funding: Double; let volume: Double; let maxLev: Int }
+    struct Ctx: Sendable { let coin: String; let mark: Double; let prev: Double; let funding: Double; let volume: Double; let maxLev: Int }
 
-    /// `dex` "xyz" is trade.xyz on Hyperliquid: stocks and indexes (xyz:NVDA, xyz:TSLA…).
-    static func contexts(dex: String? = nil) async throws -> [Ctx] {
+    /// metaAndAssetCtxs per dex for a few seconds, so the price, search and trade calls of one answer share one download.
+    actor CtxCache {
+        static let shared = CtxCache()
+        private var entries: [String: (at: Date, ctxs: [Ctx])] = [:]
+        func get(_ dex: String, maxAge: TimeInterval) -> [Ctx]? {
+            guard let e = entries[dex], Date().timeIntervalSince(e.at) < maxAge else { return nil }
+            return e.ctxs
+        }
+        func put(_ dex: String, _ ctxs: [Ctx]) { entries[dex] = (at: Date(), ctxs: ctxs) }
+    }
+
+    /// `dex` "xyz" is trade.xyz on Hyperliquid: stocks and indexes (xyz:NVDA, xyz:TSLA…). `maxAge` 0 always fetches
+    /// (orders price from a fresh mark).
+    static func contexts(dex: String? = nil, maxAge: TimeInterval = 5) async throws -> [Ctx] {
+        if let hit = await CtxCache.shared.get(dex ?? "", maxAge: maxAge) { return hit }
         var req = URLRequest(url: Hyperliquid.api.appending(path: "info"), timeoutInterval: 15)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -71,34 +104,112 @@ public struct HermitToolbox: AgentToolbox {
             throw ToolError("Hyperliquid didn't answer")
         }
         func n(_ v: Any?) -> Double { (v as? String).flatMap(Double.init) ?? (v as? NSNumber)?.doubleValue ?? 0 }
-        return zip(uni, ctxs).compactMap { u, c in
+        let out: [Ctx] = zip(uni, ctxs).compactMap { u, c in
             guard let coin = u["name"] as? String, u["isDelisted"] as? Bool != true else { return nil }
             return Ctx(coin: coin, mark: n(c["markPx"]), prev: n(c["prevDayPx"]), funding: n(c["funding"]), volume: n(c["dayNtlVlm"]),
                        maxLev: u["maxLeverage"] as? Int ?? 1)
         }
+        await CtxCache.shared.put(dex ?? "", out)
+        return out
+    }
+
+    /// Hyperliquid lists some memecoins per 1,000 tokens ("kPEPE"): one contract, and its price, is 1,000 PEPE.
+    /// The token's own ticker for such a market; nil for every other market.
+    static func thousandOf(_ coin: String) -> String? {
+        guard coin.count > 1, coin.first == "k", let second = coin.dropFirst().first, second.isUppercase else { return nil }
+        return String(coin.dropFirst())
+    }
+
+    /// Hyperliquid's own spelling of what the model typed: the exact name (any case), then the 1,000-token market
+    /// ("PEPE" finds "kPEPE"), then the trade.xyz stock ("NVDA" finds "xyz:NVDA"). "-PERP" or "/USDC" is dropped first.
+    static func resolve(_ input: String, in ctxs: [Ctx]) -> Ctx? {
+        var u = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        for suffix in ["-PERP", " PERP", "-USDC", "/USDC", "-USD", "/USD"] where u.hasSuffix(suffix) { u = String(u.dropLast(suffix.count)); break }
+        guard !u.isEmpty else { return nil }
+        if u.hasPrefix("XYZ:") { return ctxs.first { $0.coin.uppercased() == u } }
+        return ctxs.first { $0.coin.uppercased() == u } ?? ctxs.first { $0.coin == "k" + u } ?? ctxs.first { $0.coin.uppercased() == "XYZ:" + u }
+    }
+
+    /// The Hyperliquid market for a ticker: crypto perps first, then stocks and indexes on trade.xyz (NVDA, TSLA, SPX…).
+    static func market(_ input: String, maxAge: TimeInterval = 5) async throws -> Ctx? {
+        if !input.uppercased().hasPrefix("XYZ:"), let c = resolve(input, in: try await contexts(maxAge: maxAge)) { return c }
+        return resolve(input, in: (try? await contexts(dex: "xyz", maxAge: maxAge)) ?? [])
     }
 
     static func price(_ symbol: String) async throws -> [String: Any] {
-        let sym = symbol.uppercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "XYZ:", with: "")
-        // Crypto first, then stocks and indexes on trade.xyz (NVDA, TSLA, SPX…).
-        var hit = try await contexts().first(where: { $0.coin.uppercased() == sym })
-        if hit == nil { hit = try? await contexts(dex: "xyz").first(where: { $0.coin.uppercased() == "XYZ:" + sym }) }
-        guard let c = hit, c.mark > 0 else {
-            throw ToolError("No Hyperliquid market for \(sym). Answer from what you know instead, and say there's no live price here.")
+        let sym = symbol.uppercased().trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "XYZ:", with: "")
+        guard !sym.isEmpty else { throw ToolError("Needs a symbol") }
+        func r2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+        // Hyperliquid first (crypto, then trade.xyz stocks), then Binance spot, as the tool description says.
+        if let c = try? await market(symbol), c.mark > 0 {
+            let change: Any = c.prev > 0 ? r2((c.mark / c.prev - 1) * 100) : NSNull()
+            if c.coin.hasPrefix("xyz:") {
+                return ["symbol": String(c.coin.dropFirst(4)), "price": c.mark, "change_24h_pct": change,
+                        "source": "trade.xyz perp on Hyperliquid (tracks the stock)"]
+            }
+            if let token = thousandOf(c.coin) {
+                // kPEPE trades per 1,000 PEPE: one token is the mark / 1,000.
+                return ["symbol": token, "price": c.mark / 1000, "change_24h_pct": change, "market": c.coin, "contract_price": c.mark,
+                        "source": "Hyperliquid mark price of \(c.coin), one contract = 1,000 \(token)"]
+            }
+            return ["symbol": c.coin, "price": c.mark, "change_24h_pct": change, "source": "Hyperliquid mark price"]
         }
-        let change: Any = c.prev > 0 ? (((c.mark / c.prev - 1) * 100) * 100).rounded() / 100 : NSNull()
-        let stock = c.coin.hasPrefix("xyz:")
-        return ["symbol": stock ? String(c.coin.dropFirst(4)) : c.coin, "price": c.mark, "change_24h_pct": change,
-                "source": stock ? "trade.xyz perp on Hyperliquid (tracks the stock)" : "Hyperliquid mark price"]
+        if let b = await binanceTicker(sym) {
+            var change: Any = NSNull()
+            if let p = b.change { change = r2(p) }
+            return ["symbol": sym, "price": b.price, "change_24h_pct": change, "source": "Binance spot, \(sym)/USDT"]
+        }
+        throw ToolError("No live price for \(sym) on Hyperliquid or Binance. Answer from what you know instead, and say there's no live price here.")
+    }
+
+    /// Binance spot's public 24h ticker for SYMBOL/USDT (no key). data-api.binance.vision serves the same public data
+    /// where api.binance.com is blocked by region.
+    static func binanceTicker(_ sym: String) async -> (price: Double, change: Double?)? {
+        guard sym.range(of: #"^[A-Z0-9]{2,15}$"#, options: .regularExpression) != nil else { return nil }
+        for host in ["https://api.binance.com", "https://data-api.binance.vision"] {
+            guard let url = URL(string: "\(host)/api/v3/ticker/24hr?symbol=\(sym)USDT"),
+                  let res = try? await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 10)),
+                  (res.1 as? HTTPURLResponse)?.statusCode == 200,
+                  let o = (try? JSONSerialization.jsonObject(with: res.0)) as? [String: Any],
+                  let p = (o["lastPrice"] as? String).flatMap(Double.init), p > 0 else { continue }
+            return (p, (o["priceChangePercent"] as? String).flatMap(Double.init))
+        }
+        return nil
     }
 
     static func searchMarkets(_ query: String) async throws -> [[String: Any]] {
-        let words = query.uppercased().split(separator: " ").map(String.init).filter { !["PERP", "PERPS", "USD", "USDC", "POOL", "SPOT"].contains($0) }
-        let all = try await contexts()
-        let hits = all.filter { c in words.isEmpty || words.contains { c.coin.uppercased().contains($0) } }
-            .sorted { $0.volume > $1.volume }.prefix(8)
-        return hits.map { h -> [String: Any] in ["name": "\(h.coin)-PERP", "type": "perp", "price": h.mark, "funding_hourly_pct": h.funding * 100,
-                                             "volume_24h_usd": h.volume.rounded(), "max_leverage": h.maxLev] }
+        let skip: Set<String> = ["PERP", "PERPS", "USD", "USDC", "POOL", "SPOT"]
+        let words = query.uppercased().split(whereSeparator: { $0 == " " || $0 == "/" || $0 == "," })
+            .map { w -> String in w.hasSuffix("-PERP") ? String(w.dropLast(5)) : String(w) }
+            .filter { !$0.isEmpty && !skip.contains($0) }
+        // Stocks and indexes on trade.xyz too; the search still answers when that dex doesn't.
+        let crypto = try await contexts()
+        let all = crypto + ((try? await contexts(dex: "xyz")) ?? [])
+        // Exact names first (PEPE finds kPEPE, NVDA finds xyz:NVDA), then names that start with the word, then the rest,
+        // so "ETH" is ETH and not ETHFI. Volume breaks ties.
+        func rank(_ c: Ctx) -> Int? {
+            guard !words.isEmpty else { return 0 }
+            let name = c.coin.uppercased()
+            let bare = name.hasPrefix("XYZ:") ? String(name.dropFirst(4)) : name
+            let token = thousandOf(c.coin)?.uppercased() ?? bare
+            return words.compactMap { (w: String) -> Int? in
+                if bare == w || token == w || name == w { return 0 }
+                if bare.hasPrefix(w) || token.hasPrefix(w) { return 1 }
+                return bare.contains(w) ? 2 : nil
+            }.min()
+        }
+        let ranked: [(c: Ctx, r: Int)] = all.compactMap { c in rank(c).map { (c: c, r: $0) } }
+        let hits = ranked.sorted { $0.r != $1.r ? $0.r < $1.r : $0.c.volume > $1.c.volume }.prefix(8).map { $0.c }
+        return hits.map { (h: Ctx) -> [String: Any] in
+            var o: [String: Any] = ["name": "\(h.coin)-PERP", "type": "perp", "price": h.mark, "funding_hourly_pct": h.funding * 100,
+                                    "volume_24h_usd": h.volume.rounded(), "max_leverage": h.maxLev]
+            if h.coin.hasPrefix("xyz:") { o["tracks"] = "\(h.coin.dropFirst(4)) on trade.xyz" }
+            if let token = thousandOf(h.coin) {
+                // One contract is 1,000 tokens: the price is per 1,000, so give the per-token price too.
+                o["unit"] = "1000 \(token)"; o["token"] = token; o["price_per_token"] = h.mark / 1000
+            }
+            return o
+        }
     }
 
     // MARK: Wallets (this phone)
@@ -120,11 +231,27 @@ public struct HermitToolbox: AgentToolbox {
         let feed = YieldsFeed.shared
         await feed.refresh()
         let a = asset?.uppercased(), c = chain?.lowercased()
+        // The big lenders first (rates people know; Aave can be deposited from chat), then the lower of today's and the
+        // 30-day rate, so a one-day spike or a small synthetic-dollar vault doesn't lead.
+        let lenders: Set<String> = ["aave-v3", "kamino-lend", "jupiter-lend", "morpho-blue", "compound-v3", "fluid-lending"]
+        func steady(_ p: EarnData.Pool) -> Double { min(p.apy, p.apyMean30d ?? p.apy) }
+        func r2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
         return feed.pools
             .filter { p in (a == nil || p.symbol.uppercased().contains(a!)) && (c == nil || EarnData.chainName(p.chain).lowercased().contains(c!) || p.chain.lowercased() == c) }
-            .sorted { $0.apy > $1.apy }.prefix(8)
-            .map { p -> [String: Any] in
-                ["protocol": p.name, "chain": EarnData.chainName(p.chain), "asset": p.symbol, "apy_pct": (p.apy * 100).rounded() / 100, "tvl_usd": p.tvlUsd.rounded()]
+            .sorted { (x: EarnData.Pool, y: EarnData.Pool) -> Bool in
+                let lx = lenders.contains(x.project), ly = lenders.contains(y.project)
+                return lx != ly ? lx : steady(x) > steady(y)
+            }
+            .prefix(8)
+            .map { (p: EarnData.Pool) -> [String: Any] in
+                var o: [String: Any] = ["protocol": p.name, "chain": EarnData.chainName(p.chain), "asset": p.symbol, "apy_pct": r2(p.apy),
+                                        "tvl_usd": p.tvlUsd.rounded(), "stablecoin": p.stablecoin, "can_deposit_in_hermit": EarnRoute.aave(p) != nil]
+                if let v = p.apyBase { o["apy_base_pct"] = r2(v) }
+                if let v = p.apyReward, v > 0 { o["apy_reward_pct"] = r2(v) }
+                if let v = p.apyMean30d { o["apy_30d_pct"] = r2(v) }
+                if let v = p.ilRisk { o["il_risk"] = v }
+                if let v = p.poolMeta, !v.isEmpty { o["pool_meta"] = v }
+                return o
             }
     }
 
@@ -137,20 +264,52 @@ public struct HermitToolbox: AgentToolbox {
 
     // MARK: Maths
 
-    static func positionMath(_ a: [String: Any]) throws -> [String: Any] {
+    /// "long" or "short" from what the model wrote (Long, buy, sell...). Anything else is an error, never a silent short.
+    static func isLong(_ side: String) throws -> Bool {
+        switch side.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "long", "buy": return true
+        case "short", "sell": return false
+        default: throw ToolError("side must be long or short")
+        }
+    }
+
+    /// Hyperliquid's liquidation price for a position whose margin is notional / leverage: the move that leaves only
+    /// the maintenance margin `mm` (a fraction of notional). liq = entry - side * entry * (1/lev - mm) / (1 - side * mm).
+    static func liquidation(entry: Double, leverage lev: Double, mm: Double, long: Bool) -> Double {
+        let s: Double = long ? 1 : -1
+        return max(0, entry - s * entry * (1 / lev - mm) / (1 - s * mm))
+    }
+
+    /// `maxLeverage` is the market's (position_math's coin); Hyperliquid's maintenance margin is half the initial
+    /// margin at max leverage, 1 / (2 * maxLeverage).
+    static func positionMath(_ a: [String: Any], maxLeverage: Double? = nil) throws -> [String: Any] {
         func n(_ k: String) -> Double? { (a[k] as? NSNumber)?.doubleValue ?? (a[k] as? String).flatMap(Double.init) }
-        guard let side = a["side"] as? String, let entry = n("entry"), let size = n("size_usd"), let lev = n("leverage"), entry > 0, lev > 0 else {
+        guard let sideIn = a["side"] as? String, let entry = n("entry"), let size = n("size_usd"), let lev = n("leverage"), entry > 0, lev > 0 else {
             throw ToolError("Needs side, entry, size_usd and leverage")
         }
-        let long = side == "long", mm = n("maintenance_margin") ?? 0
+        let long = try isLong(sideIn), side = long ? "long" : "short"
+        let maxLev = maxLeverage ?? n("max_leverage")
+        let mm: Double
+        var note: String?
+        if let given = n("maintenance_margin") {
+            guard given >= 0, given < 1 else { throw ToolError("maintenance_margin is a fraction, e.g. 0.005 for 0.5%") }
+            mm = given
+        } else if let m = maxLev, m > 0 {
+            mm = 1 / (2 * m)
+            if lev > m { note = "This market allows at most \(Int(m))x." }
+        } else {
+            // Market unknown: as if this leverage were its max, which puts liquidation nearer than it may be (the safe side).
+            mm = 1 / (2 * max(lev, 1))
+            note = "No coin given, so the maintenance margin assumes this leverage is the market's max. The real liquidation can be further away."
+        }
         let margin = size / lev
-        // Isolated liquidation: the move that eats the margin, less maintenance.
-        let liq = long ? entry * (1 - 1 / lev + mm) : entry * (1 + 1 / lev - mm)
+        let liq = liquidation(entry: entry, leverage: lev, mm: mm, long: long)
         // Keys and rounding as in training (sim.position_math).
         func r(_ v: Double, _ dp: Double) -> Double { (v * pow(10, dp)).rounded() / pow(10, dp) }
         var out: [String: Any] = ["side": side, "entry": entry, "size_usd": size, "leverage": lev, "margin": r(margin, 2),
                                   "quantity": r(size / entry, 6), "liquidation_price": r(liq, liq < 1 ? 6 : 2),
-                                  "distance_to_liq_pct": r(abs(liq - entry) / entry * 100, 2)]
+                                  "distance_to_liq_pct": r(abs(liq - entry) / entry * 100, 2), "maintenance_margin_used": r(mm, 6)]
+        if let note { out["note"] = note }
         if let p = n("price") {
             let pnl = (long ? p - entry : entry - p) * size / entry
             out["price"] = p; out["pnl"] = r(pnl, 2); out["roe_pct"] = r(pnl / margin * 100, 2)
@@ -167,20 +326,37 @@ public struct HermitToolbox: AgentToolbox {
 
     @MainActor static func prepareTrade(_ a: [String: Any], label: String = "Hermit Private Cloud") async throws -> ToolOutcome {
         func n(_ k: String) -> Double? { (a[k] as? NSNumber)?.doubleValue }
-        guard let coin = (a["coin"] as? String)?.uppercased(), let side = a["side"] as? String, let size = n("size_usd"), let levIn = n("leverage") else {
+        guard let coinIn = a["coin"] as? String, let side = a["side"] as? String, let size = n("size_usd"), let levIn = n("leverage") else {
             throw ToolError("Needs coin, side, size_usd and leverage")
         }
+        let isBuy = try isLong(side)
+        guard size > 0, levIn > 0 else { throw ToolError("size_usd and leverage must be positive") }
         let hl = HyperliquidStore.shared
         guard hl.hasWallet, let trader = hl.trader() else { throw ToolError("No wallet on \(Device.here) to trade with") }
+        // Hyperliquid's own spelling ("kPEPE", "xyz:NVDA"): the asset table is keyed by it. A fresh mark, not the cache.
+        guard let hit = try await Self.market(coinIn, maxAge: 0) else { throw ToolError("\(coinIn.uppercased()) isn't tradable on Hyperliquid") }
+        let coin = hit.coin, mark = hit.mark
         guard let asset = await hl.asset(coin) else { throw ToolError("\(coin) isn't tradable on Hyperliquid") }
-        guard let mark = try await contexts().first(where: { $0.coin.uppercased() == coin })?.mark, mark > 0 else { throw ToolError("No price for \(coin)") }
+        guard mark > 0 else { throw ToolError("No price for \(coin)") }
         await hl.refresh()
-        let lev = max(1, min(Int(levIn), asset.maxLeverage))
+        let lev = Int(min(max(levIn, 1), Double(max(asset.maxLeverage, 1))))
         let margin = size / Double(lev)
         let available = hl.account?.withdrawable ?? 0
         guard available >= margin else {
             return ToolOutcome(content: #"{"prepared":false,"error":"Not enough margin: \#(String(format: "%.2f", available)) USDC available, \#(String(format: "%.2f", margin)) needed"}"#,
                                action: Action("Add funds to Hyperliquid", primary: true, symbol: "plus.circle", open: "fund-hyperliquid"))
+        }
+        // A trade.xyz market ("NVDA" now finds xyz:NVDA) has its own balance in a standard account, as on the Trade page.
+        if coin.hasPrefix("xyz:") {
+            switch await hl.margin(dex: "xyz") {
+            case .shared: break
+            case .unknown: throw ToolError("Couldn't read your trade.xyz balance on Hyperliquid. Try again.")
+            case .free(let free) where free < margin:
+                return Self.json(["status": "blocked", "prepared": false,
+                                  "reasons": ["trade.xyz has its own balance: \(String(format: "%.2f", free)) USDC there, \(String(format: "%.2f", margin)) needed"],
+                                  "note": "Nothing was prepared. Tell the user why. Moving USDC to trade.xyz from Hermit is coming soon."])
+            case .free: break
+            }
         }
         // The same spending policy as sends and swaps: the margin is what's at stake, so it counts toward the daily limit
         // and the assistant's per-move cap. A block stops here; no review sheet opens.
@@ -189,22 +365,41 @@ public struct HermitToolbox: AgentToolbox {
         if verdict.decision == .block {
             return Self.json(["status": "blocked", "reasons": verdict.blocks, "note": "Nothing was prepared. Tell the user why."])
         }
-        let isBuy = side == "long"
-        let limitIn = (a["order_type"] as? String) == "limit" ? n("limit_price") : nil
+        let limitIn: Double?
+        if (a["order_type"] as? String)?.lowercased() == "limit" {
+            // Never a silent market order when the user asked for a limit.
+            guard let l = n("limit_price"), l > 0 else { throw ToolError("A limit order needs a positive limit_price") }
+            limitIn = l
+        } else { limitIn = nil }
         let px = limitIn ?? mark
+        let tpIn = n("take_profit"), slIn = n("stop_loss")
+        if let token = thousandOf(coin), [limitIn, tpIn, slIn].contains(where: { ($0 ?? mark) < mark / 100 }) {
+            // A per-token PEPE price given for kPEPE, which is priced per 1,000.
+            throw ToolError("\(coin) prices are per 1,000 \(token): the mark is \(Hyperliquid.wire(mark)). Give limit_price, take_profit and stop_loss in that unit.")
+        }
+        // A take profit or stop loss on the wrong side of the entry would fire at once.
+        if let tp = tpIn, tp <= 0 || (isBuy ? tp <= px : tp >= px) {
+            throw ToolError("take_profit must be \(isBuy ? "above" : "below") the entry (\(Hyperliquid.wire(px))) for a \(isBuy ? "long" : "short")")
+        }
+        if let sl = slIn, sl <= 0 || (isBuy ? sl >= px : sl <= px) {
+            throw ToolError("stop_loss must be \(isBuy ? "below" : "above") the entry (\(Hyperliquid.wire(px))) for a \(isBuy ? "long" : "short")")
+        }
         let qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
         guard qty > 0 else { throw ToolError("Size too small for \(coin)") }
         let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
         let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: price, size: qty, tif: limitIn == nil ? .ioc : .gtc,
-                                      takeProfit: n("take_profit"), stopLoss: n("stop_loss"))
-        let liq = isBuy ? px * (1 - 0.9 / Double(lev)) : px * (1 + 0.9 / Double(lev))
+                                      takeProfit: tpIn, stopLoss: slIn)
+        // Hyperliquid's maintenance margin is half the initial margin at the market's max leverage. Estimated as if
+        // isolated, so the account's other margin can only push it further away.
+        let liq = liquidation(entry: px, leverage: Double(lev), mm: 1 / (2 * Double(max(asset.maxLeverage, 1))), long: isBuy)
         var lines: [[String]] = [["Market", "\(coin) perp on Hyperliquid"], ["Side", isBuy ? "Long" : "Short"],
                                  ["Size", "\(Hyperliquid.wire(qty)) \(coin), about $\(String(format: "%.2f", qty * px))"],
                                  ["Margin", "$\(String(format: "%.2f", margin)) at \(lev)x"],
                                  [limitIn == nil ? "Worst price" : "Limit price", "$" + Hyperliquid.wire(price)],
-                                 ["Liquidation, est.", "$" + String(format: "%.2f", liq)]]
-        if let tp = n("take_profit") { lines.append(["Take profit", "$\(tp)"]) }
-        if let sl = n("stop_loss") { lines.append(["Stop loss", "$\(sl)"]) }
+                                 ["Liquidation, est.", "$" + String(format: liq < 1 ? "%.6f" : "%.2f", liq)]]
+        if let token = thousandOf(coin) { lines.insert(["Contract", "1 \(coin) = 1,000 \(token), prices are per 1,000"], at: 1) }
+        if let tp = tpIn { lines.append(["Take profit", "$\(tp)"]) }
+        if let sl = slIn { lines.append(["Stop loss", "$\(sl)"]) }
         lines.append(["Asked for by", "\(label), from your message"])
         let spent = Decimal(margin)
         let approval = Approval(kind: "Hyperliquid order", title: "\(isBuy ? "Long" : "Short") \(coin)", lines: lines,
@@ -227,7 +422,7 @@ public struct HermitToolbox: AgentToolbox {
         case .ask(let out): return out
         }
         let vm = WalletsViewModel.shared
-        guard let w = vm.wallets.first else { throw ToolError("No wallet on \(Device.here) yet") }
+        guard let w = agentWallet else { throw ToolError("No wallet on \(Device.here) yet") }
         // The spending policy for an assistant-prepared send: daily limit, the per-move cap, priced tokens only.
         let sym = symbol.uppercased()
         let usd: Double? = try await sendValueUSD(symbol: sym, amount: Double(amount))
@@ -235,22 +430,27 @@ public struct HermitToolbox: AgentToolbox {
         if verdict.decision == .block {
             return Self.json(["status": "blocked", "reasons": verdict.blocks, "note": "Nothing was prepared. Tell the user why."])
         }
+        // From the wallet get_balances reads, in exact base units, without changing the wallet picked in Wallets
+        // (WalletsViewModel.prepareSend does both, the same as Send).
         let p = try await vm.prepareSend(from: w.record.id.uuidString, chain: chain, to: to, amount: amount, token: sym)
         var approval = try vm.approval(for: p)
         approval.warnings += verdict.warnings
         // The network goes back to the model: it may have been picked here, not named by the user.
-        var out = json(["status": "review_opened", "kind": "send", "executed": false, "network": chain.name, "amount": "\(p.amountText) \(p.symbol)",
-                        "note": "Waiting for the user to approve with \(Device.bio)."])
+        var result: [String: Any] = ["status": "review_opened", "kind": "send", "executed": false, "network": chain.name,
+                                     "amount": "\(p.amountText) \(p.symbol)", "note": "Waiting for the user to approve with \(Device.bio)."]
+        if vm.wallets.count > 1 { result["wallet"] = w.name }
+        var out = json(result)
         out.action = Action("Review send", approval: approval)
         return out
     }
 
-    /// Dollar value of a send for the policy: stablecoins at $1, everything else at the Hyperliquid mark price.
+    /// Dollar value of a send for the policy: stablecoins at $1, everything else at the Hyperliquid mark price per token.
     static func sendValueUSD(symbol: String, amount: Double?) async throws -> Double? {
         guard let amount, amount > 0 else { return nil }
         if ["USDC", "USDT", "USDT0", "DAI", "USDE", "USDC.E"].contains(symbol) { return amount }
-        let mark = (try? await contexts())?.first { $0.coin.uppercased() == symbol }?.mark
-        return mark.map { $0 * amount }
+        // Crypto perps only (not trade.xyz stocks); kPEPE is priced per 1,000 PEPE.
+        guard let c = (try? await contexts()).flatMap({ resolve(symbol, in: $0) }), c.mark > 0 else { return nil }
+        return (thousandOf(c.coin) == nil ? c.mark : c.mark / 1000) * amount
     }
 
 }

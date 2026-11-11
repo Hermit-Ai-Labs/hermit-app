@@ -4,8 +4,7 @@ import Foundation
 // Live market data for Trade (and the funding rates in Earn > Arbitrage). All of it comes from public, keyless APIs:
 //   Hyperliquid  perps: mark price, 24h change, volume, open interest, funding, candles, order book, trades.
 //                trade.xyz stock and gold perps live on Hyperliquid too (the "xyz" dex).
-//   Binance      spot and meme tickers and candles (data-api.binance.vision when api.binance.com is blocked).
-//   CoinGecko    spot fallback when neither Binance host answers.
+//   Jupiter      Solana spot and meme tokens (SolanaSwap.swift).
 //   Polymarket   prediction markets (gamma API).
 // Nothing is made up: when a fetch fails the screen says so and shows "—" with a retry.
 
@@ -14,31 +13,20 @@ enum TradeData {
 
     static let featuredPerps = ["BTC", "ETH", "SOL", "HYPE", "xyz:TSLA", "xyz:GOLD"]
 
-    /// Spot and meme tokens: symbol, name, Binance pair, CoinGecko id.
-    struct Token: Hashable, Sendable { let sym, name, pair, gecko: String }
-    static let spotTokens: [Token] = [
-        Token(sym: "BTC", name: "Bitcoin", pair: "BTCUSDT", gecko: "bitcoin"),
-        Token(sym: "ETH", name: "Ethereum", pair: "ETHUSDT", gecko: "ethereum"),
-        Token(sym: "SOL", name: "Solana", pair: "SOLUSDT", gecko: "solana"),
-        Token(sym: "BNB", name: "BNB", pair: "BNBUSDT", gecko: "binancecoin"),
-        Token(sym: "HYPE", name: "Hyperliquid", pair: "HYPEUSDT", gecko: "hyperliquid"),
-        Token(sym: "XRP", name: "XRP", pair: "XRPUSDT", gecko: "ripple"),
-    ]
-    static let memeTokens: [Token] = [
-        Token(sym: "PEPE", name: "Pepe", pair: "PEPEUSDT", gecko: "pepe"),
-        Token(sym: "WIF", name: "dogwifhat", pair: "WIFUSDT", gecko: "dogwifcoin"),
-        Token(sym: "PENGU", name: "Pudgy Penguins", pair: "PENGUUSDT", gecko: "pudgy-penguins"),
-        Token(sym: "BONK", name: "Bonk", pair: "BONKUSDT", gecko: "bonk"),
-        Token(sym: "DOGE", name: "Dogecoin", pair: "DOGEUSDT", gecko: "dogecoin"),
-        Token(sym: "SHIB", name: "Shiba Inu", pair: "SHIBUSDT", gecko: "shiba-inu"),
-    ]
-
     /// Symbols whose LogoMark is the token's real logo. Anything else gets a neutral letter, never a lookalike.
     static let tokenLogos: Set<String> = ["BTC", "ETH", "SOL", "HYPE", "BNB", "XRP", "DOGE", "SUI", "TIA", "PEPE", "WIF", "PENGU",
                                           "USDC", "USDT", "USDE", "ENA", "JUP", "MON", "LIT", "XPL", "ASTER", "TSLA", "NVDA", "GOLD"]
     static func logo(_ sym: String) -> String? { tokenLogos.contains(sym.uppercased()) ? sym : nil }
+    /// Solana mints whose bundled logo is theirs for sure. Any other token, even one that calls itself USDC or WIF,
+    /// shows its own icon from Jupiter, so a look-alike never wears the real logo.
+    static let knownMintLogos: [String: String] = [
+        "So11111111111111111111111111111111111111112": "SOL", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": "USDT", "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN": "JUP",
+        "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm": "WIF", "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv": "PENGU",
+    ]
+    static func logo(mint: String) -> String? { knownMintLogos[mint] }
 
-    /// Chart timeframes: label, interval (same spelling on Hyperliquid and Binance), seconds per candle.
+    /// Chart timeframes: label, interval (Hyperliquid's spelling), seconds per candle.
     static let timeframes: [(String, String, Double)] = [("15m", "15m", 900), ("1H", "1h", 3600), ("4H", "4h", 14400), ("1D", "1d", 86400)]
 
     // MARK: Models
@@ -95,14 +83,19 @@ enum MarketHTTP {
     static let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 20
-        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // Live prices ask for a fresh copy per request (`fresh`); big lists revalidate (ETag) against this disk cache.
+        c.requestCachePolicy = .useProtocolCachePolicy
+        c.urlCache = URLCache(memoryCapacity: 8 << 20, diskCapacity: 60 << 20, directory: nil)
         c.waitsForConnectivity = false
         return URLSession(configuration: c)
     }()
 
-    static func data(_ url: String, json body: String? = nil) async throws -> Data {
+    /// `fresh: false` lets a big list that rarely changes (Jupiter's token list) come from the local cache when the
+    /// server says it's still current. Prices, books and accounts keep the default: always a new copy.
+    static func data(_ url: String, json body: String? = nil, fresh: Bool = true) async throws -> Data {
         guard let u = URL(string: url) else { throw MarketError.shape }
         var r = URLRequest(url: u)
+        if fresh { r.cachePolicy = .reloadIgnoringLocalCacheData }
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             r.httpMethod = "POST"
@@ -119,7 +112,7 @@ enum MarketHTTP {
         try JSONSerialization.jsonObject(with: try await data(url, json: body))
     }
 
-    /// Numbers arrive as strings (Hyperliquid, Binance) or numbers (CoinGecko).
+    /// Numbers arrive as strings (Hyperliquid) or numbers (Polymarket).
     static func num(_ v: Any?) -> Double? {
         if let s = v as? String { return Double(s) }
         if let n = v as? NSNumber { return n.doubleValue }
@@ -130,7 +123,6 @@ enum MarketHTTP {
 /// The calls themselves. Each throws on failure so the screen can show an honest error.
 enum TradeAPI {
     private static let hl = "https://api.hyperliquid.xyz/info"
-    private static let binanceHosts = ["https://api.binance.com", "https://data-api.binance.vision"]
 
     // MARK: Hyperliquid
 
@@ -186,58 +178,11 @@ enum TradeAPI {
         .sorted { $0.time > $1.time }
     }
 
-    // MARK: Binance, CoinGecko fallback
-
-    /// Tickers by symbol, plus which source answered.
-    static func tickers(_ tokens: [TradeData.Token]) async throws -> ([String: TradeData.Ticker], String) {
-        let syms = "[" + tokens.map { "\"\($0.pair)\"" }.joined(separator: ",") + "]"
-        let q = syms.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? syms
-        for host in binanceHosts {
-            guard let rows = try? await MarketHTTP.json("\(host)/api/v3/ticker/24hr?symbols=\(q)") as? [[String: Any]] else { continue }
-            var out: [String: TradeData.Ticker] = [:]
-            for r in rows {
-                guard let pair = r["symbol"] as? String, let t = tokens.first(where: { $0.pair == pair }),
-                      let px = MarketHTTP.num(r["lastPrice"]) else { continue }
-                out[t.sym] = TradeData.Ticker(px: px, ch: MarketHTTP.num(r["priceChangePercent"]) ?? 0, vol: MarketHTTP.num(r["quoteVolume"]) ?? 0,
-                                              high: MarketHTTP.num(r["highPrice"]) ?? px, low: MarketHTTP.num(r["lowPrice"]) ?? px)
-            }
-            if !out.isEmpty { return (out, "Binance") }
-        }
-        let ids = tokens.map(\.gecko).joined(separator: ",")
-        guard let rows = try await MarketHTTP.json("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=\(ids)") as? [[String: Any]] else { throw MarketError.shape }
-        var out: [String: TradeData.Ticker] = [:]
-        for r in rows {
-            guard let id = r["id"] as? String, let t = tokens.first(where: { $0.gecko == id }), let px = MarketHTTP.num(r["current_price"]) else { continue }
-            out[t.sym] = TradeData.Ticker(px: px, ch: MarketHTTP.num(r["price_change_percentage_24h"]) ?? 0, vol: MarketHTTP.num(r["total_volume"]) ?? 0,
-                                          high: MarketHTTP.num(r["high_24h"]) ?? px, low: MarketHTTP.num(r["low_24h"]) ?? px)
-        }
-        guard !out.isEmpty else { throw MarketError.shape }
-        return (out, "CoinGecko")
-    }
-
-    static func spotCandles(_ t: TradeData.Token, interval: String = "1h", count: Int = 60) async throws -> [Candle] {
-        for host in binanceHosts {
-            guard let rows = try? await MarketHTTP.json("\(host)/api/v3/klines?symbol=\(t.pair)&interval=\(interval)&limit=\(count)") as? [[Any]] else { continue }
-            let out = rows.compactMap { r -> Candle? in
-                guard r.count > 4, let o = MarketHTTP.num(r[1]), let h = MarketHTTP.num(r[2]), let l = MarketHTTP.num(r[3]), let c = MarketHTTP.num(r[4]) else { return nil }
-                return Candle(o: o, h: h, l: l, c: c)
-            }
-            if !out.isEmpty { return out }
-        }
-        // CoinGecko's OHLC: 30-minute candles for the last day.
-        guard let rows = try await MarketHTTP.json("https://api.coingecko.com/api/v3/coins/\(t.gecko)/ohlc?vs_currency=usd&days=1") as? [[Any]] else { throw MarketError.shape }
-        let out = rows.compactMap { r -> Candle? in
-            guard r.count > 4, let o = MarketHTTP.num(r[1]), let h = MarketHTTP.num(r[2]), let l = MarketHTTP.num(r[3]), let c = MarketHTTP.num(r[4]) else { return nil }
-            return Candle(o: o, h: h, l: l, c: c)
-        }
-        guard !out.isEmpty else { throw MarketError.shape }
-        return Array(out.suffix(count))
-    }
-
     // MARK: Polymarket
 
-    /// The busiest open two-outcome markets that haven't been decided yet.
-    static func predictions(limit: Int = 8) async throws -> [TradeData.Prediction] {
+    /// The busiest open two-outcome markets that haven't been decided yet. One-night sports lines ("Spread: ...",
+    /// "Heat vs. Jazz") are left out while there are enough other markets to show.
+    static func predictions(limit: Int = 12) async throws -> [TradeData.Prediction] {
         guard let rows = try await MarketHTTP.json("https://gamma-api.polymarket.com/markets?active=true&closed=false&order=volume24hr&ascending=false&limit=40") as? [[String: Any]]
         else { throw MarketError.shape }
         let iso = ISO8601DateFormatter()
@@ -257,7 +202,8 @@ enum TradeAPI {
                                         vol24: MarketHTTP.num(r["volume24hr"]) ?? 0, ends: ends)
         }
         guard !rows.isEmpty else { throw MarketError.shape }
-        return Array(out.prefix(limit))
+        let notSports = out.filter { !$0.q.hasPrefix("Spread:") && !$0.q.contains(" vs. ") && !$0.q.contains(" vs ") }
+        return Array((notSports.count >= 6 ? notSports : out).prefix(limit))
     }
 }
 
@@ -273,35 +219,29 @@ final class MarketFeed {
 
     var perps: [String: TradeData.Perp] = [:]
     var perpState: FeedState = .loading
+    /// When the perp prices last arrived, and how many polls in a row have failed since. Two misses or a minute
+    /// without news and the screens stop calling the prices live.
+    var perpsUpdated: Date?
+    var perpFailures = 0
+    var perpsStale: Bool { perpFailures >= 2 || (perpsUpdated.map { Date().timeIntervalSince($0) > 60 } ?? false) }
+    /// Spot tickers and row candles. Nothing fetches them since Spot and Memes moved to Jupiter; the snapshot fixture
+    /// still fills them.
     var tickers: [String: TradeData.Ticker] = [:]
     var minis: [String: [Candle]] = [:]
     var tickerState: FeedState = .loading
-    var tickerSource = "Binance"
     var predictions: [TradeData.Prediction] = []
     var predState: FeedState = .loading
 
     func refreshPerps() async {
         guard !SnapshotMode.active else { return }
-        do { let list = try await TradeAPI.perps(); perps = Dictionary(list.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a }); perpState = .ready }
-        catch { if perps.isEmpty { perpState = .failed } }
-    }
-
-    /// Spot and meme tickers in one call, then the small row candles.
-    func refreshTickers() async {
-        guard !SnapshotMode.active else { return }
-        let all = TradeData.spotTokens + TradeData.memeTokens
         do {
-            let (t, src) = try await TradeAPI.tickers(all)
-            tickers = t; tickerSource = src; tickerState = .ready
-        } catch { if tickers.isEmpty { tickerState = .failed } }
-        guard tickerState == .ready else { return }
-        let got = await withTaskGroup(of: (String, [Candle]?).self) { g in
-            for tk in all { g.addTask { (tk.sym, try? await TradeAPI.spotCandles(tk, interval: "1h", count: 24)) } }
-            var out: [String: [Candle]] = [:]
-            for await (s, c) in g { if let c { out[s] = c } }
-            return out
+            let list = try await TradeAPI.perps()
+            perps = Dictionary(list.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a }); perpState = .ready
+            perpsUpdated = Date(); perpFailures = 0
+        } catch {
+            perpFailures += 1
+            if perps.isEmpty { perpState = .failed }
         }
-        minis.merge(got) { _, new in new }
     }
 
     func refreshPredictions() async {
@@ -313,17 +253,37 @@ final class MarketFeed {
 
 extension View {
     /// Runs `work` now and again every `seconds` while the view is on screen (the task stops when it goes away).
-    /// Skipped in snapshot tests, which can't reach the network.
+    /// Paused while the app is in the background. Skipped in snapshot tests, which can't reach the network.
     func marketPoll<ID: Equatable>(every seconds: Double, id: ID, _ work: @escaping @MainActor () async -> Void) -> some View {
-        task(id: id) {
-            guard !SnapshotMode.active else { return }
-            while !Task.isCancelled {
-                await work()
-                try? await Task.sleep(for: .seconds(seconds))
-            }
-        }
+        modifier(MarketPoll(seconds: seconds, id: id, work: { await work(); return true }))
     }
     func marketPoll(every seconds: Double, _ work: @escaping @MainActor () async -> Void) -> some View {
         marketPoll(every: seconds, id: 0, work)
+    }
+    /// The same, for work that says whether it got through: after a failure it waits twice as long each time (up to a
+    /// minute), so an offline or rate-limited feed isn't hammered.
+    func marketPollBackingOff<ID: Equatable>(every seconds: Double, id: ID, _ work: @escaping @MainActor () async -> Bool) -> some View {
+        modifier(MarketPoll(seconds: seconds, id: id, work: work))
+    }
+}
+
+private struct MarketPoll<ID: Equatable>: ViewModifier {
+    let seconds: Double
+    let id: ID
+    let work: @MainActor () async -> Bool
+    @Environment(\.scenePhase) private var phase
+
+    struct Key: Equatable { let id: ID; let paused: Bool }
+
+    func body(content: Content) -> some View {
+        content.task(id: Key(id: id, paused: phase == .background)) {
+            guard !SnapshotMode.active, phase != .background else { return }
+            var wait = seconds
+            while !Task.isCancelled {
+                let ok = await work()
+                wait = ok ? seconds : min(wait * 2, max(seconds, 60))
+                try? await Task.sleep(for: .seconds(wait))
+            }
+        }
     }
 }

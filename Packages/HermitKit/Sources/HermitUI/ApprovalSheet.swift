@@ -79,9 +79,12 @@ struct ApprovalSheet: View {
                 VStack(spacing: 4) {
                     Label(approval.success, systemImage: "checkmark.circle.fill").font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Theme.green)
-                    if let txHash {
-                        Text("\(txHash.prefix(10))…\(txHash.suffix(8))").font(.system(size: 12).monospaced()).foregroundStyle(Theme.muted)
-                            .textSelection(.enabled)
+                    if let txHash, !txHash.isEmpty {
+                        // A hash is shortened; a result line (a Hyperliquid fill, a Binance order) is shown whole.
+                        let isHash = TxText.looksLikeHash(txHash)
+                        Text(isHash ? "\(txHash.prefix(10))…\(txHash.suffix(8))" : txHash)
+                            .font(isHash ? .system(size: 12).monospaced() : .system(size: 12.5)).foregroundStyle(Theme.muted)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -114,11 +117,9 @@ struct ApprovalSheet: View {
         .animation(.smooth(duration: 0.3), value: phase)
     }
 
+    /// The checks were worked out before the sheet opened, so they show at once: no animation that reads as a scan running.
     private func scan() async {
-        for _ in approval.checks {
-            try? await Task.sleep(for: .milliseconds(320))
-            withAnimation(.snappy) { passed += 1 }
-        }
+        withAnimation(.snappy) { passed = approval.checks.count }
         phase = .ready
     }
 
@@ -137,6 +138,10 @@ struct ApprovalSheet: View {
             }
             return
         }
+        // No `perform` means nothing real is behind this review (a demo card). A release build never pretends it went through.
+        #if !DEBUG
+        if !SnapshotMode.active { failure = "Not connected yet. Nothing was signed or sent."; return }
+        #endif
         guard await authenticate() else { return }
         phase = .signing
         try? await Task.sleep(for: .milliseconds(900))

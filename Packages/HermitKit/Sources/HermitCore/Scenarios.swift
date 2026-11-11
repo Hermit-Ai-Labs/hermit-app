@@ -12,7 +12,8 @@ public struct Scenario: Sendable, Identifiable {
 
     public static func named(_ id: String) -> Scenario? { all.first { $0.id == id } }
 
-    /// Same rules as the demo, first match wins.
+    #if DEBUG
+    /// Same rules as the demo, first match wins. Debug builds only: a release build never answers with a sample.
     public static func match(_ text: String) -> Scenario? {
         let t = text.lowercased()
         let rules: [(String, String)] = [
@@ -37,6 +38,7 @@ public struct Scenario: Sendable, Identifiable {
         guard let hit = rules.first(where: { t.range(of: $0.1, options: .regularExpression) != nil }) else { return nil }
         return named(hit.0)
     }
+    #endif
 
     // MARK: Building blocks
 

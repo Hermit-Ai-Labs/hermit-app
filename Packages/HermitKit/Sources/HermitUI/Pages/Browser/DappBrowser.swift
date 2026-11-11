@@ -29,9 +29,16 @@ final class DappBrowser: DappPresenter {
 
     /// Puts the request on the shared approval sheet and waits until that sheet has closed.
     func present(_ approval: Approval) async {
-        guard let model else { return }
-        // Another sheet (a send, a swap) is up: wait for it, never replace it.
-        while model.approval != nil { try? await Task.sleep(for: .milliseconds(200)) }
+        guard let model, let owner = session else { return }
+        // Another sheet (a send, a swap) is up: wait for it, never replace it. Give up after a minute, or once this page
+        // is closed or replaced: returning without showing it tells the site the user rejected it, instead of a sheet
+        // popping up long after.
+        let deadline = ContinuousClock.now + .seconds(60)
+        while model.approval != nil {
+            guard !Task.isCancelled, ContinuousClock.now < deadline, session === owner else { return }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard !Task.isCancelled, session === owner else { return }
         model.approval = approval
         while model.approval?.id == approval.id { try? await Task.sleep(for: .milliseconds(150)) }
     }
@@ -98,8 +105,20 @@ final class DappBrowser: DappPresenter {
     }
     #endif
 
-    /// Directory hosts, for the lookalike check.
-    static var knownHosts: [String] { ExploreData.sites.values.map { String($0.split(separator: "/").first ?? "") } }
+    /// Directory hosts, for the lookalike check, plus where directory sites now redirect.
+    static var knownHosts: [String] { ExploreData.sites.values.map { String($0.split(separator: "/").first ?? "") } + movedHosts.keys }
+    /// Directory sites that moved, host to directory name (curl -I, 2026-11-10: app.kamino.finance -> kamino.com,
+    /// plasma.to -> www.plasma.org). Re-check with curl -L when the directory changes.
+    static let movedHosts: [String: String] = ["kamino.com": "Kamino", "www.plasma.org": "Plasma"]
+
+    /// The directory app a host belongs to (same host, same registrable domain, or where it moved), for its bundled logo.
+    static func directoryName(for host: String) -> String? {
+        let h = host.lowercased(), reg = DappSiteCheck.registrable(h)
+        if let n = movedHosts[h] { return n }
+        let entries = ExploreData.sites.map { (name: $0.key, host: String($0.value.split(separator: "/").first ?? "").lowercased()) }
+        return entries.first { $0.host == h }?.name
+            ?? entries.filter { DappSiteCheck.registrable($0.host) == reg }.map { $0.name }.sorted().first
+    }
 }
 
 /// One open page: the web view, its navigation state and the provider bound to it.
@@ -127,6 +146,12 @@ final class DappBrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         provider = DappProvider(service: wallet)
         provider.presenter = browser
         provider.knownHosts = DappBrowser.knownHosts
+        // Networks with no free history API (Base, Arbitrum, BNB) would otherwise show nothing for this in Activity.
+        provider.onSent = { s in
+            ActivityLedger.shared.record(ActivityItem(id: s.hash, kind: s.title.hasPrefix("Send ") ? .sent : .contract, chainID: s.chain.id,
+                                                      walletID: s.walletID.uuidString, what: s.title, detail: "From \(s.host)", amount: nil,
+                                                      symbol: "", date: Date(), tx: s.hash, status: "Sent", link: s.chain.explorerURL(tx: s.hash)))
+        }
         bridge = DappWebBridge(provider: provider)
         config = WKWebViewConfiguration()
         config.preferences.javaScriptCanOpenWindowsAutomatically = false

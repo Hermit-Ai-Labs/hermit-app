@@ -118,7 +118,7 @@ struct EarnDeFi: View {
                 .animation(.smooth(duration: 0.3), value: filter)
                 .animation(.smooth(duration: 0.3), value: chain)
             if !feed.pools.isEmpty {
-                MarketSource(text: "Largest pools first, at least $10M deep. APY from DefiLlama, refreshed hourly.").padding(.top, 10)
+                MarketSource(text: "Largest pools first, at least $10M deep ($1M for Aave pools Hermit deposits into). APY from DefiLlama, refreshed hourly.").padding(.top, 10)
             }
         }
         .marketPoll(every: 600) { await feed.refresh() }

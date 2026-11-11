@@ -110,10 +110,9 @@ extension WalletService {
         async let feesA = client.fees()
         let (nonce, fees) = try await (nonceA, feesA)
         tx.nonce = nonce
-        if fees.maxFeePerGas > tx.maxFeePerGas {
-            guard fees.maxFeePerGas <= tx.maxFeePerGas * 3 / 2 else { throw WalletError.blocked("Network fees jumped. Ask the site to try again.") }
-            tx.maxFeePerGas = fees.maxFeePerGas; tx.maxPriorityFeePerGas = min(fees.maxPriorityFeePerGas, fees.maxFeePerGas)
-        }
+        // The sheet showed the fee cap as "up to", and the balance check used it: keep it. The cap already has room for
+        // the base fee to double; only when the base fee alone has passed it can the transaction not get in.
+        guard fees.baseFee < tx.maxFeePerGas else { throw WalletError.blocked("Network fees rose above the most you approved. Ask the site to try again.") }
         let unsigned = tx
         let signed = try await vault.withKey(w.id, kind: .evm, reason: reason) { key in try unsigned.sign(privateKey: key) }
         // What was signed must be exactly what was shown: same target, value and calldata, from this wallet.

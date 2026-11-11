@@ -89,7 +89,7 @@ How NEAR fits in:
 2) NEAR AI Cloud powers Private Cloud mode. Before each prompt, the phone verifies the enclave itself: the Intel TDX quote to Intel's root, a fresh nonce, the signer binding, MRCONFIGID and RTMR3 replay, the GPU evidence with NVIDIA NRAS, and the TLS key binding. Then it checks the enclave's signature over the exact request and response bytes.
 3) Each wallet derives a NEAR account on the phone (m/44'/397'/0') for NEAR and NEP-141 balances and sends.
 
-Judges can check it on Linux: scripts in near/ run a live dry quote, the NEAR key derivation, and a 27-check attestation verification.
+Judges can check it on Linux: scripts in near/ run a live dry quote, the NEAR key derivation, and an attestation verification of the NEAR AI Cloud enclave (23 checks, or 27 with an API key).
 ```
 
 ## 4. Suggested tracks (the team decides)

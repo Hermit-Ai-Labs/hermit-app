@@ -36,6 +36,9 @@ public struct PreparedSend: Sendable, Identifiable {
     public let networkFee: UInt128
     public let checks: [HazardCheck]
     let payload: Payload
+    /// Dollar value of what leaves the wallet, priced when the send was prepared (stablecoins at face value, other coins
+    /// from the price feed). nil when there is no price, which the hazard scan says plainly.
+    var usdEstimate: Decimal? = nil
 
     enum Payload: Sendable {
         case evm(EIP1559Transaction)
@@ -49,6 +52,7 @@ public struct PreparedSend: Sendable, Identifiable {
     public var canSend: Bool { !checks.contains { $0.status == .fail } }
     public var blockingReason: String? { checks.first { $0.status == .fail }?.detail }
     var usdValue: Decimal? {
+        if let usdEstimate { return usdEstimate }
         guard let t = token, TokenTable.stableSymbols.contains(t.symbol) else { return nil }
         return Decimal(string: amountText)
     }
@@ -65,7 +69,7 @@ public struct PreparedSend: Sendable, Identifiable {
     /// The same send with a different hazard scan (a 1Click deposit swaps the address-book check for the quote's checks).
     func with(checks: [HazardCheck], recipientInput: String? = nil) -> PreparedSend {
         PreparedSend(walletID: walletID, chain: chain, token: token, amount: amount, recipientInput: recipientInput ?? self.recipientInput,
-                     recipient: recipient, networkFee: networkFee, checks: checks, payload: payload)
+                     recipient: recipient, networkFee: networkFee, checks: checks, payload: payload, usdEstimate: usdEstimate)
     }
 }
 
@@ -306,9 +310,10 @@ public final class WalletService {
         if let t = token, let (dTo, dAmt) = ERC20.decodeTransfer(tx.data), dTo != to || dAmt != value || tx.to != EVMAddress(t.address)! {
             simOK = false; simDetail = "Built transaction doesn't match the summary."
         }
-        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to.checksummed, simOK: simOK, simDetail: simDetail)
+        let usd = await usdEstimate(chain: chain, token: token, value: value)
+        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to.checksummed, simOK: simOK, simDetail: simDetail, usd: usd)
         return PreparedSend(walletID: w.id, chain: chain, token: token, amount: value, recipientInput: input.trimmingCharacters(in: .whitespaces),
-                            recipient: to.checksummed, networkFee: tx.maxFee, checks: checks, payload: .evm(tx))
+                            recipient: to.checksummed, networkFee: tx.maxFee, checks: checks, payload: .evm(tx), usdEstimate: usd)
     }
 
     private func prepareSolana(_ w: WalletRecord, _ chain: Chain, to input: String, value: UInt128, token: Token?) async throws -> PreparedSend {
@@ -355,10 +360,11 @@ public final class WalletService {
         } catch { simOK = false; simDetail = (error as? WalletError)?.errorDescription ?? error.localizedDescription }
 
         let fee = 5_000 + (UInt64(limit) * price + 999_999) / 1_000_000 + rent
-        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to.description, simOK: simOK, simDetail: simDetail)
+        let usd = await usdEstimate(chain: chain, token: token, value: value)
+        let checks = hazardChecks(chain: chain, token: token, value: value, recipient: to.description, simOK: simOK, simDetail: simDetail, usd: usd)
         return PreparedSend(walletID: w.id, chain: chain, token: token, amount: value, recipientInput: input.trimmingCharacters(in: .whitespaces),
                             recipient: to.description, networkFee: UInt128(fee), checks: checks,
-                            payload: .solana(instructions: [.setComputeUnitLimit(limit), .setComputeUnitPrice(price)] + body))
+                            payload: .solana(instructions: [.setComputeUnitLimit(limit), .setComputeUnitPrice(price)] + body), usdEstimate: usd)
     }
 
     nonisolated static func solanaError(_ e: String, logs: [String]) -> String {
@@ -367,7 +373,31 @@ public final class WalletService {
         return "The network rejected it: \(e)"
     }
 
-    func hazardChecks(chain: Chain, token: Token?, value: UInt128, recipient: String, simOK: Bool, simDetail: String) -> [HazardCheck] {
+    /// Dollars per whole unit of the coin or token being sent: 1 for stablecoins, the live price for others, nil when there
+    /// is none. Testnet coins have no price (a stablecoin on a testnet still counts, as before).
+    func usdPerUnit(chain: Chain, token: Token?) async -> Decimal? {
+        if let t = token, TokenTable.stableSymbols.contains(t.symbol) { return 1 }
+        guard !chain.isTestnet else { return nil }
+        let quotes = await PriceFeed.shared.quotes()
+        guard let q = quotes[token?.symbol ?? chain.nativeSymbol], q.usd.isFinite, q.usd > 0 else { return nil }
+        return Decimal(q.usd)
+    }
+
+    /// The dollar value of `value` base units, or nil when it can't be priced.
+    func usdEstimate(chain: Chain, token: Token?, value: UInt128) async -> Decimal? {
+        guard let unit = await usdPerUnit(chain: chain, token: token),
+              let units = Decimal(string: Units.format(value, decimals: token?.decimals ?? chain.nativeDecimals)) else { return nil }
+        return units * unit
+    }
+
+    nonisolated static func stableUSD(token: Token?, value: UInt128) -> Decimal? {
+        guard let t = token, TokenTable.stableSymbols.contains(t.symbol) else { return nil }
+        return Decimal(string: Units.format(value, decimals: t.decimals))
+    }
+
+    /// `usd` is the send's dollar value when priced; without it only stablecoins count, at face value.
+    func hazardChecks(chain: Chain, token: Token?, value: UInt128, recipient: String, simOK: Bool, simDetail: String,
+                      usd: Decimal? = nil) -> [HazardCheck] {
         var checks = [HazardCheck(title: simOK ? "Simulation matches summary" : "Simulation failed", status: simOK ? .pass : .fail, detail: simDetail)]
         checks.append(HazardCheck(title: "Exact-amount token approval", status: .pass,
                                   detail: "A plain transfer: no spending approval is granted to anyone."))
@@ -377,19 +407,32 @@ public final class WalletService {
         } else {
             checks.append(HazardCheck(title: "First payment to this address", status: .warn, detail: "Not in your past payments. Double-check it."))
         }
-        if let t = token, TokenTable.stableSymbols.contains(t.symbol), let usd = Decimal(string: Units.format(value, decimals: t.decimals)) {
+        if let usd = usd ?? Self.stableUSD(token: token, value: value) {
             let left = spendLimit.remaining()
+            let cap = SpendPolicy.money(spendLimit.dailyLimitUSD)
             checks.append(usd <= left
-                ? HazardCheck(title: "Within daily limit", status: .pass, detail: "$\(left - usd) of $\(spendLimit.dailyLimitUSD) left today after this.")
-                : HazardCheck(title: "Over daily limit", status: .fail, detail: "Only $\(left) of your $\(spendLimit.dailyLimitUSD) daily limit is left."))
+                ? HazardCheck(title: "Within daily limit", status: .pass, detail: "\(SpendPolicy.money(left - usd)) of \(cap) left today after this.")
+                : HazardCheck(title: "Over daily limit", status: .fail, detail: "Only \(SpendPolicy.money(left)) of your \(cap) daily limit is left."))
         } else {
-            checks.append(HazardCheck(title: "Daily limit covers stablecoins only", status: .warn,
-                                      detail: "\(chain.nativeSymbol) has no price feed yet, so it isn't counted."))
+            let symbol = token?.symbol ?? chain.nativeSymbol
+            checks.append(HazardCheck(title: "Not counted toward daily limit", status: .warn,
+                                      detail: chain.isTestnet ? "Test coins have no price." : "There is no price for \(symbol) right now."))
         }
         return checks
     }
 
+    /// Writes a broadcast send to Activity and the daily limit. Only a confirmed one marks the address as paid before
+    /// (that clears the first-payment warning), as batch sends do.
+    private func recordSend(_ p: PreparedSend, walletID: UUID, hash: String, confirmed: Bool = true) {
+        let label = p.recipientInput == p.recipient ? nil : p.recipientInput
+        sendLog.record(SendLog.Entry(hash: hash, chainID: p.chain.id, walletID: walletID, amount: p.amountText, symbol: p.symbol,
+                                     recipient: p.recipient, label: label, date: Date()))
+        if confirmed { addressBook.recordPayment(to: p.recipient, kind: p.chain.kind, label: label) }
+        if let usd = p.usdValue { spendLimit.record(usd: usd) }
+    }
+
     /// Unlock with Touch ID / Face ID, sign, double-check the signed bytes, broadcast and wait for confirmation.
+    /// Broadcast but not confirmed in time throws `WalletError.pending` after recording it, so a retry can't pay twice.
     public func execute(_ p: PreparedSend) async throws -> TxReceipt {
         guard p.canSend else { throw WalletError.blocked(p.blockingReason ?? "Blocked by the hazard scan.") }
         guard p.chain.isTestnet || allowMainnetSends else { throw WalletError.blocked("Mainnet sends are off during the beta.") }
@@ -416,7 +459,13 @@ public final class WalletService {
             }
             let hash = try await client.sendRawTransaction(signed.raw)
             guard hash.lowercased() == signed.hash else { throw WalletError.badResponse("node returned a different hash") }
-            let r = try await client.waitForReceipt(hash)
+            let r: EVMReceipt
+            do { r = try await client.waitForReceipt(hash) } catch WalletError.timeout {
+                // It may still land: count it now so a retry can't pay twice or slip past the daily limit.
+                recordSend(p, walletID: w.id, hash: hash, confirmed: false)
+                Task { await refreshBalances(chains: [p.chain]) }
+                throw WalletError.pending(hash: hash, explorer: p.chain.explorerURL(tx: hash)?.absoluteString)
+            }
             receipt = TxReceipt(chain: p.chain, hash: hash, success: r.success, block: r.blockNumber)
         case .solana(let instructions):
             let client = sol(p.chain)
@@ -430,16 +479,18 @@ public final class WalletService {
                 throw WalletError.blocked("Signed transaction failed its self-check. Nothing was sent.")
             }
             let sig = try await client.send(tx)
-            let (ok, slot, _) = try await client.waitForConfirmation(sig)
-            receipt = TxReceipt(chain: p.chain, hash: sig, success: ok, block: slot)
+            let status: (Bool, UInt64, String?)
+            do { status = try await client.waitForConfirmation(sig) } catch WalletError.timeout {
+                recordSend(p, walletID: w.id, hash: sig, confirmed: false)
+                Task { await refreshBalances(chains: [p.chain]) }
+                throw WalletError.pending(hash: sig, explorer: p.chain.explorerURL(tx: sig)?.absoluteString)
+            }
+            receipt = TxReceipt(chain: p.chain, hash: sig, success: status.0, block: status.1)
         case .near(let receiver, let actions):
             receipt = try await sendNear(w, receiver: receiver, actions: actions, reason: reason)
         }
         if receipt.success {
-            sendLog.record(SendLog.Entry(hash: receipt.hash, chainID: p.chain.id, walletID: w.id, amount: p.amountText, symbol: p.symbol,
-                                         recipient: p.recipient, label: p.recipientInput == p.recipient ? nil : p.recipientInput, date: Date()))
-            addressBook.recordPayment(to: p.recipient, kind: p.chain.kind, label: p.recipientInput == p.recipient ? nil : p.recipientInput)
-            if let usd = p.usdValue { spendLimit.record(usd: usd) }
+            recordSend(p, walletID: w.id, hash: receipt.hash)
         } else {
             throw WalletError.blocked("The transaction was included but failed on chain (\(receipt.hash)).")
         }

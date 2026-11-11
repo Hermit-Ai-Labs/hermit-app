@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import HermitCore
 
 // Small building blocks shared by Trade and Earn (kept here so the shared Components file stays untouched).
@@ -454,7 +455,7 @@ struct MarketLogo: View {
             .frame(width: size, height: size).background(a.tint.opacity(0.13), in: Circle())
             .accessibilityHidden(true)
         } else {
-            let urls = remote.map { [$0] } ?? Self.iconCandidates(name)
+            let urls = remote.map { Self.withFallbacks($0) } ?? Self.iconCandidates(name)
             if urls.isEmpty { letter } else { RemoteIcon(urls: urls, size: size) { letter } }
         }
     }
@@ -526,6 +527,13 @@ struct MarketLogo: View {
         return [coin] + (stock.map { [$0] } ?? [])
     }
 
+    /// ipfs.io rate-limits hard, so an IPFS icon is also tried on two other public gateways before the letter shows.
+    static func withFallbacks(_ u: URL) -> [URL] {
+        guard u.host == "ipfs.io", u.path.hasPrefix("/ipfs/") else { return [u] }
+        let rest = String(u.path.dropFirst("/ipfs/".count))
+        return [u] + ["https://gateway.pinata.cloud/ipfs/", "https://dweb.link/ipfs/"].compactMap { URL(string: $0 + rest) }
+    }
+
     /// DefiLlama's icon for a protocol slug, e.g. "rocket-pool".
     static func protocolIcon(_ project: String) -> URL? {
         URL(string: "https://icons.llamao.fi/icons/protocols/\(project)?w=64&h=64")
@@ -533,28 +541,68 @@ struct MarketLogo: View {
 }
 
 /// Tries each URL in turn and shows the first image that loads; the placeholder while loading or if none does.
+/// Images come through `IconCache`, so scrolling a long list doesn't download (or decode) the same logo again.
 private struct RemoteIcon<Placeholder: View>: View {
     let urls: [URL]
     let size: CGFloat
     @ViewBuilder var placeholder: () -> Placeholder
-    @State private var index = 0
+    @State private var image: CGImage?
 
     var body: some View {
-        AsyncImage(url: urls[min(index, urls.count - 1)], transaction: Transaction(animation: .smooth(duration: 0.2))) { phase in
-            switch phase {
-            case .success(let img):
-                img.resizable().interpolation(.high).scaledToFill()
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1).resizable().interpolation(.high).scaledToFill()
                     .frame(width: size, height: size).clipShape(Circle())
                     .overlay(Circle().strokeBorder(Theme.border.opacity(0.6)))
-            case .failure:
-                placeholder().onAppear { if index < urls.count - 1 { index += 1 } }
-            default:
+                    .transition(.opacity)
+            } else {
                 placeholder()
             }
         }
-        .id(index)
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+        .task(id: urls) {
+            if let hit = IconCache.cached(urls) { image = hit; return }
+            let got = await IconCache.load(urls)
+            if !Task.isCancelled, let got { withAnimation(.smooth(duration: 0.2)) { image = got } }
+        }
+    }
+}
+
+/// Decoded logos kept in memory, the files kept on disk (HTTP cache, 50 MB), and URLs that failed not asked again
+/// this session. Logos rarely change, so a cached copy is used without asking the server.
+@MainActor
+enum IconCache {
+    final class Box { let image: CGImage; init(_ i: CGImage) { image = i } }
+    private static let images: NSCache<NSURL, Box> = { let c = NSCache<NSURL, Box>(); c.countLimit = 400; return c }()
+    private static var failed: Set<URL> = []
+    private static let session: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 15
+        c.requestCachePolicy = .returnCacheDataElseLoad
+        c.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20, directory: nil)
+        return URLSession(configuration: c)
+    }()
+
+    static func cached(_ urls: [URL]) -> CGImage? {
+        for u in urls { if let b = images.object(forKey: u as NSURL) { return b.image } }
+        return nil
+    }
+
+    static func load(_ urls: [URL]) async -> CGImage? {
+        for u in urls where !failed.contains(u) {
+            if let b = images.object(forKey: u as NSURL) { return b.image }
+            if let got = try? await session.data(from: u), ((got.1 as? HTTPURLResponse)?.statusCode ?? 0) == 200,
+               let src = CGImageSourceCreateWithData(got.0 as CFData, nil),
+               let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                     kCGImageSourceThumbnailMaxPixelSize: 128,
+                                                                     kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) {
+                images.setObject(Box(img), forKey: u as NSURL)
+                return img
+            }
+            failed.insert(u)
+        }
+        return nil
     }
 }
 

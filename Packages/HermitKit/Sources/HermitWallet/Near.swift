@@ -140,7 +140,10 @@ public final class NearClient: Sendable {
         while true {
             let (data, resp) = try await session.data(for: req)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 429, attempt < 3 { attempt += 1; try await Task.sleep(for: .milliseconds(500 * attempt)); continue }
+            if status == 429 {
+                guard attempt < JSONRPCClient.maxRetries else { throw JSONRPCClient.busy }
+                attempt += 1; try await Task.sleep(for: .seconds(JSONRPCClient.retrySeconds(resp, attempt: attempt))); continue
+            }
             guard (200..<300).contains(status) else { throw WalletError.rpc(code: status, message: "HTTP \(status) from \(url.host() ?? "NEAR RPC")") }
             let j = try JSONDecoder().decode(JSON.self, from: data)
             if let e = j["error"], !e.isNull {

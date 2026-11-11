@@ -17,6 +17,8 @@ public enum WalletError: Error, LocalizedError, Equatable {
     case vault(String)
     case cancelled
     case timeout
+    /// Broadcast, but not confirmed in time: it may still land, so it must not be sent again.
+    case pending(hash: String, explorer: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +36,8 @@ public enum WalletError: Error, LocalizedError, Equatable {
         case .vault(let m): m
         case .cancelled: "Cancelled."
         case .timeout: "Timed out waiting for confirmation."
+        case .pending(let hash, let explorer):
+            "Sent, still confirming. It may still go through, so don't send it again. Hash: \(hash)" + (explorer.map { "\n\($0)" } ?? "")
         }
     }
 }

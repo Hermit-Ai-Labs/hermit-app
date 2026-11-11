@@ -285,54 +285,72 @@ struct PerpTicket: View {
     }
 }
 
-/// Posted after a trade is approved: candles with entry, TP and SL lines, ticking every second.
+/// Posted after a trade is approved: candles with entry, TP and SL lines. Price and candles are Hyperliquid's own,
+/// refreshed every 5 seconds. No price yet (or the coin has no perp market) means no P&L and no Live badge.
 struct LiveTradeCard: View {
     let trade: LiveTrade
     @State private var data: [Candle] = []
+    @State private var failed = false
 
     private var long: Bool { !trade.side.lowercased().contains("short") }
     private var vol: Double { trade.entry < 1 ? 0.012 : 0.006 }
 
     var body: some View {
-        let px = data.last?.c ?? trade.entry
-        let pnl = (px - trade.entry) / trade.entry * trade.size * (long ? 1 : -1)
+        // Snapshot tests can't reach the network; they draw a fixed sample series.
+        let candles = data.isEmpty && SnapshotMode.active ? sample() : data
+        let px = candles.last?.c
+        let live = px != nil && !failed
         ChatCard {
             LogoMark(trade.sym, size: 24)
             Text(trade.title).font(.system(size: 13.5, weight: .medium))
             Text(trade.side).font(.system(size: 13)).foregroundStyle(Theme.muted)
             Spacer()
-            HStack(spacing: 6) {
-                Circle().fill(Theme.green).frame(width: 6, height: 6)
-                    .phaseAnimator([1.0, 0.35]) { c, o in c.opacity(o) } animation: { _ in .smooth(duration: 0.9) }
-                Text("Live").font(.system(size: 12))
+            if live {
+                HStack(spacing: 6) {
+                    PulseDot(color: Theme.green)
+                    Text("Live").font(.system(size: 12))
+                }
             }
         } content: {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(px.price).font(.system(size: 20, weight: .semibold)).monospacedDigit().contentTransition(.numericText(value: px))
-                    Spacer()
-                    Text("\(pnl >= 0 ? "+" : "−")$\(String(format: "%.2f", abs(pnl)))").font(.system(size: 14, weight: .medium)).monospacedDigit()
-                        .foregroundStyle(pnl >= 0 ? Theme.green : Theme.red).contentTransition(.numericText(value: pnl))
+                if let px {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(px.price).font(.system(size: 20, weight: .semibold)).monospacedDigit().contentTransition(.numericText(value: px))
+                        Spacer()
+                        if live {
+                            let pnl = (px - trade.entry) / trade.entry * trade.size * (long ? 1 : -1)
+                            Text("\(pnl >= 0 ? "+" : "−")$\(String(format: "%.2f", abs(pnl)))").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                                .foregroundStyle(pnl >= 0 ? Theme.green : Theme.red).contentTransition(.numericText(value: pnl))
+                        }
+                    }
+                    LevelCandles(data: candles, marks: marks).frame(height: 190)
+                        .accessibilityElement()
+                        .accessibilityLabel("Price chart")
+                        .accessibilityValue("\(px.price), entry \(trade.entry.price)")
+                    KVGrid(pairs: [["To TP", trade.tp.map { String(format: "%.1f%%", abs($0 - px) / px * 100) } ?? "None"],
+                                   ["To SL", trade.sl.map { String(format: "%.1f%%", abs(px - $0) / px * 100) } ?? "None"],
+                                   ["Liquidation", trade.liq?.price ?? "None"]],
+                           tones: ["To TP": .green, "To SL": .red])
+                    if failed {
+                        Text("Couldn't refresh the price. Trying again.").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                    }
+                } else if failed {
+                    MarketStatus(kind: .failed("Couldn't load the price")) { Task { await load() } }
+                } else {
+                    MarketStatus(kind: .loading("Waiting for price"))
                 }
-                LevelCandles(data: data.isEmpty ? seed() : data, marks: marks).frame(height: 190)
-                KVGrid(pairs: [["To TP", trade.tp.map { String(format: "%.1f%%", abs($0 - px) / px * 100) } ?? "None"],
-                               ["To SL", trade.sl.map { String(format: "%.1f%%", abs(px - $0) / px * 100) } ?? "None"],
-                               ["Liquidation", trade.liq?.price ?? "None"]],
-                       tones: ["To TP": .green, "To SL": .red])
             }
         }
-        .task {
-            if data.isEmpty { data = seed() }
-            guard !SnapshotMode.active else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard let last = data.last else { continue }
-                let drift = (long ? 1 : -1) * trade.entry * vol * 0.12
-                let c = last.c + drift + (Double.random(in: -0.5...0.5)) * trade.entry * vol
-                let next = Candle(o: last.c, h: max(last.c, c) + Double.random(in: 0...0.4) * trade.entry * vol,
-                                  l: min(last.c, c) - Double.random(in: 0...0.4) * trade.entry * vol, c: c)
-                withAnimation(.smooth(duration: 0.3)) { data = Array(data.dropFirst()) + [next] }
-            }
+        .marketPoll(every: 5) { await load() }
+    }
+
+    /// One call gives the candles and the price (the last close).
+    private func load() async {
+        do {
+            let c = try await TradeAPI.perpCandles(trade.sym, interval: "1m", seconds: 60, count: 40)
+            withAnimation(.smooth(duration: 0.3)) { data = c; failed = false }
+        } catch {
+            failed = true
         }
     }
 
@@ -344,7 +362,8 @@ struct LiveTradeCard: View {
         return m
     }
 
-    private func seed() -> [Candle] {
+    /// Snapshot tests only.
+    private func sample() -> [Candle] {
         let base = Candle.series(seed: trade.sym.count * 7, count: 40, start: 100, vol: vol, drift: long ? 0.004 : -0.004)
         let k = trade.entry / (base.last?.c ?? 100)
         return base.map { Candle(o: $0.o * k, h: $0.h * k, l: $0.l * k, c: $0.c * k) }

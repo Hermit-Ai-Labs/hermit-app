@@ -16,6 +16,8 @@ struct AnyChainFundView: View {
     @State private var amount = ""
     @State private var refund = ""
     @State private var quote: IntentsQuote?
+    /// The user read the unsigned-quote warning and said they checked the quote with 1Click. Reset with every new quote.
+    @State private var checkedUnsigned = false
     @State private var busy = false
     @State private var error: String?
     @State private var target = Target(chain: .base, symbol: "USDC")
@@ -79,7 +81,7 @@ struct AnyChainFundView: View {
 
     var body: some View {
         SheetChrome(title: quote == nil ? "Add funds from any chain" : "Send to this address",
-                    subtitle: "Arrives as \(dest.symbol) on \(dest.place.name)", onBack: quote == nil ? onBack : { withAnimation(.smooth) { quote = nil } }) {
+                    subtitle: "Arrives as \(dest.symbol) on \(dest.place.name)", onBack: quote == nil ? onBack : { withAnimation(.smooth) { quote = nil; checkedUnsigned = false } }) {
             if let q = quote, let addr = q.depositAddress { depositView(q, addr) } else { form }
         } foot: {
             if let q = quote, let addr = q.depositAddress {
@@ -87,7 +89,10 @@ struct AnyChainFundView: View {
                 if waiting {
                     Button("Cancel") { cancel(addr) }.buttonStyle(WideButton(kind: .plain))
                 }
-                Button(waiting ? "I've sent it" : "Done") { dismiss() }.buttonStyle(WideButton())
+                // An unsigned quote: no "I've sent it" until the user says they checked it with 1Click.
+                if !waiting || q.signatureValid || checkedUnsigned {
+                    Button(waiting ? "I've sent it" : "Done") { dismiss() }.buttonStyle(WideButton())
+                }
             }
             if quote == nil {
                 Button { getAddress() } label: {
@@ -138,23 +143,30 @@ struct AnyChainFundView: View {
     @ViewBuilder private func depositView(_ q: IntentsQuote, _ addr: String) -> some View {
         let s = src
         let state = act.state(addr)
-        VStack(spacing: 12) {
-            AddressQR(text: addr)
-                .frame(width: 180, height: 180)
-                .padding(14).background(.white, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.border))
-                .overlay { LogoMark(s.map { $0.assetId == IntentsAssets.wrappedNear ? "near" : $0.symbol } ?? "", size: 34).padding(3).background(.white, in: Circle()) }
-            Text(shortAddr(addr, keep: 9)).font(.system(size: 14, design: .monospaced)).lineLimit(1).accessibilityLabel(addr)
-            HStack(spacing: 8) {
-                Button { Clip.copy(addr); model.toast("Deposit address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(OutlineButton())
-                ShareLink(item: addr) { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(OutlineButton())
+        let unsignedNote = "This quote's 1Click signature didn't check out on \(Device.here), so nothing proves this address came from 1Click. Check the amount and the address with 1Click before you send."
+        if !q.signatureValid && !checkedUnsigned {
+            // Nothing proves the address is 1Click's: the warning comes first, and the address only after the user checked.
+            NoteBox(symbol: "exclamationmark.triangle", text: unsignedNote, tint: Theme.amber)
+            Button("I've checked it") { withAnimation(.smooth) { checkedUnsigned = true } }.buttonStyle(OutlineButton())
+        } else {
+            VStack(spacing: 12) {
+                AddressQR(text: addr)
+                    .frame(width: 180, height: 180)
+                    .padding(14).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.border))
+                    .overlay { LogoMark(s.map { $0.assetId == IntentsAssets.wrappedNear ? "near" : $0.symbol } ?? "", size: 34).padding(3).background(.white, in: Circle()) }
+                Text(shortAddr(addr, keep: 9)).font(.system(size: 14, design: .monospaced)).lineLimit(1).accessibilityLabel(addr)
+                HStack(spacing: 8) {
+                    Button { Clip.copy(addr); model.toast("Deposit address copied") } label: { Label("Copy", systemImage: "doc.on.doc") }.buttonStyle(OutlineButton())
+                    ShareLink(item: addr) { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(OutlineButton())
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        if let memo = q.depositMemo {
-            Button { Clip.copy(memo); model.toast("Memo copied") } label: {
-                Label("Memo required: \(memo)", systemImage: "exclamationmark.triangle.fill").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.amber)
-            }.buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            if let memo = q.depositMemo {
+                Button { Clip.copy(memo); model.toast("Memo copied") } label: {
+                    Label("Memo required: \(memo)", systemImage: "exclamationmark.triangle.fill").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.amber)
+                }.buttonStyle(.plain)
+            }
         }
         DetailLines(lines: [
             ("Send", "\(q.request.swapType == .flexInput ? "from \(Units.format(q.minAmountIn, decimals: s?.decimals ?? 8))" : "exactly \(q.amountInFormatted)") \(s.map(label) ?? "")"),
@@ -163,8 +175,8 @@ struct AnyChainFundView: View {
             ("Route", "NEAR Intents (1Click)"),
         ])
         IntentsProgress(swap: act.swaps.first { $0.depositAddress == addr }, state: state, external: true)
-        if !(q.signatureValid) {
-            NoteBox(symbol: "exclamationmark.triangle", text: "This quote's 1Click signature didn't check out on \(Device.here). It came straight from 1Click over HTTPS.", tint: Theme.amber)
+        if !q.signatureValid && checkedUnsigned {
+            NoteBox(symbol: "exclamationmark.triangle", text: unsignedNote, tint: Theme.amber)
         }
     }
 
@@ -172,7 +184,7 @@ struct AnyChainFundView: View {
     private func cancel(_ addr: String) {
         WalletService.intentsLedger.remove(addr)
         act.reload()
-        withAnimation(.smooth) { quote = nil }
+        withAnimation(.smooth) { quote = nil; checkedUnsigned = false }
         model.toast("Deposit address cancelled")
     }
 
@@ -209,6 +221,7 @@ struct AnyChainFundView: View {
                                                                from: "\(q.amountInFormatted) \(label(s))", to: "about \(IntentsFmt.amount(q.amountOutFormatted)) \(sym)",
                                                                fromChainID: nil, toPlaceName: place.name, deadline: q.deadline, external: true))
                 act.reload(); act.track(addr)
+                checkedUnsigned = false
                 withAnimation(.smooth) { quote = q }
             } catch {
                 self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

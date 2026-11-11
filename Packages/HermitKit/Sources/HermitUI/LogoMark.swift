@@ -25,6 +25,7 @@ public struct LogoMark: View {
         "sol": "mk-sol",
         "near": "mk-near",
         "wnear": "mk-near",
+        "near intents": "mk-near",
         "trx": "mk-trx",
         "ton": "mk-ton",
         "zec": "mk-zec",

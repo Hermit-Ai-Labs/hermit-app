@@ -44,6 +44,7 @@ struct ToastHost: View {
     let place: Place
     var bottom: CGFloat = 28
     private var center: ToastCenter { .shared }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Sized to the toast alone (no frame that grows), so hosting it never changes the size of a sheet's window.
     /// Hosts use `.overlay(alignment: .bottom) { ToastHost(...) }`.
@@ -51,7 +52,8 @@ struct ToastHost: View {
         if let t = center.current, place == .sheet || center.sheetsOpen == 0 {
             ToastView(toast: t).id(t.id)
                 .padding(.bottom, bottom).padding(.horizontal, 16)
-                .transition(.asymmetric(
+                // Reduce Motion: the toast fades in and out, no slide or scale.
+                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.asymmetric(
                     insertion: .move(edge: .bottom).combined(with: .scale(scale: 0.8, anchor: .bottom)).combined(with: .opacity),
                     removal: .scale(scale: 0.92).combined(with: .opacity)))
         }
@@ -63,6 +65,7 @@ struct ToastView: View {
     let toast: ToastCenter.Toast
     @State private var left: CGFloat = 1
     @State private var pop = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var tint: Color { toast.kind == .error ? Theme.red : toast.kind == .info ? Theme.text : Theme.green }
     private var symbol: String { toast.kind == .error ? "exclamationmark" : toast.kind == .info ? "doc.on.doc.fill" : "checkmark" }
@@ -88,7 +91,7 @@ struct ToastView: View {
         .onTapGesture { ToastCenter.shared.dismiss() }
         .accessibilityAddTraits(.isStaticText)
         .onAppear {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.5).delay(0.08)) { pop = true }
+            if reduceMotion { pop = true } else { withAnimation(.spring(response: 0.38, dampingFraction: 0.5).delay(0.08)) { pop = true } }
             withAnimation(.linear(duration: toast.seconds)) { left = 0 }
         }
     }

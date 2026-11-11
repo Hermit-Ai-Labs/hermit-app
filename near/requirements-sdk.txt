@@ -1,0 +1,4 @@
+# Everything in requirements.txt plus NEAR's official SDK, for `verify-attestation.py --sdk` only.
+# nearai-inference-sdk 0.2.1 requires Python 3.12 or later; on 3.10 or 3.11 use requirements.txt.
+-r requirements.txt
+nearai-inference-sdk==0.2.1

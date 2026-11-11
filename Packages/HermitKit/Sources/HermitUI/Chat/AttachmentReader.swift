@@ -66,7 +66,9 @@ enum AttachmentReader {
                 if !t.isEmpty { pages.append((doc.pageCount > 1 ? "Page \(i + 1)\n" : "") + t) }
             }
             var how = ""
+            var scanned = false
             if pages.isEmpty {
+                scanned = true
                 // A scan: no text layer. Read the first pages as images.
                 for i in 0..<min(doc.pageCount, maxOCRPages) {
                     guard let page = doc.page(at: i), let img = render(page) else { continue }
@@ -74,11 +76,13 @@ enum AttachmentReader {
                     if !t.isEmpty { pages.append((doc.pageCount > 1 ? "Page \(i + 1)\n" : "") + t) }
                 }
                 how = doc.pageCount > maxOCRPages ? ", scanned, first \(maxOCRPages) pages read on this device" : ", scanned, read on this device"
+                if pages.contains(where: hasAddressLike) { how += ", " + misreadNote }
             }
             a.detail = "PDF, \(doc.pageCount) page\(doc.pageCount == 1 ? "" : "s")" + how
             guard !pages.isEmpty else { return a }
             let all = pages.joined(separator: "\n\n")
-            a.recipients = RecipientTable.parse(all)
+            // Text read from a picture can have one wrong character and still be a valid address, so a scan never feeds a batch send.
+            if !scanned { a.recipients = RecipientTable.parse(all) }
             let (text, note) = FileBudget.cut(all)
             a.text = text; a.cutNote = note; a.truncated = note != nil
             return a
@@ -87,24 +91,56 @@ enum AttachmentReader {
             fill(&a, ocr: CGImageSourceCreateWithURL(url as CFURL, nil).flatMap(upright).map(recognize) ?? "")
             return a
         }
-        // Text files: the existing reader for the part the model sees, and the whole file for address rows.
-        var t = Attachment.read(url)
-        if t.text != nil {
-            if ["csv", "tsv", "txt", "text", "md", "json"].contains(ext) || ext.isEmpty, bytes <= 4 << 20,
-               let whole = try? String(contentsOf: url, encoding: .utf8) {
-                t.recipients = RecipientTable.parse(whole)
-                let (text, note) = FileBudget.cut(whole, unit: ext == "csv" || ext == "tsv" ? "rows" : "lines")
-                t.text = text; t.cutNote = note; t.truncated = note != nil
-            }
-            if ext == "csv" || ext == "tsv" { t.detail = "table" }
+        // RTF: its plain words, not the raw control codes (the same reader as the Files page).
+        if ext == "rtf", let d = try? Data(contentsOf: url), let plain = FilesStore.rtfText(d) {
+            a.recipients = RecipientTable.parse(plain)
+            let (text, note) = FileBudget.cut(plain)
+            a.text = text; a.cutNote = note; a.truncated = note != nil
+            a.detail = "rich text"
+            return a
         }
+        // Text files: the existing reader for the part the model sees, and the whole file for address rows.
+        // Excel exports are often Windows-1252 or UTF-16 ("Unicode text"); decodeText reads those too. A UTF-16 file
+        // has zero bytes, so the preview reader skips it and only a list file (csv, tsv, txt, md, json) gets that pass.
+        var t = Attachment.read(url)
+        let listExt = ["csv", "tsv", "txt", "text", "md", "json"].contains(ext)
+        if t.text != nil || listExt, listExt || ext.isEmpty, bytes <= 4 << 20,
+           let data = try? Data(contentsOf: url), let whole = decodeText(data, allowLegacy: t.text != nil) {
+            t.recipients = RecipientTable.parse(whole)
+            let (text, note) = FileBudget.cut(whole, unit: ext == "csv" || ext == "tsv" ? "rows" : "lines")
+            t.text = text; t.cutNote = note; t.truncated = note != nil
+        }
+        if t.text != nil, ext == "csv" || ext == "tsv" { t.detail = "table" }
         return t
+    }
+
+    /// File bytes as text: UTF-8 (with or without a BOM), UTF-16 with a BOM, else Windows-1252 (Latin-1 as a last
+    /// resort) when `allowLegacy` says the bytes already looked like text. nil for binary data.
+    static func decodeText(_ data: Data, allowLegacy: Bool) -> String? {
+        func clean(_ s: String) -> String { s.hasPrefix("\u{FEFF}") ? String(s.dropFirst()) : s }
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf16).map(clean)
+        }
+        guard !data.contains(0) else { return nil }
+        if let s = String(data: data, encoding: .utf8) { return clean(s) }
+        guard allowLegacy else { return nil }
+        return (String(data: data, encoding: .windowsCP1252) ?? String(data: data, encoding: .isoLatin1)).map(clean)
+    }
+
+    /// Said in the chip and to the model when text read from a picture holds an address.
+    static let misreadNote = "addresses may be misread"
+
+    /// A 0x address (or a long hex run) in text read from a picture. O for 0 counts too: that is the misreading.
+    static func hasAddressLike(_ s: String) -> Bool {
+        s.range(of: #"[0Oo][xX][0-9a-fA-FOo]{8,}"#, options: .regularExpression) != nil
     }
 
     static func fill(_ a: inout Attachment, ocr: String) {
         a.detail = ocr.isEmpty ? "image, no text found" : "image, text read on this device"
         guard !ocr.isEmpty else { return }
-        a.recipients = RecipientTable.parse(ocr)
+        // Text read from a picture can have one wrong character (8 for B, 0 for O) and still be a valid address, so a
+        // picture never feeds a batch send. The user pastes the addresses or attaches the list itself.
+        if hasAddressLike(ocr) { a.detail = "image, text read on this device, " + misreadNote }
         let (text, note) = FileBudget.cut(ocr)
         a.text = text; a.cutNote = note; a.truncated = note != nil
     }
@@ -120,9 +156,15 @@ enum AttachmentReader {
 
     /// Text in an image, line by line in reading order (words on the same line joined, so table rows stay rows).
     static func recognize(_ image: CGImage) -> String {
+        let text = recognizeLines(image, correcting: true)
+        // Language correction rewrites hex digits into words; read the picture again as it is when it holds an address.
+        return hasAddressLike(text) ? recognizeLines(image, correcting: false) : text
+    }
+
+    private static func recognizeLines(_ image: CGImage, correcting: Bool) -> String {
         let req = VNRecognizeTextRequest()
         req.recognitionLevel = .accurate
-        req.usesLanguageCorrection = true
+        req.usesLanguageCorrection = correcting
         do { try VNImageRequestHandler(cgImage: image, options: [:]).perform([req]) } catch { return "" }
         let obs = (req.results ?? []).compactMap { o -> (box: CGRect, text: String)? in
             o.topCandidates(1).first.map { (o.boundingBox, $0.string) }
@@ -156,4 +198,7 @@ enum AttachmentReader {
 extension Attachment {
     /// The chip's second line: size, and what Hermit read ("12 KB, spreadsheet, 48 rows").
     var chipLine: String { [size, detail ?? ""].filter { !$0.isEmpty }.joined(separator: ", ") }
+
+    /// The text came from text recognition (a photo, a screenshot or a scanned PDF), so an address in it may be misread.
+    var readFromPicture: Bool { detail?.contains("read on this device") == true }
 }

@@ -1,8 +1,10 @@
 import SwiftUI
 import Foundation
+import HermitWallet
 
 // Real yields for Earn, from DefiLlama's public yields API (yields.llama.fi, no key). The full pool list is ~11 MB, so we
-// keep only stablecoin and major-asset pools on the chains Hermit supports, and cache that short list on disk for an hour.
+// keep only stablecoin and major-asset pools on the chains Hermit supports, decode it off the main actor, and cache that
+// short list on disk: it shows at once (up to 6 hours old) and is fetched again when it's over an hour old.
 
 enum EarnData {
     /// DefiLlama chain names we keep, and how we show them.
@@ -72,6 +74,11 @@ enum EarnData {
         /// "Aave V3 USDC"; "Binance wBETH" rather than "Binance wBETH WBETH" when the name already says the token.
         var title: String { name.lowercased().contains(symbol.lowercased()) ? name : "\(name) \(shownSymbol)" }
         var chainName: String { EarnData.chainName(chain) }
+        /// Aave's main market, the one Hermit deposits into. DefiLlama also lists Umbrella (staked aTokens that can be
+        /// slashed), the Horizon RWA market and Prime instances under aave-v3; those carry a poolMeta and other rates.
+        var isAaveMain: Bool { project == "aave-v3" && (poolMeta ?? "").isEmpty }
+        /// What a deposit earns by itself: the base APY. Reward tokens (Merkl and the like) aren't collected by Hermit.
+        var depositAPY: Double { apyBase ?? max(0, apy - (apyReward ?? 0)) }
     }
 
     /// One day of a pool's history.
@@ -117,19 +124,34 @@ enum EarnAPI {
         let tvlUsd, apy, apyBase, apyReward, apyMean30d: Double?
         let stablecoin, outlier: Bool?
         let ilRisk, exposure, poolMeta: String?
+        let underlyingTokens: [String?]?
     }
     private struct Envelope: Decodable { let data: [Raw] }
 
-    /// Stablecoin and major-asset pools on our chains, single-asset, at least $10M deep, biggest first.
+    /// Stablecoin and major-asset pools on our chains, single-asset, biggest first. The 11 MB decode runs off the main actor.
     static func pools() async throws -> [EarnData.Pool] {
-        let d = try await MarketHTTP.data("https://yields.llama.fi/pools")
+        let d = try await MarketHTTP.data("https://yields.llama.fi/pools", fresh: false)
+        return try await Task.detached(priority: .utility) { try EarnAPI.parse(d) }.value
+    }
+
+    /// The filter behind `pools()`: at least $10M deep, or $1M for the Aave main-market pools Hermit deposits into
+    /// (Arbitrum USDT0 is about $5M). An Aave row whose underlying token isn't the one Hermit would send is dropped, so a
+    /// bridged USDC row never stands in for native USDC.
+    static func parse(_ d: Data) throws -> [EarnData.Pool] {
         let rows = try JSONDecoder().decode(Envelope.self, from: d).data
         let chains = Set(EarnData.chains.map(\.llama))
+        // Chain id ("base") -> the tokens Hermit can supply to Aave there.
+        let aave: [String: [Token]] = Dictionary(Chain.mainnets.map { ($0.id, AaveV3.tokens(on: $0)) }, uniquingKeysWith: { a, _ in a })
         let out = rows.compactMap { r -> EarnData.Pool? in
-            guard let pool = r.pool, let chain = r.chain, chains.contains(chain), let project = r.project, let symbol = r.symbol,
-                  let tvl = r.tvlUsd, tvl >= 10_000_000, let apy = r.apy, apy >= 0.1, apy < 100, r.outlier != true,
-                  r.exposure == "single" else { return nil }
-            let stable = r.stablecoin == true
+            guard let pool = r.pool, let chain = r.chain, chains.contains(chain), let project = r.project, let raw = r.symbol else { return nil }
+            // DefiLlama writes Arbitrum's USDT0 as "USD₮0".
+            let symbol = raw.replacingOccurrences(of: "₮", with: "T")
+            let main = project == "aave-v3" && (r.poolMeta ?? "").isEmpty
+            let token: Token? = main ? aave[chain.lowercased()]?.first(where: { $0.symbol.caseInsensitiveCompare(symbol) == .orderedSame }) : nil
+            if let token, let u = r.underlyingTokens?.first ?? nil, u.lowercased() != token.address.lowercased() { return nil }
+            guard let tvl = r.tvlUsd, tvl >= (token != nil ? 1_000_000 : 10_000_000), let apy = r.apy, apy >= 0.1, apy < 100,
+                  r.outlier != true, r.exposure == "single" else { return nil }
+            let stable = r.stablecoin == true || token != nil
             guard stable || EarnData.majors.contains(where: { symbol.uppercased().contains($0) }) else { return nil }
             return EarnData.Pool(pool: pool, chain: chain, project: project, symbol: symbol, tvlUsd: tvl, apy: apy, apyBase: r.apyBase,
                                  apyReward: r.apyReward, apyMean30d: r.apyMean30d, stablecoin: stable, ilRisk: r.ilRisk, exposure: r.exposure, poolMeta: r.poolMeta)
@@ -169,6 +191,11 @@ enum MarketDiskCache {
         return try? JSONDecoder().decode(T.self, from: d)
     }
 
+    /// When a cached list was saved, so a list shown from disk keeps its real age.
+    static func saved(_ name: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url(name).path))?[.modificationDate] as? Date
+    }
+
     static func save<T: Encodable>(_ name: String, _ value: T) {
         guard let d = try? JSONEncoder().encode(value) else { return }
         try? d.write(to: url(name), options: .atomic)
@@ -183,20 +210,25 @@ final class YieldsFeed {
     var state: FeedState = .loading
     var updated: Date?
     var history: [String: [EarnData.Point]] = [:]
+    /// The fetch under way, so Savings, DeFi and the assistant asking at once share one 11 MB download.
+    @ObservationIgnored private var fetching: Task<[EarnData.Pool], Error>?
 
     func refresh(force: Bool = false) async {
         guard !SnapshotMode.active else { return }
-        if !force, pools.isEmpty, let cached = MarketDiskCache.load("yields", maxAge: 3600, as: [EarnData.Pool].self), !cached.isEmpty {
-            pools = cached; state = .ready; updated = Date()
-            return
+        // The last list shows at once, up to 6 hours old; it's fetched again once it's an hour old.
+        if pools.isEmpty, let cached = MarketDiskCache.load("yields", maxAge: 6 * 3600, as: [EarnData.Pool].self), !cached.isEmpty {
+            pools = cached; state = .ready; updated = MarketDiskCache.saved("yields")
         }
-        if !force, let updated, Date().timeIntervalSince(updated) < 600 { return }
+        if !force, let updated, Date().timeIntervalSince(updated) < 3600 { return }
         if pools.isEmpty { state = .loading }
+        let task = fetching ?? Task { try await EarnAPI.pools() }
+        fetching = task
         do {
-            let p = try await EarnAPI.pools()
+            let p = try await task.value
+            fetching = nil
             pools = p; state = .ready; updated = Date()
             MarketDiskCache.save("yields", p)
-        } catch { if pools.isEmpty { state = .failed } }
+        } catch { fetching = nil; if pools.isEmpty { state = .failed } }
     }
 
     func loadHistory(_ pool: String) async -> Bool {

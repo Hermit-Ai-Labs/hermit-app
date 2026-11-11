@@ -147,7 +147,9 @@ struct Composer: View {
                                                                  lineWidth: dropping ? 2 : 1))
         // Drag a file from Finder (or another app on iPad) onto the box to attach it.
         .dropDestination(for: URL.self) { urls, _ in
-            guard let u = urls.first(where: \.isFileURL) else { return false }
+            let pick = DropPick.file(from: urls)
+            if let note = pick.note { model.toast(note) }
+            guard let u = pick.url else { return false }
             attach(u)
             return true
         } isTargeted: { dropping = $0 }
@@ -254,6 +256,8 @@ struct Composer: View {
     private func submit() {
         if slash != nil, let first = matching.first { use(first.0); return }
         guard canSend else { return }
+        // A reply is still running and the chat would drop this message: keep the text and the file instead.
+        if onSend == nil, model.busy { model.toast("Hermit is still replying. Wait, or tap stop."); return }
         let t = text, f = file
         text = ""; file = nil
         if let onSend { onSend(t, f) } else { model.send(t, attachment: f) }

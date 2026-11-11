@@ -182,6 +182,7 @@ struct DepositArrivedView: View {
 struct DepositWaitingRow: View {
     let network: String
     @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
@@ -195,6 +196,10 @@ struct DepositWaitingRow: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { pulse = true } }
+        // Reduce Motion (and snapshots): the dot stays still.
+        .onAppear {
+            guard !reduceMotion && !SnapshotMode.active else { return }
+            withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { pulse = true }
+        }
     }
 }

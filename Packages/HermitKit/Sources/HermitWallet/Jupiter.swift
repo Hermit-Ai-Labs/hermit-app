@@ -12,11 +12,15 @@ public enum Jupiter {
         public let mint, symbol, name: String
         public let decimals: Int
         public let verified: Bool
+        public init(mint: String, symbol: String, name: String, decimals: Int, verified: Bool) {
+            self.mint = mint; self.symbol = symbol; self.name = name; self.decimals = decimals; self.verified = verified
+        }
     }
 
     public struct Quote: Sendable {
         public let input: Token, output: Token
         public let inAmount, outAmount: UInt64
+        /// As Jupiter sends it: a fraction (0.0123 is 1.23%). HermitUI shows it times 100 (shownImpactPercent), so don't rescale it here.
         public let priceImpactPct: Double
         public let slippageBps: Int
         public let route: [String]
@@ -27,26 +31,33 @@ public enum Jupiter {
     }
 
     public enum Error: Swift.Error, LocalizedError {
-        case notVerified(String), rateLimited, bad(String)
+        case notVerified(String), ambiguous(String), rateLimited, bad(String)
         public var errorDescription: String? {
             switch self {
             case .notVerified(let s): "There's no verified \(s) token on Solana, so Hermit won't buy one."
+            case .ambiguous(let s): "More than one verified \(s) token is on Solana. Pick it on Spot or Memes, or paste its mint."
             case .rateLimited: "Jupiter is busy right now. Try again in a few seconds."
             case .bad(let s): "Jupiter didn't answer properly (\(s))."
             }
         }
     }
 
-    /// The token Jupiter marks verified for a symbol, the most traded one when several match. Nil when none is verified.
+    /// The token Jupiter marks verified for a symbol, with at least $50k of liquidity. When two of them are close in
+    /// liquidity it throws `ambiguous` rather than guess. Nil when none is verified.
     public static func verifiedToken(symbol: String) async throws -> Token? {
         var c = URLComponents(string: "\(api)/tokens/v2/search")!
         c.queryItems = [URLQueryItem(name: "query", value: symbol)]
         let d = try await get(c.url!)
         guard let list = try JSONSerialization.jsonObject(with: d) as? [[String: Any]] else { throw Error.bad("token search") }
-        let matches = list.filter { ($0["symbol"] as? String)?.caseInsensitiveCompare(symbol) == .orderedSame }
+        let verified = list.filter { ($0["symbol"] as? String)?.caseInsensitiveCompare(symbol) == .orderedSame }
             .filter { ($0["isVerified"] as? Bool) == true || (($0["tags"] as? [String]) ?? []).contains("verified") }
-            .sorted { (($0["organicScore"] as? Double) ?? 0) > (($1["organicScore"] as? Double) ?? 0) }
-        guard let t = matches.first, let mint = t["id"] as? String, let dec = t["decimals"] as? Int else { return nil }
+        let ranked: [(t: [String: Any], score: Double, liquidity: Double)] = verified.map { t in
+            (t: t, score: (t["organicScore"] as? Double) ?? 0, liquidity: (t["liquidity"] as? Double) ?? 0)
+        }
+        let matches = ranked.filter { $0.liquidity >= 50_000 }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.liquidity > $1.liquidity }
+        if matches.count > 1 && matches[1].liquidity >= 0.5 * matches[0].liquidity { throw Error.ambiguous(symbol) }
+        guard let t = matches.first?.t, let mint = t["id"] as? String, let dec = t["decimals"] as? Int else { return nil }
         return Token(mint: mint, symbol: t["symbol"] as? String ?? symbol, name: t["name"] as? String ?? symbol, decimals: dec, verified: true)
     }
 
@@ -106,6 +117,8 @@ public enum Jupiter {
 extension WalletService {
     /// Runs a Jupiter quote: Jupiter builds the transaction, Hermit parses it, signs it with the wallet's key (Touch ID
     /// or Face ID on this device) and sends it. Returns the signature once it's confirmed.
+    /// The caller records the spend toward the daily limit (TradeBuy does, after this returns), so this doesn't.
+    /// Sent but not confirmed in time throws `WalletError.pending`, so the user doesn't buy twice.
     public func executeJupiter(_ q: Jupiter.Quote, walletID: UUID) async throws -> String {
         guard allowMainnetSends else { throw WalletError.blocked("Mainnet transactions are off in this build.") }
         guard let w = wallets.first(where: { $0.id == walletID }), !w.solanaAddress.isEmpty else { throw WalletError.vault("That wallet is gone.") }
@@ -114,7 +127,11 @@ extension WalletService {
         let signed = try await dappSolanaSign(walletID: walletID, tx, reason: "Buy \(q.output.symbol) on Solana")
         let client = SolanaClient(url: Chain.solana.rpc)
         let sig = try await client.sendRaw(signed, skipPreflight: false)
-        let (ok, _, err) = try await client.waitForConfirmation(sig)
+        let status: (Bool, UInt64, String?)
+        do { status = try await client.waitForConfirmation(sig) } catch WalletError.timeout {
+            throw WalletError.pending(hash: sig, explorer: Chain.solana.explorerURL(tx: sig)?.absoluteString)
+        }
+        let ok = status.0, err = status.2
         guard ok else { throw WalletError.blocked("The swap failed on Solana (\(err ?? sig)). Nothing was taken.") }
         Task { await refreshBalances(chains: [.solana]) }
         return sig

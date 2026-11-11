@@ -54,7 +54,7 @@ struct ProofSheet: View {
             facts
             ForEach(groups, id: \.self) { g in group(g) }
             measurements
-            Button { openURL(NearAICloud.verificationCenter) } label: {
+            Button { openURL(NearAICloud.verifyURL(model: proof.model)) } label: {
                 Label("Check it again in NEAR's Verification Center", systemImage: "arrow.up.right.square")
                     .font(.system(size: 13, weight: .medium)).frame(maxWidth: .infinity)
             }
@@ -157,7 +157,7 @@ struct ProofSheet: View {
 
     private func source(_ c: CloudProof.Check) -> String {
         switch c.source {
-        case .device: "This phone"
+        case .device: String(Device.here.prefix(1)).uppercased() + String(Device.here.dropFirst())
         case .remote: "NVIDIA"
         case .none: c.status == .skipped ? "Not checked" : ""
         }
