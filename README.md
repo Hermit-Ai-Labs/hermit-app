@@ -77,9 +77,11 @@ Where the keys live. One recovery phrase gives you an EVM, a Solana and a NEAR a
 
 ## Our models
 
-We train our own. Hermit 1.2 is a LoRA fine-tune of Qwen3-4B-Instruct-2507 on Hermit's tools, trained on one rented
-NVIDIA A6000. Hermit 1.3 and 1.3 Lite (Qwen3-1.7B) are training right now on 21,000 examples of real Hermit tasks, on
-an A100 80GB and an A6000. They run on your device as MLX 4-bit. Weights: [huggingface.co/aiquantgod](https://huggingface.co/aiquantgod).
+We train our own models. Hermit 1.3 is our fine-tune of Qwen3-4B, and Hermit 1.3 Lite brings the same skills to smaller
+iPhones on Qwen3-1.7B. They learn from 21,000 examples of real Hermit work: all 30 tools, multi-step requests like
+"bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything unsafe. We
+train them side by side on rented GPUs, the 4B on an A100 80GB and Lite on an A6000, and both run on your device as
+MLX 4-bit. They're training right now, and the weights will be at [huggingface.co/aiquantgod](https://huggingface.co/aiquantgod).
 
 ## Built at NEAR HACKATHON
 
