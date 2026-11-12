@@ -1,6 +1,5 @@
 # Hermit
 
-[![apple](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml/badge.svg)](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4E1F96.svg)](LICENSE)
 
 Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. You ask it in plain words to swap,
