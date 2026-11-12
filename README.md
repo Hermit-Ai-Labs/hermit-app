@@ -24,7 +24,8 @@ whichever path fits your machine:
 | You have | Do this | You'll see |
 | --- | --- | --- |
 | A Mac (Apple silicon, macOS 26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
-| A Mac or an iPhone (iOS 26) | Join TestFlight. Mac: https://testflight.apple.com/join/P66H5DF8, iPhone: https://testflight.apple.com/join/ed9vUh7d | The same app, installed through Apple's TestFlight |
+| An iPhone (iOS 26) | Join the iPhone beta on TestFlight: https://testflight.apple.com/join/ed9vUh7d | Hermit on your iPhone, installed through Apple's TestFlight |
+| A Mac, through TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
 | A Mac with Xcode 26 | Build it from source ([docs/BUILD.md](docs/BUILD.md)) and run `bash scripts/core-tests.sh` | `Executed 248 tests, with 13 tests skipped and 0 failures` |
 | Any machine, Linux included | Run the three Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live |
 | No Mac or iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
