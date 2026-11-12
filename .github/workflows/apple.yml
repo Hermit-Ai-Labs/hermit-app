@@ -2,17 +2,13 @@
 #  - snapshots: the SwiftUI screens rendered to PNG by the HermitKit tests (artifact "snapshots")
 #  - Hermit-mac.zip: the Mac app, ad-hoc signed (right-click > Open the first time) until we have a Developer ID
 #  - the iPhone app is built for the simulator only until we have an Apple Developer account
-name: apple
+name: tests
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-
-concurrency:
-  group: apple-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
