@@ -147,7 +147,7 @@ func main() async {
     // As the app does at launch: load the model and read the system prompt (with the tool block) into the cache.
     let w0 = Date()
     agent.warmUp()
-    agent.setContext(name: "Rahul", memory: [])
+    agent.setContext(name: "Anon", memory: [])
     try? await Task.sleep(for: .seconds(1))
     for await _ in agent.reply(to: "hi") {}   // waits behind the warm-up
     print(String(format: "warm-up and a first hello: %.1fs", Date().timeIntervalSince(w0)))

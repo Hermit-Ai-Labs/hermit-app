@@ -208,7 +208,7 @@ public final class AppModel {
     }
 
     #if DEBUG
-    /// Debug builds only: `-hermitUser Rahul -hermitRoute trade -hermitTab markets -hermitDrawer YES` opens the app on
+    /// Debug builds only: `-hermitUser Anon -hermitRoute trade -hermitTab markets -hermitDrawer YES` opens the app on
     /// a given screen; `-hermitDownload YES` starts the selected model's download. Used by the simulator scripts
     /// (scripts/phone-shots.sh screenshots every page).
     private func applyLaunchArguments() {

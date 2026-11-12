@@ -152,8 +152,13 @@ extension HermitToolbox {
         }
         if kind == "all" || kind == "earn" {
             let (positions, failed) = await WalletsViewModel.shared.service.aavePositions(wallets: [w.record])
-            out["earn"] = ToolsV3.earnRows(positions)
+            // Staked NEAR sits with the Aave rows: both are money put to work that the wallet's balances don't show.
+            let svc = WalletsViewModel.shared.service
+            let (staked, stakingFailed) = await svc.nearStakingPositions(wallets: [w.record])
+            let pools = staked.isEmpty ? [] : ((try? await svc.nearStakingNetwork())?.pools ?? [])
+            out["earn"] = ToolsV3.earnRows(positions) + stakingRows(staked, pools: pools)
             for c in failed where !unreachable.contains(c.id) { unreachable.append(c.id) }
+            if stakingFailed, !unreachable.contains("near") { unreachable.append("near") }
         }
         if kind == "all" || kind == "perps" {
             // Hyperliquid: the account Trade uses, the same one the trade, close, stop and cancel tools act on.
@@ -195,6 +200,15 @@ extension HermitToolbox {
             if let v = Double(p.text), v > 0 { parts.append(ToolsV3.Part(place: "Aave", what: "\(p.token.symbol) on \(p.chain.name)", usd: v)) }
         }
         for c in aaveFailed where !unreachable.contains(c.id) { unreachable.append(c.id) }
+        // NEAR with validators (staked, unstaking and ready), at NEAR's price. No price: named, not counted.
+        let (staked, stakingFailed) = await vm.service.nearStakingPositions(wallets: [w.record])
+        for p in staked {
+            guard let amount = Double(NearStaking.near(p.total)), amount > 0 else { continue }
+            if let price = vm.price("NEAR"), price > 0 {
+                parts.append(ToolsV3.Part(place: "NEAR staking", what: "NEAR with \(NearStaking.poolName(p.pool))", usd: amount * price))
+            } else if !unpriced.contains("staked NEAR") { unpriced.append("staked NEAR") }
+        }
+        if stakingFailed, !unreachable.contains("near") { unreachable.append("near") }
         if let account = await perpAccount(for: w) {
             if account.accountValue > 0 { parts.append(ToolsV3.Part(place: "Hyperliquid", what: "Account value", usd: account.accountValue)) }
         } else {

@@ -111,6 +111,27 @@ final class HermitCloudTests: XCTestCase {
         XCTAssertEqual(p.checks.first { $0.id == "model0.qsig" }?.status, .fail)
     }
 
+    func testGuestOSIsOneNEARPublishes() throws {
+        // MRTD, RTMR1 and RTMR2 of the recorded quotes are the values near/verify-attestation.py recomputes from the
+        // images in github.com/nearai/dstack-images (its offline run on the same fixture prints them).
+        for name in ["qwen-report", "glm-report"] {
+            let (bundle, nonce, _) = try report(name)
+            let pre = Preflight.evaluate(model: bundle.models[0].modelName ?? "", nonce: nonce, bundle: bundle, at: recorded)
+            let gw = try XCTUnwrap(pre.checks.first { $0.id == "gw.os" }), model = try XCTUnwrap(pre.checks.first { $0.id == "model0.os" })
+            XCTAssertEqual(gw.status, .pass, name); XCTAssertTrue(gw.detail.hasPrefix("dstack-0.5.12:"), gw.detail)
+            XCTAssertEqual(model.status, .pass, name); XCTAssertTrue(model.detail.hasPrefix("dstack-nvidia-0.5.12:"), model.detail)
+        }
+        // Measurements this build doesn't know are listed as not checked: never passed, and never a failure by themselves.
+        let p = try tampered { j in model0(&j) { m in
+            var q = Data(hexString: m["intel_quote"] as! String)!
+            q[48 + 328 + 96] ^= 1   // one bit of RTMR2
+            m["intel_quote"] = q.hex
+        } }
+        let unknown = try XCTUnwrap(p.checks.first { $0.id == "model0.os" })
+        XCTAssertEqual(unknown.status, .skipped); XCTAssertEqual(unknown.source, CloudProof.Source.none)
+        XCTAssertEqual(p.checks.first { $0.id == "model0.qsig" }?.status, .fail)   // the edited quote itself is still caught
+    }
+
     func testExpiredCertificatesFail() throws {
         let (bundle, nonce, _) = try report("qwen-report")
         let late = Preflight.evaluate(model: "Qwen/Qwen3.8-27B", nonce: nonce, bundle: bundle, at: Date(timeIntervalSince1970: 2_100_000_000))

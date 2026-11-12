@@ -193,8 +193,8 @@ enum ExploreAPI {
     }
 }
 
-/// Live TVL for the directory. The last figures show at once (cached on disk up to 6 hours) and are fetched again
-/// after 15 minutes; the 7-day changes come from the big protocols list at most once a day.
+/// Live TVL for the directory. The last figures show at once (cached on disk up to a week) and are fetched again
+/// after 15 minutes; the 7-day changes come from the big protocols list at most once a day, after the TVL is on screen.
 @MainActor @Observable
 final class ExploreStore {
     static let shared = ExploreStore()
@@ -208,7 +208,7 @@ final class ExploreStore {
 
     func refresh(force: Bool = false) async {
         guard !SnapshotMode.active else { return }
-        if tvl.isEmpty, let cached = MarketDiskCache.load("explore-tvl-v2", maxAge: 6 * 3600, as: [String: ExploreTVL].self), !cached.isEmpty {
+        if tvl.isEmpty, let cached = MarketDiskCache.load("explore-tvl-v2", maxAge: 7 * 86_400, as: [String: ExploreTVL].self), !cached.isEmpty {
             tvl = cached; state = .ready; updated = MarketDiskCache.saved("explore-tvl-v2")
         }
         if !force, let updated, Date().timeIntervalSince(updated) < 900 { return }
@@ -218,14 +218,19 @@ final class ExploreStore {
             if change == nil, let c = MarketDiskCache.load("explore-change", maxAge: 86_400, as: [String: Double].self) {
                 change = c; changeDate = MarketDiskCache.saved("explore-change")
             }
+            // The new TVL shows now. Until the protocols list is in, each app keeps the 7-day change it had.
+            let had = tvl
+            func merged() -> [String: ExploreTVL] {
+                now.reduce(into: [String: ExploreTVL]()) { out, kv in out[kv.key] = ExploreTVL(tvl: kv.value, change7d: change.map { $0[kv.key] } ?? had[kv.key]?.change7d) }
+            }
+            tvl = merged(); state = .ready; updated = Date()
             if change == nil || Date().timeIntervalSince(changeDate ?? .distantPast) > 86_400,
                let c = try? await ExploreAPI.changes(keys: keys, totals: now) {
                 change = c; changeDate = Date()
                 MarketDiskCache.save("explore-change", c)
+                tvl = merged()
             }
-            let t = now.reduce(into: [String: ExploreTVL]()) { out, kv in out[kv.key] = ExploreTVL(tvl: kv.value, change7d: change?[kv.key]) }
-            tvl = t; state = .ready; updated = Date()
-            MarketDiskCache.save("explore-tvl-v2", t)
+            MarketDiskCache.save("explore-tvl-v2", tvl)
         } catch { if tvl.isEmpty { state = .failed } }
     }
 }

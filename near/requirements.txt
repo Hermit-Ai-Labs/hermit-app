@@ -1,6 +1,10 @@
-# Pinned for the judge scripts in near/. Python 3.10+; tested on Linux (Python 3.12) 2026-11-08.
+# Pinned for the judge scripts in near/. Python 3.10+; tested on Linux (Python 3.12) 2026-11-12.
+# attack-demo.py needs none of these.
 # The optional `verify-attestation.py --sdk` cross-check needs Python 3.12+ and requirements-sdk.txt instead.
 requests==2.34.2
 cryptography==50.0.2
 eth-account==0.14.0
 dcap-qvl==0.7.1
+# For the "is it NEAR's software?" checks in verify-attestation.py: Sigstore bundles and NEAR's compose files.
+sigstore==4.5.1
+PyYAML==6.0.3

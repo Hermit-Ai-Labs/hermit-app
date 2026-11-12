@@ -1,4 +1,4 @@
-# The NEAR checks from the README, on Linux: what a reviewer without a Mac can run. No keys, no funds.
+# The checks from the README, on Linux: what a reviewer without a Mac can run. No keys, no funds.
 name: checks
 
 on:
@@ -26,6 +26,10 @@ jobs:
         run: |
           F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures
           .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline
+      # A Python mirror of the Swift guard and spending policy, with the Swift tests' vectors. Stdlib only.
+      # Ends with "8 attacks blocked, 3 legitimate actions allowed"; any expectation that fails exits 1.
+      - name: Attacks on the assistant, blocked
+        run: python3 near/attack-demo.py
 
       # Live: these talk to 1Click, NEAR RPC and NEAR AI Cloud, so a service hiccup must not fail the run.
       - name: Live dry quote from NEAR Intents
@@ -34,6 +38,8 @@ jobs:
       - name: The NEAR account from the public test phrase
         continue-on-error: true
         run: .venv/bin/python near/near-account.py
+      # Also downloads NEAR's OS images and asks GitHub for NEAR's build attestations. Runners share GitHub's
+      # anonymous API limit, so those lines can read [SKIP] here; that is not a failure.
       - name: NEAR AI Cloud's enclave, live
         continue-on-error: true
         run: .venv/bin/python near/verify-attestation.py

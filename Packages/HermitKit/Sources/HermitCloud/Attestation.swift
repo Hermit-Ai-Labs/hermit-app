@@ -142,11 +142,43 @@ public enum AttestationVerifier {
         let replay = r.replayRTMR3()
         out.append(c("rtmr3", "Event log replays to RTMR3", replay == q.rtmr[3], replay == nil ? "An event's digest is wrong" : "\(r.events.filter { $0.imr == 3 }.count) runtime events"))
 
+        // Which guest OS booted. Known measurements pass. Unknown ones are listed as not checked, never as a failure,
+        // so a new NEAR image doesn't lock anyone out before this list learns it.
+        if let os = knownOSImage(q) {
+            out.append(c("os", "Guest OS is one NEAR publishes", true, "\(os): firmware, kernel and root filesystem match its measurements"))
+        } else {
+            out.append(CloudProof.Check(id: "\(key).os", group: group, title: "Guest OS is one NEAR publishes",
+                                        detail: "These measurements aren't in this build's list. near/verify-attestation.py checks them against NEAR's downloads",
+                                        status: .skipped, source: .none))
+        }
+
         if r.nvidiaPayload != nil {
             out.append(c("gpunonce", "GPU evidence carries \(CloudDevice.here)'s nonce", r.gpuNonce?.lowercased() == nonce.lowercased(),
                          "\(r.gpuCount) \(r.gpuArch.map { $0.capitalized } ?? "NVIDIA") GPUs"))
         }
         return out
+    }
+
+    /// The guest OS images NEAR publishes in github.com/nearai/dstack-images, by what a TDX machine measures when it
+    /// boots them: MRTD is the firmware (QEMU 8 and QEMU 9+ add its pages in a different order, hence two values),
+    /// RTMR1 the kernel, RTMR2 the kernel command line (which pins the root filesystem) and the initramfs.
+    /// `near/verify-attestation.py` recomputes all of them from NEAR's downloads and carries the same table
+    /// (KNOWN_OS_IMAGES, recomputed 2026-11-12). RTMR0, the virtual hardware tables, is not compared.
+    static let knownMRTD: Set<String> = [
+        "7fe60787222bd394cb516abca2435f22f035ab2cc9c0a4b4b3b148e46297f3d931a237b72f359052c6e657d8c1409173",
+        "df4d77c857de652bd0fafa343a2026b51071ee03773d076d283abf1a7d36ff91ffa279ee4a617ac664f7e2a2c8d5891b",
+    ]
+    static let knownRTMR1 = "4ae609807c765916a31d724786ed74bcb97e168a9d937b04936aeef2015c907eba5ac352c6bcd749c246fd62ffb659ec"
+    /// RTMR2 to image name.
+    static let knownOSImages: [String: String] = [
+        "764489f277a8540189761e72b4238ba36d4d647e11bd958d8ab5522af2a4867b0ff63e06b0c4967f1857236244040a5d": "dstack-0.5.12",
+        "bd67ab7554dc27ab03a077bc1447a1a67d0624ff547c4c809a8626f12d6a89712f8ec60e781e99b98208574065d21a71": "dstack-nvidia-0.5.12",
+    ]
+
+    /// The published image these measurements belong to, or nil when this build doesn't know them.
+    static func knownOSImage(_ q: TDXQuote) -> String? {
+        guard knownMRTD.contains(q.mrTD.hex), q.rtmr[1].hex == knownRTMR1 else { return nil }
+        return knownOSImages[q.rtmr[2].hex]
     }
 
     /// The measurements to show, read from the quote (not from the HTTP fields).

@@ -1,0 +1,707 @@
+{
+ "jsonrpc": "2.0",
+ "id": "x",
+ "result": {
+  "current_validators": [
+   {
+    "account_id": "astro-stakers.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 1649,
+    "num_expected_chunks": 7875,
+    "num_expected_chunks_per_shard": [
+     7875
+    ],
+    "num_expected_endorsements": 269051,
+    "num_expected_endorsements_per_shard": [
+     26904,
+     26905,
+     26906,
+     26908,
+     26902,
+     26904,
+     26903,
+     26910,
+     26906,
+     26903
+    ],
+    "num_produced_blocks": 1649,
+    "num_produced_chunks": 7845,
+    "num_produced_chunks_per_shard": [
+     7845
+    ],
+    "num_produced_endorsements": 260473,
+    "num_produced_endorsements_per_shard": [
+     26077,
+     26073,
+     26122,
+     26051,
+     26016,
+     25699,
+     26042,
+     26115,
+     26037,
+     26241
+    ],
+    "public_key": "ed25519:2nPSBCzjqikgwrqUMcuEVReJhmkC91eqJGPGqH9sZc28",
+    "shards": [
+     13
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "33357988425348807481839036510545"
+   },
+   {
+    "account_id": "figment.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 1350,
+    "num_expected_chunks": 2144,
+    "num_expected_chunks_per_shard": [
+     2144
+    ],
+    "num_expected_endorsements": 268665,
+    "num_expected_endorsements_per_shard": [
+     26860,
+     26849,
+     26867,
+     26876,
+     26877,
+     26868,
+     26871,
+     26855,
+     26871,
+     26871
+    ],
+    "num_produced_blocks": 976,
+    "num_produced_chunks": 1714,
+    "num_produced_chunks_per_shard": [
+     1714
+    ],
+    "num_produced_endorsements": 199846,
+    "num_produced_endorsements_per_shard": [
+     19988,
+     19943,
+     19994,
+     19989,
+     19996,
+     19986,
+     19986,
+     19977,
+     19994,
+     19993
+    ],
+    "public_key": "ed25519:7RjyY1bRKDqkshbKZtgpQdwsdxou8j9my8g1hPKZ9ngM",
+    "shards": [
+     9
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "28668531208430065034065780226402"
+   },
+   {
+    "account_id": "ledgerbyfigment.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 1144,
+    "num_expected_chunks": 10362,
+    "num_expected_chunks_per_shard": [
+     10362
+    ],
+    "num_expected_endorsements": 267506,
+    "num_expected_endorsements_per_shard": [
+     26754,
+     26743,
+     26741,
+     26755,
+     26776,
+     26749,
+     26744,
+     26733,
+     26749,
+     26762
+    ],
+    "num_produced_blocks": 1144,
+    "num_produced_chunks": 10302,
+    "num_produced_chunks_per_shard": [
+     10302
+    ],
+    "num_produced_endorsements": 264153,
+    "num_produced_endorsements_per_shard": [
+     26410,
+     26420,
+     26502,
+     26391,
+     26537,
+     26078,
+     26456,
+     26486,
+     26490,
+     26383
+    ],
+    "public_key": "ed25519:Gc2QWoxLN8ryX1Dyje8va4ojt5GpnUQwHyvXZnrAY84A",
+    "shards": [
+     6
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "23175782428090319099609794695895"
+   },
+   {
+    "account_id": "staked.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 1024,
+    "num_expected_chunks": 11953,
+    "num_expected_chunks_per_shard": [
+     11953
+    ],
+    "num_expected_endorsements": 266238,
+    "num_expected_endorsements_per_shard": [
+     26630,
+     26609,
+     26640,
+     26634,
+     26616,
+     26610,
+     26618,
+     26641,
+     26610,
+     26630
+    ],
+    "num_produced_blocks": 1024,
+    "num_produced_chunks": 11917,
+    "num_produced_chunks_per_shard": [
+     11917
+    ],
+    "num_produced_endorsements": 263589,
+    "num_produced_endorsements_per_shard": [
+     26322,
+     26306,
+     26498,
+     26236,
+     26488,
+     26012,
+     26364,
+     26477,
+     26467,
+     26419
+    ],
+    "public_key": "ed25519:9noQuLD3hC84YJFuTxZrpAuKTzmMbQrxKYG6KL9hKymo",
+    "shards": [
+     8
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "21071756621569908033947456618670"
+   },
+   {
+    "account_id": "binancenode1.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 931,
+    "num_expected_chunks": 9726,
+    "num_expected_chunks_per_shard": [
+     9726
+    ],
+    "num_expected_endorsements": 265942,
+    "num_expected_endorsements_per_shard": [
+     26578,
+     26557,
+     26635,
+     26574,
+     26589,
+     26611,
+     26605,
+     26597,
+     26587,
+     26609
+    ],
+    "num_produced_blocks": 931,
+    "num_produced_chunks": 9686,
+    "num_produced_chunks_per_shard": [
+     9686
+    ],
+    "num_produced_endorsements": 262233,
+    "num_produced_endorsements_per_shard": [
+     26190,
+     26201,
+     26333,
+     26161,
+     26297,
+     25982,
+     26277,
+     26306,
+     26289,
+     26197
+    ],
+    "public_key": "ed25519:Bb7uPEocbsiQwRfPmsiiiM88DodtuYnBDi6dKZ4JZo2N",
+    "shards": [
+     9
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "20153760155165731405404315877869"
+   },
+   {
+    "account_id": "sumerian.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 914,
+    "num_expected_chunks": 8595,
+    "num_expected_chunks_per_shard": [
+     8595
+    ],
+    "num_expected_endorsements": 264705,
+    "num_expected_endorsements_per_shard": [
+     26462,
+     26537,
+     26490,
+     26422,
+     26401,
+     26506,
+     26505,
+     26438,
+     26497,
+     26447
+    ],
+    "num_produced_blocks": 914,
+    "num_produced_chunks": 8477,
+    "num_produced_chunks_per_shard": [
+     8477
+    ],
+    "num_produced_endorsements": 262300,
+    "num_produced_endorsements_per_shard": [
+     26195,
+     26274,
+     26363,
+     26081,
+     26283,
+     25924,
+     26284,
+     26284,
+     26364,
+     26248
+    ],
+    "public_key": "ed25519:BLvNwUb1nQWympnmsHTtH7HCMeH6gSaYkjNsdee9AvzR",
+    "shards": [
+     10
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "18794634470046318067976798599153"
+   },
+   {
+    "account_id": "zavodil.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 902,
+    "num_expected_chunks": 10147,
+    "num_expected_chunks_per_shard": [
+     10147
+    ],
+    "num_expected_endorsements": 263573,
+    "num_expected_endorsements_per_shard": [
+     26367,
+     26338,
+     26373,
+     26365,
+     26341,
+     26355,
+     26372,
+     26336,
+     26374,
+     26352
+    ],
+    "num_produced_blocks": 902,
+    "num_produced_chunks": 10124,
+    "num_produced_chunks_per_shard": [
+     10124
+    ],
+    "num_produced_endorsements": 260761,
+    "num_produced_endorsements_per_shard": [
+     26043,
+     26019,
+     26226,
+     25979,
+     26191,
+     25730,
+     26092,
+     26169,
+     26183,
+     26129
+    ],
+    "public_key": "ed25519:HHARoU1hANWF9hu7YRstDDvgyigBhUeUuqecRVr8dpUz",
+    "shards": [
+     11
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "17834641695379291368641682544430"
+   },
+   {
+    "account_id": "liver.pool.near",
+    "is_slashed": false,
+    "num_expected_blocks": 800,
+    "num_expected_chunks": 3988,
+    "num_expected_chunks_per_shard": [
+     3988
+    ],
+    "num_expected_endorsements": 261303,
+    "num_expected_endorsements_per_shard": [
+     26144,
+     26131,
+     26112,
+     26151,
+     26110,
+     26150,
+     26103,
+     26140,
+     26137,
+     26125
+    ],
+    "num_produced_blocks": 800,
+    "num_produced_chunks": 3986,
+    "num_produced_chunks_per_shard": [
+     3986
+    ],
+    "num_produced_endorsements": 258767,
+    "num_produced_endorsements_per_shard": [
+     25852,
+     25846,
+     25978,
+     25784,
+     25984,
+     25566,
+     25863,
+     25980,
+     25984,
+     25930
+    ],
+    "public_key": "ed25519:aiKNxj28QB3P6jSu3FghugQC2edj9zBuwU1Uts1jey2",
+    "shards": [
+     13
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "16294026065959387692580471365918"
+   },
+   {
+    "account_id": "cnear-1.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 775,
+    "num_expected_chunks": 3872,
+    "num_expected_chunks_per_shard": [
+     3872
+    ],
+    "num_expected_endorsements": 260403,
+    "num_expected_endorsements_per_shard": [
+     25994,
+     26008,
+     26039,
+     26055,
+     26039,
+     26075,
+     26011,
+     26043,
+     26078,
+     26061
+    ],
+    "num_produced_blocks": 775,
+    "num_produced_chunks": 3857,
+    "num_produced_chunks_per_shard": [
+     3857
+    ],
+    "num_produced_endorsements": 257804,
+    "num_produced_endorsements_per_shard": [
+     25690,
+     25715,
+     25899,
+     25684,
+     25898,
+     25491,
+     25775,
+     25877,
+     25923,
+     25852
+    ],
+    "public_key": "ed25519:7Gu3MA3K19YPfSmKoCmvHNSTbjB1bJ8nh7WgHAQwh3VF",
+    "shards": [
+     13
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "15909930627126639058184686289452"
+   },
+   {
+    "account_id": "kiln-1.poolv1.near",
+    "is_slashed": false,
+    "num_expected_blocks": 582,
+    "num_expected_chunks": 5810,
+    "num_expected_chunks_per_shard": [
+     5810
+    ],
+    "num_expected_endorsements": 248339,
+    "num_expected_endorsements_per_shard": [
+     24816,
+     24845,
+     24753,
+     24892,
+     24912,
+     24881,
+     24813,
+     24825,
+     24818,
+     24784
+    ],
+    "num_produced_blocks": 582,
+    "num_produced_chunks": 5776,
+    "num_produced_chunks_per_shard": [
+     5776
+    ],
+    "num_produced_endorsements": 245894,
+    "num_produced_endorsements_per_shard": [
+     24540,
+     24578,
+     24612,
+     24538,
+     24787,
+     24329,
+     24570,
+     24676,
+     24685,
+     24579
+    ],
+    "public_key": "ed25519:8ZNqVxH3Ndq44qYjyt3FZjKYEwfXxkHK7fN4bPmobLTP",
+    "shards": [
+     9
+    ],
+    "shards_endorsed": [
+     1,
+     4,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13
+    ],
+    "stake": "12039399757670032894255790754636"
+   }
+  ],
+  "next_validators": [
+   {
+    "account_id": "astro-stakers.poolv1.near",
+    "public_key": "ed25519:2nPSBCzjqikgwrqUMcuEVReJhmkC91eqJGPGqH9sZc28",
+    "shards": [
+     13
+    ],
+    "stake": "33351382467835377183666828242745"
+   },
+   {
+    "account_id": "figment.poolv1.near",
+    "public_key": "ed25519:7RjyY1bRKDqkshbKZtgpQdwsdxou8j9my8g1hPKZ9ngM",
+    "shards": [
+     9
+    ],
+    "stake": "28669677608928753683963103506411"
+   },
+   {
+    "account_id": "ledgerbyfigment.poolv1.near",
+    "public_key": "ed25519:Gc2QWoxLN8ryX1Dyje8va4ojt5GpnUQwHyvXZnrAY84A",
+    "shards": [
+     6
+    ],
+    "stake": "23173659660355613049464576221777"
+   },
+   {
+    "account_id": "staked.poolv1.near",
+    "public_key": "ed25519:9noQuLD3hC84YJFuTxZrpAuKTzmMbQrxKYG6KL9hKymo",
+    "shards": [
+     8
+    ],
+    "stake": "21077446547722406981413561069069"
+   },
+   {
+    "account_id": "binancenode1.poolv1.near",
+    "public_key": "ed25519:Bb7uPEocbsiQwRfPmsiiiM88DodtuYnBDi6dKZ4JZo2N",
+    "shards": [
+     9
+    ],
+    "stake": "20154566691479626369729667264162"
+   },
+   {
+    "account_id": "sumerian.poolv1.near",
+    "public_key": "ed25519:BLvNwUb1nQWympnmsHTtH7HCMeH6gSaYkjNsdee9AvzR",
+    "shards": [
+     10
+    ],
+    "stake": "18795386615308034354367782980011"
+   },
+   {
+    "account_id": "zavodil.poolv1.near",
+    "public_key": "ed25519:HHARoU1hANWF9hu7YRstDDvgyigBhUeUuqecRVr8dpUz",
+    "shards": [
+     11
+    ],
+    "stake": "17835434601593876231960354604497"
+   },
+   {
+    "account_id": "liver.pool.near",
+    "public_key": "ed25519:aiKNxj28QB3P6jSu3FghugQC2edj9zBuwU1Uts1jey2",
+    "shards": [
+     13
+    ],
+    "stake": "16286021503802657034802390986600"
+   },
+   {
+    "account_id": "cnear-1.poolv1.near",
+    "public_key": "ed25519:7Gu3MA3K19YPfSmKoCmvHNSTbjB1bJ8nh7WgHAQwh3VF",
+    "shards": [
+     13
+    ],
+    "stake": "15910567328997829992583509782294"
+   },
+   {
+    "account_id": "kiln-1.poolv1.near",
+    "public_key": "ed25519:8ZNqVxH3Ndq44qYjyt3FZjKYEwfXxkHK7fN4bPmobLTP",
+    "shards": [
+     9
+    ],
+    "stake": "12033666459131772936339283208175"
+   }
+  ],
+  "current_proposals": [],
+  "current_fishermen": [],
+  "next_fishermen": [],
+  "prev_epoch_kickout": [
+   {
+    "account_id": "anyroute.pool.near",
+    "reason": {
+     "NotEnoughChunkEndorsements": {
+      "expected": 43131,
+      "produced": 0
+     }
+    }
+   },
+   {
+    "account_id": "bitmanna.poolv1.near",
+    "reason": {
+     "NotEnoughChunkEndorsements": {
+      "expected": 43131,
+      "produced": 0
+     }
+    }
+   },
+   {
+    "account_id": "caliber.poolv1.near",
+    "reason": {
+     "NotEnoughChunkEndorsements": {
+      "expected": 43131,
+      "produced": 0
+     }
+    }
+   }
+  ],
+  "validator_reward_paid_prev_epoch": {
+   "astro-stakers.poolv1.near": "1307164261874398452763657600",
+   "binancenode1.poolv1.near": "794305136501931242564314795",
+   "cnear-1.poolv1.near": "627046244533029688610897178",
+   "figment.poolv1.near": "1129165041806811864710705364",
+   "kiln-1.poolv1.near": "475109722613779802385553234",
+   "ledgerbyfigment.poolv1.near": "913324487976413491624405557",
+   "liver.pool.near": "642184313845900342220579897",
+   "staked.poolv1.near": "830150302742127720788772891",
+   "sumerian.poolv1.near": "740738928284188421649487319",
+   "treasury.near": "2548841684132779850922177068",
+   "zavodil.poolv1.near": "702915323226595361923069841"
+  },
+  "epoch_height": 4963,
+  "epoch_start_height": 224221937
+ }
+}

@@ -1,8 +1,8 @@
 # How Hermit uses NEAR
 
-Three parts of Hermit run on NEAR: NEAR Intents moves money between chains, every wallet has a NEAR account, and
-Private Cloud runs on NEAR AI Cloud. Code paths below are under `Packages/HermitKit/Sources/`. To try each part
-yourself, see [VERIFY.md](VERIFY.md).
+Three parts of Hermit run on NEAR: NEAR Intents moves money between chains, every wallet has a NEAR account that can
+stake with a validator, and Private Cloud runs on NEAR AI Cloud. Code paths below are under
+`Packages/HermitKit/Sources/`. To try each part yourself, see [VERIFY.md](VERIFY.md).
 
 ## NEAR Intents (1Click)
 
@@ -61,6 +61,41 @@ Code: `HermitWallet/Near.swift`, `WalletService+Near.swift`, `KeyVault.swift` (`
 `HermitUI/Pages/Wallets/NearViews.swift`. Tests: `NearTests` in `NearIntentsTests.swift` check the bytes against
 near-api-js 4 and the keys against near-seed-phrase 0.2.1. Script: `near/near-account.py`.
 
+## Staking NEAR
+
+Every NEAR account can stake with a validator from Earn, or from the Stake button on the wallet's NEAR card. Hermit
+calls the validator's staking pool contract directly: `deposit_and_stake` with the NEAR attached, `unstake` or
+`unstake_all`, then `withdraw_all`. Each one is a function call with 100 Tgas, built like our other NEAR
+transactions and approved with Face ID on the same review sheet.
+
+The list of validators is read from the chain when you open it. Hermit asks the RPC for the current validator set and
+keeps pools that are validating this epoch and the next, were online at least 95% of this epoch and were made by the
+`poolv1.near` factory. It then reads each pool's fee from the pool itself and shows the six biggest that keep 10% of
+rewards or less. The rate on each row is an estimate and says so: what validators were paid last epoch over what is
+staked, scaled to a year, less the pool's fee. When that can't be worked out, no rate is shown.
+
+Before a stake reaches the review, Hermit checks the pool again: it is still an active validator, staking isn't paused,
+its code hash is the factory's and the pool account has no access keys, so nobody can swap the contract. The review
+shows the fee, and 0.05 NEAR always stays in your account on top of the fee, so you can pay to unstake later. Unstaked
+NEAR waits four epochs before it can be withdrawn. Hermit measures how long an epoch takes from block timestamps and
+shows the wait in hours (about 28 on 2026-11-12). Unstaking again restarts that wait for everything already
+unstaking, and the review warns you when that would happen.
+
+Your deposits in Earn shows what is staked, unstaking and ready to withdraw, read from each pool's `get_account`.
+Hermit finds your pools from the ones this device staked into and from FastNEAR's index, so a restored wallet shows
+its stakes too.
+
+In chat there is no separate staking tool, because the on-device models know a fixed tool list. `prepare_deposit`
+with NEAR as the asset prepares a stake, `prepare_withdraw` with NEAR withdraws what is ready or starts an unstake, and
+`get_positions` and `get_portfolio` include staked NEAR. A stake the assistant prepares runs the spending policy as the
+assistant, with the $100 per-move cap and the daily limit, and can only go to a validator on Hermit's list or one you
+already stake with.
+
+Code: `HermitWallet/NearStaking.swift`, `HermitUI/Pages/Earn/EarnStaking.swift`,
+`HermitUI/Cloud/HermitToolbox+Staking.swift`. Tests: `NearStakingTests.swift` checks the four calls byte for byte
+against near-api-js 4.0.4, parses a real `get_account` answer and a real validator set recorded on 2026-11-12, and
+covers the reserve, the assistant's cap and the tool routing.
+
 ## Private Cloud on NEAR AI Cloud
 
 The chat box has a mode menu: On-device (the default) or Private Cloud. Private Cloud talks to NEAR AI Cloud's
@@ -75,7 +110,8 @@ Before every reply, the device:
 3. Checks the gateway and each model candidate: the TDX v4 quote's signature, its certification by Intel's Quoting
    Enclave and the PCK chain up to an embedded copy of Intel's SGX Root CA, with validity dates; debug mode off; the
    nonce in the quote's report data and echoed back; the signing address bound in the report data;
-   `SHA-256(app_compose)` equal to MRCONFIGID; the event log replayed to RTMR3; evidence for the model you asked for,
+   `SHA-256(app_compose)` equal to MRCONFIGID; the event log replayed to RTMR3; MRTD, RTMR1 and RTMR2 compared with
+   the guest OS images NEAR publishes; evidence for the model you asked for,
    with the nonce in the GPU evidence; and the connection's server key equal to the gateway quote's
    `tls_cert_fingerprint`.
 4. Sends the GPU evidence to NVIDIA NRAS and checks the token that comes back: an ES384 signature by a key in NVIDIA's
@@ -105,17 +141,44 @@ We've bought NEAR through NEAR Intents with our own money in the app, and these 
 | The quote came from 1Click, unchanged | The quote's ed25519 signature is checked before anything is prepared (`testSignatureMatchesSDKOnLiveQuotes`), and a quote that fails is refused (`testUnsignedQuotesAreRefused`). The one exception is a route that starts or ends on Bitcoin, whose signatures don't verify with NEAR's own SDK either: you can still approve those after a warning, and the assistant can't prepare them. |
 | The swap pays out to you | The recipient is an address derived from your own wallet. The assistant can't point it anywhere else. |
 | Your NEAR transactions | Built byte for byte like near-api-js, and Hermit checks its own signature before sending. |
-| It's a genuine Intel TDX enclave | The TDX quote and Intel's certificate chain (an embedded copy of Intel's root), debug off, a fresh nonce, the signer bound in the quote, MRCONFIGID equal to the hash of the published compose file, and the event log replayed to RTMR3. The device shows that hash; it doesn't compare it to a list of NEAR releases. |
+| It's a genuine Intel TDX enclave | The TDX quote and Intel's certificate chain (an embedded copy of Intel's root), debug off, a fresh nonce, the signer bound in the quote, MRCONFIGID equal to the hash of the published compose file, and the event log replayed to RTMR3. |
+| It booted a guest OS NEAR publishes | The quote's MRTD (firmware), RTMR1 (kernel) and RTMR2 (kernel command line, which pins the root filesystem, and initramfs) are compared with the values for NEAR's published images, pinned in `HermitCloud/Attestation.swift` (`testGuestOSIsOneNEARPublishes`). Values the app doesn't know show as not checked, so a new NEAR image doesn't lock you out. The script doesn't trust a list: it rebuilds the values from NEAR's download. |
+| Its containers are NEAR's | Not on the device. The script checks NEAR's own images and the model's compose files ([below](#is-it-nears-software)). |
 | The GPUs are real | NVIDIA NRAS judges the GPU evidence; the device checks the token's signature, issuer, time and nonce. |
 | Your prompt goes only to that enclave | The server key must match the quote's fingerprint, and the prompt goes out on that same connection. |
 | The answer is the model's, unchanged | An EIP-191 signature over `model:sha256(request):sha256(response)` by the attested model key, checked as the reply lands. A reply that fails is marked as unverified and loses its review buttons, so it can't lead to a money move. |
 | The on-device model is the one we published | Every file and every 128 MiB piece must match a SHA-256 hash pinned in `HermitModel/ModelPins.swift`. |
 
-`near/verify-attestation.py` goes one step further and checks Intel's TCB status and revocations with `dcap-qvl`. Swap
-progress comes from 1Click's status API, with an explorer link at every step.
+`near/verify-attestation.py` also checks Intel's TCB status and revocations with `dcap-qvl`. Swap progress comes from
+1Click's status API, with an explorer link at every step.
 
-Two things nobody can prove today: that the gateway handed your request to that exact model instance (NEAR's TLS
-binding ends at the gateway), and who built the container images (the quote pins their hash, not their origin). So the
-proof says a genuine, non-debug TDX machine with genuine NVIDIA GPUs holds the connection's key and runs the compose
-file whose hash is in the quote, and the script also checks Intel's TCB status. It doesn't prove whose software that
-compose file runs.
+### Is it NEAR's software?
+
+A quote proves a genuine TDX machine and pins hashes. It doesn't say whose software those hashes are. NEAR publishes
+three things that do, and `near/verify-attestation.py` checks each one for the gateway and for the model enclave:
+
+| What NEAR publishes | What the script does with it |
+| --- | --- |
+| The guest OS images its enclaves may boot: [nearai/dstack-images](https://github.com/nearai/dstack-images), one `mr_<os_image_hash>.tar.gz` each with the firmware, kernel, initramfs and command line (dstack's own download site lists the same hashes) | Reads the OS image hash from the RTMR3 event log, downloads that tarball, checks its hashes, and recomputes MRTD, RTMR1 and RTMR2 the way [dstack-mr](https://github.com/Dstack-TEE/dstack/tree/HEAD/dstack/dstack-mr) does. They must equal the quote's. The command line carries the root filesystem's hash, so RTMR2 covers the whole OS. |
+| GitHub build attestations (Sigstore) for the images it builds, as described in [Image provenance](https://docs.near.ai/cloud/verification/cloud-api/image-provenance) and the [SDK's verification guide](https://github.com/nearai/inference-sdk/blob/main/py/docs/verification-guide.md) | For `nearaidev/cloud-api` (the gateway), `cvm-ingress` (its TLS front), `compose-manager` and `vllm-proxy-rs` (the inference proxy, which holds the model enclave's signing key): fetches the attestation for the exact digest and verifies it with `sigstore` against Sigstore's public root. The signer must be a GitHub Actions run of NEAR's repository for that image (`nearai/cloud-api`, `nearai/cvm-ingress`, `nearai/compose-manager`, `nearai/inference-proxy`), and the signed statement must name that image and digest. The log shows the workflow, branch and commit. |
+| The model's compose files: [nearai/cvm-compose-files](https://github.com/nearai/cvm-compose-files). The model enclave's measured compose only starts NEAR's compose manager, which deploys these files and keeps a log of what it deployed | Checks the manager's TDX quote (Intel DCAP, the same measurements as the model's quote, and report data equal to the hash of the log plus our nonce). Then every compose file behind a service the log has up must be a tagged commit of NEAR's repo with the logged SHA-256. |
+
+`--offline` skips everything that needs the network and compares the OS measurements with pinned values instead.
+`--sdk` also runs the image check through NEAR's own `nearai-inference-sdk` for the gateway. The SDK pins nothing
+itself: its `verify()` leaves the choice of trusted repositories to the caller, so the list above is ours, taken
+from NEAR's guide and from what the attestations say.
+
+What still isn't checked, by the app or the script:
+
+- Which model instance the gateway handed your request to. NEAR's TLS binding ends at the gateway.
+- Who built the other images: the model engines (`nearaidev/sglang`, `nearaidev/vllm`), the launcher, nginx, the
+  OpenTelemetry collector and a few more. The script lists them on `[SKIP]` lines. Most are pinned by digest in files
+  anyone can read; a few local images in NEAR's compose files have no digest at all. The script has no build source
+  to hold them to, and for the launcher's digest GitHub had no attestation in `nearai/compose-manager` on 2026-11-12.
+- That the manager's log matches what runs this minute. It is a signed record of what was deployed.
+- RTMR0, the virtual hardware tables. It is replayed from the event log but not recomputed, which would need QEMU's
+  ACPI tables for the exact machine.
+
+So the proof now says: a genuine, non-debug TDX machine with genuine NVIDIA GPUs holds the connection's key, booted an
+OS image NEAR publishes, and runs the gateway, compose manager and inference proxy that NEAR's public repositories
+built. It says which code that is, not that the code is good.

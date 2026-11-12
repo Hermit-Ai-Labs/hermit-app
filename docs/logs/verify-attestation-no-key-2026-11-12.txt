@@ -1,0 +1,61 @@
+# python near/verify-attestation.py   (no API key; Linux, Python 3.12, fresh venv, 2026-11-12 UTC)
+Model Qwen/Qwen3.8-27B
+Nonce c0f39ac8288f407c6003dd78504bbc514489643cb6cd0c260f713f3ed262e804 (fresh, from this machine)
+
+Gateway: signer 0xb98a789cdc4817275f5155593ba73ef2a957e779 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] HTTP report_data equals quote report data
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 877959253d2406f0…)
+  [PASS] Event log replays to RTMR3
+  [PASS] Event log replays to RTMR0, RTMR1 and RTMR2
+  [PASS] Guest OS image is one NEAR publishes  (dstack-0.5.12, nearai/dstack-images mr_8db40cb23008…, recomputed from the download)
+  [PASS] MRTD matches that image's firmware  (7fe60787222bd394…)
+  [PASS] RTMR1 matches that image's kernel  (4ae609807c765916…)
+  [PASS] RTMR2 matches that image's command line and initramfs  (764489f277a85401…, the command line pins the root filesystem)
+  [PASS] Every image in the measured compose is pinned by digest  (4 images)
+  [PASS] Built from NEAR's repository: nearaidev/cloud-api  (sha256:cacddc688a43…, github.com/nearai/cloud-api build.yml@refs/heads/main, commit 7a7e10a)
+  [PASS] Built from NEAR's repository: nearaidev/cvm-ingress  (sha256:1653c2320029…, github.com/nearai/cvm-ingress build-push.yml@refs/heads/main, commit 6b1b58c)
+  [SKIP] Who built the other 2 image(s) in the measured compose  (alpine, otel/opentelemetry-collector-contrib)
+  [PASS] This TLS connection ends at the key the gateway quote binds  (peer SPKI sha256 73862c254372091c…)
+  [PASS] Model evidence returned  (1 candidate(s))
+
+Model Qwen/Qwen3.8-27B #1: signer 0x835ab53d20294ef795906dff21ae4c045336aa26 (ecdsa)
+  [PASS] Quote is Intel TDX v4  (version 4, tee 0x81)
+  [PASS] Intel DCAP quote verification (dcap-qvl)  (TCB UpToDate)
+  [PASS] Local quote parser matches dcap-qvl
+  [PASS] TDX debug mode off  (td_attributes 0000001000000000)
+  [PASS] Echoed nonce matches ours
+  [PASS] Quote report data ends with our nonce
+  [PASS] Quote report data binds the signing address
+  [PASS] MRCONFIGID matches app_compose  (compose sha256 e8416a02d6f7ce47…)
+  [PASS] Event log replays to RTMR3
+  [PASS] GPU evidence carries our nonce  (8 GPUs, arch HOPPER)
+  [PASS] NVIDIA NRAS GPU verdict  (eat_nonce c0f39ac8288f…)
+  [PASS] Event log replays to RTMR0, RTMR1 and RTMR2
+  [PASS] Guest OS image is one NEAR publishes  (dstack-nvidia-0.5.12, nearai/dstack-images mr_91fd5d69ccee…, recomputed from the download)
+  [PASS] MRTD matches that image's firmware  (df4d77c857de652b…)
+  [PASS] RTMR1 matches that image's kernel  (4ae609807c765916…)
+  [PASS] RTMR2 matches that image's command line and initramfs  (bd67ab7554dc27ab…, the command line pins the root filesystem)
+  [PASS] Every image in the measured compose is pinned by digest  (4 images)
+  [PASS] Built from NEAR's repository: nearaidev/compose-manager  (sha256:a0c073085684…, github.com/nearai/compose-manager build.yml@refs/heads/master, commit bf97be3)
+  [SKIP] Who built the other 3 image(s) in the measured compose  (certbot/dns-cloudflare, nearaidev/compose-manager-launcher, otel/opentelemetry-collector-contrib)
+  [PASS] Compose manager quote: Intel DCAP (dcap-qvl)  (TCB UpToDate)
+  [PASS] Compose manager quote has this enclave's measurements  (MRTD, RTMR0 to RTMR3 and MRCONFIGID equal)
+  [PASS] Compose manager quote binds its action log and our nonce  (167 actions, sha256 41904cc603692f78…)
+  [PASS] Built from NEAR's repository: nearaidev/compose-manager, the one the log says is running  (sha256:a0c073085684…, github.com/nearai/compose-manager build.yml@refs/heads/master, commit bf97be3)
+  [PASS] Deployed compose files are tagged files in nearai/cvm-compose-files  (10 file version(s) behind the 48 services the log has up, tags v0.0.520 to v0.0.571, sha256 equal)
+  [PASS] Built from NEAR's repository: nearaidev/vllm-proxy-rs  (sha256:0be4ee8f40a2…, github.com/nearai/inference-proxy build.yml@refs/heads/main, commit 53d7944; sha256:e2893ff46404…, github.com/nearai/inference-proxy build.yml@refs/heads/main, commit 73a0d88)
+  [SKIP] Who built the other 13 image(s) those files deploy  (alpine, curlimages/curl, ghcr.io/astral-sh/uv, levantolabs/sage2-hopper-pod, nearaidev/sglang, nearaidev/vllm, nginx, nvcr.io/nvidia/k8s/dcgm-exporter, otel/opentelemetry-collector-contrib, privacy-filter-hf (no digest), sglang-diffusion (no digest), vllm-with-audio (no digest), vllm/vllm-openai)
+
+Completion
+  [SKIP] Response signature  (set NEARAI_API_KEY to send one completion and verify its signature)
+
+44 passed, 0 failed, 4 skipped
+Not checked here: RTMR0 (the virtual hardware tables) against a recomputed value, who built the images listed as
+skipped above, whether the logged deployment is still what runs, and the gateway-to-model hop (see docs/NEAR.md).

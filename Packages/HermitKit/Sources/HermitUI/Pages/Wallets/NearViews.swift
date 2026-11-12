@@ -12,6 +12,8 @@ struct NearAccountCard: View {
     @State private var state: Loaded = .loading
     @State private var adding = false
     @State private var error: String?
+    /// NEAR this account has with validators (staked, unstaking and ready), read from the pools. nil until it's read.
+    @State private var staked: UInt128?
 
     enum Loaded: Equatable { case loading, missing, inactive, active(NearClient.AccountState), unknown }
 
@@ -44,6 +46,14 @@ struct NearAccountCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy NEAR account \(a)")
+                if isLive {
+                    HStack(spacing: 8) {
+                        Text(staked.map { $0 > 0 ? "\(NearStaking.near($0)) NEAR with validators" : "Stake NEAR to earn the network's rewards" } ?? "Stake NEAR to earn the network's rewards")
+                            .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(2)
+                        Spacer(minLength: 6)
+                        Button("Stake") { NearStakeFlow.stake(wallet: wallet.id, model: model) }.buttonStyle(OutlineButton())
+                    }
+                }
                 if state == .inactive {
                     NoteBox(symbol: "info.circle", text: "Not active yet. A NEAR account appears on chain the first time it receives NEAR: send about 0.01 NEAR here, or swap into NEAR from another chain.")
                 }
@@ -77,6 +87,10 @@ struct NearAccountCard: View {
     private func load() async {
         guard let a = account else { state = .missing; return }
         do { state = try await vm.service.nearAccountState(a).map { .active($0) } ?? .inactive } catch { state = .unknown }
+        guard isLive else { staked = nil; return }
+        // Shown only when every pool answered: a stake that couldn't be read is never shown as none.
+        let r = await vm.service.nearStakingPositions(wallets: [wallet.record])
+        staked = r.failed ? nil : r.positions.reduce(0) { $0 + $1.total }
     }
 
     private func add() {

@@ -35,14 +35,19 @@ public struct HermitToolbox: AgentToolbox {
                 return ToolOutcome(content: await WalletsViewModel.shared.tools.call(name, arguments: args))
             case "hyperliquid_account": return json(try await Self.hlAccount())
             case "get_yields":
-                return json(["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String),
-                             "note": "Quote apy_base_pct as the rate and name rewards apart: they can stop. Only pools with can_deposit_in_hermit can be deposited from chat."])
+                var out: [String: Any] = ["pools": await Self.yields(asset: args["asset"] as? String, chain: args["chain"] as? String),
+                                          "note": "Quote apy_base_pct as the rate and name rewards apart: they can stop. Only pools with can_deposit_in_hermit can be deposited from chat."]
+                // Rates from a saved copy (DefiLlama didn't answer): say how old they are, so the reply can too.
+                if let at = await YieldsFeed.shared.updated, Date().timeIntervalSince(at) > 3600 {
+                    out["rates_as_of_hours_ago"] = Int(Date().timeIntervalSince(at) / 3600)
+                }
+                return json(out)
             case "prepare_trade": return try await Self.prepareTrade(args, label: label)
             case "prepare_send": return try await Self.prepareSend(args)
             case "prepare_multisend":
                 let picture = await Self.pictureInChat
                 return try await Self.prepareMultisend(args, origin: .agent, fromPicture: picture)
-            case "prepare_deposit": return try await Self.prepareDeposit(args)
+            case "prepare_deposit": return try await Self.prepareDeposit(args, label: label)
             case "prepare_withdraw": return try await Self.prepareWithdraw(args, label: label)
             case "open_add_funds":
                 let hl = (args["goal"] as? String) == "hyperliquid"

@@ -31,7 +31,7 @@ enum TradeData {
 
     // MARK: Models
 
-    struct Perp: Identifiable, Hashable, Sendable {
+    struct Perp: Identifiable, Hashable, Sendable, Codable {
         var id: String { coin }
         let coin: String
         let px, prev, funding, oi, vol: Double
@@ -53,7 +53,7 @@ enum TradeData {
     struct Book: Sendable { let bids, asks: [BookLevel] }
     struct Print: Hashable, Sendable { let px, sz: Double; let buy: Bool; let time: Date }
 
-    struct Prediction: Identifiable, Hashable, Sendable {
+    struct Prediction: Identifiable, Hashable, Sendable, Codable {
         let id, q, slug: String
         let outcomes: [String]
         let prices: [Double]
@@ -82,7 +82,9 @@ enum MarketError: LocalizedError {
 enum MarketHTTP {
     static let session: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 20
+        // Seconds without a byte before giving up (not a cap on a whole download). One retry follows, so a dead
+        // endpoint frees the screen in about 20 s instead of a minute.
+        c.timeoutIntervalForRequest = 10
         // Live prices ask for a fresh copy per request (`fresh`); big lists revalidate (ETag) against this disk cache.
         c.requestCachePolicy = .useProtocolCachePolicy
         c.urlCache = URLCache(memoryCapacity: 8 << 20, diskCapacity: 60 << 20, directory: nil)
@@ -102,10 +104,30 @@ enum MarketHTTP {
             r.httpBody = Data(body.utf8)
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (d, resp) = try await session.data(for: r)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else { throw MarketError.http(code) }
-        return d
+        // Every call here only reads, so a timeout, a dropped connection or a busy gateway is tried once more.
+        var retried = false
+        while true {
+            do {
+                let (d, resp) = try await session.data(for: r)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if [502, 503, 504].contains(code), !retried {
+                    retried = true
+                    try await Task.sleep(for: .milliseconds(500))
+                    continue
+                }
+                guard (200..<300).contains(code) else { throw MarketError.http(code) }
+                return d
+            } catch let e as URLError where !retried && transient(e) {
+                retried = true
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    /// Worth one more try. Offline isn't: the second try would fail the same way.
+    private static func transient(_ e: URLError) -> Bool {
+        let codes: [URLError.Code] = [.timedOut, .networkConnectionLost, .cannotConnectToHost, .dnsLookupFailed]
+        return codes.contains(e.code)
     }
 
     static func json(_ url: String, json body: String? = nil) async throws -> Any {
@@ -133,7 +155,7 @@ enum TradeAPI {
         return try await main + (await xyz ?? [])
     }
 
-    private static func perps(dex: String?) async throws -> [TradeData.Perp] {
+    static func perps(dex: String?) async throws -> [TradeData.Perp] {
         let body = dex.map { #"{"type":"metaAndAssetCtxs","dex":"\#($0)"}"# } ?? #"{"type":"metaAndAssetCtxs"}"#
         guard let arr = try await MarketHTTP.json(hl, json: body) as? [Any], arr.count == 2,
               let meta = arr[0] as? [String: Any], let universe = meta["universe"] as? [[String: Any]],
@@ -224,6 +246,8 @@ final class MarketFeed {
     var perpsUpdated: Date?
     var perpFailures = 0
     var perpsStale: Bool { perpFailures >= 2 || (perpsUpdated.map { Date().timeIntervalSince($0) > 60 } ?? false) }
+    /// The prices on screen are the copy saved at the last launch, not yet replaced by a live one.
+    var perpsSaved = false
     /// Spot tickers and row candles. Nothing fetches them since Spot and Memes moved to Jupiter; the snapshot fixture
     /// still fills them.
     var tickers: [String: TradeData.Ticker] = [:]
@@ -231,22 +255,56 @@ final class MarketFeed {
     var tickerState: FeedState = .loading
     var predictions: [TradeData.Prediction] = []
     var predState: FeedState = .loading
+    /// When the odds on screen arrived (the saved copy's date until the first live answer).
+    var predsUpdated: Date?
+
+    /// The last prices and markets show at once, with their real age, so no screen opens empty on a slow network.
+    /// They are stale from the start (`perpsUpdated` is when they were fetched), so a market order still waits for
+    /// a live price.
+    init() {
+        let store = SnapshotStore.live
+        if let s = store.load("perps", as: [TradeData.Perp].self) {
+            perps = Dictionary(s.value.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a })
+            perpState = .ready; perpsUpdated = s.saved; perpsSaved = true
+        }
+        if let s = store.load("predictions", as: [TradeData.Prediction].self, maxAge: 86_400) {
+            predictions = s.value.filter { ($0.ends ?? .distantFuture) > Date() }
+            predState = .ready; predsUpdated = s.saved
+        }
+    }
 
     func refreshPerps() async {
         guard !SnapshotMode.active else { return }
+        // Both dexes at once. The main list shows as soon as it's in; trade.xyz joins when it answers.
+        async let xyzList = try? TradeAPI.perps(dex: "xyz")
+        let main: [TradeData.Perp]
         do {
-            let list = try await TradeAPI.perps()
-            perps = Dictionary(list.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a }); perpState = .ready
-            perpsUpdated = Date(); perpFailures = 0
+            main = try await TradeAPI.perps(dex: nil)
         } catch {
             perpFailures += 1
             if perps.isEmpty { perpState = .failed }
+            _ = await xyzList
+            return
         }
+        let mainNow = Dictionary(main.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a })
+        // Until trade.xyz answers, its markets keep their prices only when those are live (under a minute old), never
+        // a saved copy: a market order reads them as current.
+        let xyzLive = !perpsSaved && (perpsUpdated.map { Date().timeIntervalSince($0) < 60 } ?? false)
+        perps = mainNow.merging(xyzLive ? perps.filter { $0.key.hasPrefix("xyz:") } : [:], uniquingKeysWith: { a, _ in a })
+        perpState = .ready
+        perpsUpdated = Date(); perpFailures = 0; perpsSaved = false
+        // As before: trade.xyz markets that didn't answer this time drop out rather than show an old price as live.
+        let xyz = await xyzList ?? []
+        perps = mainNow.merging(xyz.map { ($0.coin, $0) }, uniquingKeysWith: { a, _ in a })
+        SnapshotStore.live.save(Array(perps.values), "perps")
     }
 
     func refreshPredictions() async {
         guard !SnapshotMode.active else { return }
-        do { predictions = try await TradeAPI.predictions(); predState = .ready }
+        do {
+            predictions = try await TradeAPI.predictions(); predState = .ready; predsUpdated = Date()
+            SnapshotStore.live.save(predictions, "predictions")
+        }
         catch { if predictions.isEmpty { predState = .failed } }
     }
 }

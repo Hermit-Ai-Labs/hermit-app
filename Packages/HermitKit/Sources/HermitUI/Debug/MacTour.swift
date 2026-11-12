@@ -15,7 +15,7 @@ public enum MacTour {
         guard UserDefaults.standard.string(forKey: "hermitTour") != nil else { return nil }
         let m = AppModel()
         m.persist = false
-        if m.user.isEmpty { m.user = "Rahul" }
+        if m.user.isEmpty { m.user = "Anon" }
         return m
     }()
 

@@ -41,7 +41,9 @@ final class JupiterTokens {
     nonisolated static let notSpot: Set<String> = ["stocks", "xstocks", "rwa", "ondo", "prestocks", "pre-ipo", "lst", "jup-lend-earn", "stable", "yb",
                                        "internal", "duplicate"]
     nonisolated private static let cacheName = "jupiter-verified"
-    private(set) var rows: [Row] = MarketDiskCache.load(JupiterTokens.cacheName, maxAge: 3600, as: [Row].self) ?? []
+    nonisolated private static let savedFor: TimeInterval = 86_400
+    /// The saved list shows at once for up to a day (the screen says when its prices are from) while a new one loads.
+    private(set) var rows: [Row] = MarketDiskCache.load(JupiterTokens.cacheName, maxAge: JupiterTokens.savedFor, as: [Row].self) ?? []
     private(set) var state: FeedState = .loading
     /// When the prices on screen came from Jupiter: the last good download, or the saved copy's date.
     private(set) var updated: Date? = JupiterTokens.savedDate()
@@ -127,7 +129,7 @@ final class JupiterTokens {
     nonisolated private static func savedDate() -> Date? {
         let path = URL.cachesDirectory.appending(path: "hermit-\(cacheName).json").path
         guard let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date,
-              Date().timeIntervalSince(m) < 3600 else { return nil }
+              Date().timeIntervalSince(m) < savedFor else { return nil }
         return m
     }
 }

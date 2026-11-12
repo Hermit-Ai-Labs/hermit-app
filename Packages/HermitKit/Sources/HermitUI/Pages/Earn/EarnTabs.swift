@@ -5,7 +5,8 @@ import HermitCore
 // MARK: Positions
 
 /// Everything already earning, read from chain for every wallet: Aave v3 supplies on Ethereum, Base and Arbitrum
-/// (aToken balances, which grow with interest) with the live supply APY and Withdraw, and the Hyperliquid account.
+/// (aToken balances, which grow with interest) with the live supply APY and Withdraw, NEAR staked with validators
+/// (EarnStakedNear), and the Hyperliquid account.
 /// Nothing here is sample data.
 struct EarnPositions: View {
     @Environment(AppModel.self) private var model
@@ -13,6 +14,8 @@ struct EarnPositions: View {
     @State private var rows: [AavePosition] = []
     @State private var failed: [Chain] = []
     @State private var loaded = false
+    /// When the rows on screen were saved, while they're last time's copy and the chain hasn't answered yet.
+    @State private var savedAt: Date?
     @State private var error: String?
     private var vm: WalletsViewModel { .shared }
     private var hl: HyperliquidStore { .shared }
@@ -22,7 +25,7 @@ struct EarnPositions: View {
             TradeSection(title: "Aave", top: 0) {
                 if !vm.hasWallet {
                     TradeEmpty(icon: "leaf", title: "No wallet yet", note: "Create a wallet, then deposit from Savings.")
-                } else if !loaded {
+                } else if !loaded && rows.isEmpty {
                     MarketStatus(kind: .loading("Reading your deposits"))
                 } else if rows.isEmpty && failed.isEmpty {
                     TradeEmpty(icon: "leaf", title: "Nothing deposited yet", note: "Tap Deposit on a pool in Savings, or ask Hermit to deposit. It shows here, earning.")
@@ -41,7 +44,8 @@ struct EarnPositions: View {
                             Text(r.supplyAPY.map { String(format: "%.2f%% APY", $0 * 100) } ?? "APY unknown")
                                 .font(.system(size: 12.5)).foregroundStyle(r.supplyAPY == nil ? Theme.faint : Theme.green).monospacedDigit()
                         }
-                        Button("Withdraw") { withdraw(r) }.buttonStyle(TradeSmallButton())
+                        // Only once the chain has answered: never a withdrawal from a saved copy.
+                        Button("Withdraw") { withdraw(r) }.buttonStyle(TradeSmallButton()).disabled(!loaded)
                     }
                     .padding(.vertical, 11)
                 }
@@ -52,8 +56,11 @@ struct EarnPositions: View {
                 }
                 if loaded && !rows.isEmpty {
                     MarketSource(text: "Supplied amounts include interest so far. APY is Aave's live supply rate, read from the pool contract.").padding(.top, 6)
+                } else if !loaded, let savedAt {
+                    MarketSource(text: "Read \(Freshness.ago(savedAt)). Updating…").padding(.top, 6)
                 }
             }
+            EarnStakedNear()
             TradeSection(title: "Hyperliquid") {
                 if let a = hl.account, a.accountValue > 0 {
                     HStack {
@@ -69,14 +76,40 @@ struct EarnPositions: View {
             }
             if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).padding(.top, 10) }
         }
-        .task(id: vm.wallets.map(\.id)) { await load(); await hl.refresh() }
+        .task(id: vm.wallets.map(\.id)) {
+            restoreSaved()
+            // Aave and Hyperliquid at once; neither waits for the other.
+            let store = hl
+            async let h: () = store.refresh()
+            await load()
+            _ = await h
+        }
         .onChange(of: model.approvalCount) { _, _ in Task { await load() } }
     }
 
     private func load() async {
         guard vm.hasWallet else { rows = []; loaded = true; return }
         let r = await vm.service.aavePositions(wallets: vm.wallets.map(\.record))
-        withAnimation(.smooth) { rows = r.positions; failed = r.failed; loaded = true }
+        withAnimation(.smooth) { rows = r.positions; failed = r.failed; loaded = true; savedAt = nil }
+        // Saved only when every network answered, so a saved copy never misses a deposit.
+        guard r.failed.isEmpty else { return }
+        for w in vm.wallets {
+            let mine = r.positions.filter { $0.walletID == w.record.id }.map { SavedAave($0) }
+            SnapshotStore.live.save(mine, "aave", wallet: w.id)
+        }
+    }
+
+    /// Last time's deposits, shown while the chain is read again (Withdraw waits for the live read).
+    private func restoreSaved() {
+        guard !loaded, rows.isEmpty else { return }
+        var out: [AavePosition] = [], oldest: Date?
+        for w in vm.wallets {
+            guard let s = SnapshotStore.live.load("aave", wallet: w.id, as: [SavedAave].self, maxAge: 30 * 86_400) else { return }
+            out += s.value.compactMap { $0.position(wallet: w.record.id) }
+            oldest = min(oldest ?? s.saved, s.saved)
+        }
+        guard let oldest, !out.isEmpty else { return }
+        rows = out; savedAt = oldest
     }
 
     private func withdraw(_ r: AavePosition) {
@@ -85,6 +118,20 @@ struct EarnPositions: View {
         } catch {
             self.error = (error as? WalletError)?.errorDescription ?? error.localizedDescription
         }
+    }
+}
+
+/// One Aave deposit as saved on this device: which token, where, and how much.
+private struct SavedAave: Codable, Sendable {
+    let chain, symbol, amount: String
+    let apy: Double?
+
+    init(_ p: AavePosition) { chain = p.chain.id; symbol = p.token.symbol; amount = String(p.amount); apy = p.supplyAPY }
+
+    func position(wallet: UUID) -> AavePosition? {
+        guard let c = Chain.with(id: chain), let t = AaveV3.tokens(on: c).first(where: { $0.symbol == symbol }),
+              let a = UInt128(amount) else { return nil }
+        return AavePosition(walletID: wallet, chain: c, token: t, amount: a, supplyAPY: apy)
     }
 }
 
@@ -118,7 +165,7 @@ struct EarnDeFi: View {
                 .animation(.smooth(duration: 0.3), value: filter)
                 .animation(.smooth(duration: 0.3), value: chain)
             if !feed.pools.isEmpty {
-                MarketSource(text: "Largest pools first, at least $10M deep ($1M for Aave pools Hermit deposits into). APY from DefiLlama, refreshed hourly.").padding(.top, 10)
+                MarketSource(text: "Largest pools first, at least $10M deep ($1M for Aave pools Hermit deposits into). APY from DefiLlama, refreshed hourly." + feed.ageNote).padding(.top, 10)
             }
         }
         .marketPoll(every: 600) { await feed.refresh() }

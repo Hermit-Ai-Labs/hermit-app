@@ -25,6 +25,8 @@ struct HomeMarketsCard: View {
     let hide: () -> Void
     @AppStorage("home.marketStyle") private var styleRaw = MarketCardStyle.holo.rawValue
     @State private var spark: [String: [Double]] = [:]
+    /// The 24h lines were read this appearance (until then the saved ones from last time show).
+    @State private var sparkFetched = false
     @State private var spot = 0
     @Environment(\.scenePhase) private var phase
     private var feed: MarketFeed { .shared }
@@ -52,13 +54,17 @@ struct HomeMarketsCard: View {
     }
 
     private func loadSparks() async {
-        guard spark.isEmpty else { return }
+        guard !sparkFetched else { return }
+        // Last time's lines draw at once while they're recent; each new one replaces its own as it arrives.
+        if spark.isEmpty, let s = SnapshotStore.live.load("home-sparks", as: [String: [Double]].self, maxAge: 3 * 3600) { spark = s.value }
+        var got = 0
         await withTaskGroup(of: (String, [Double]).self) { g in
             for (c, _) in Self.coins {
                 g.addTask { (c, (try? await TradeAPI.perpCandles(c, interval: "30m", seconds: 1800, count: 48))?.map(\.c) ?? []) }
             }
-            for await (c, v) in g where !v.isEmpty { spark[c] = v }
+            for await (c, v) in g where !v.isEmpty { spark[c] = v; got += 1 }
         }
+        if got > 0 { sparkFetched = true; SnapshotStore.live.save(spark, "home-sparks") }
     }
 
     @ViewBuilder private var content: some View {

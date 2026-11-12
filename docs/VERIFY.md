@@ -6,8 +6,9 @@ download. Prices, amounts and balances move, so your numbers will differ from ou
 ## The NEAR code, with Python
 
 On a Mac or Linux machine with Python 3.10 or later (3.12 for steps 7 and 8). Check `python3 --version` first. If it's older, run
-`brew install python@3.12` and type `python3.12` where it says `python3` below. Steps 1 to 7 need no keys and no funds.
-We ran them in a fresh clone on 2026-11-11 and got what the See column says.
+`brew install python@3.12` and type `python3.12` where it says `python3` below. Steps 1 to 7 and 9 need no keys and no
+funds. We ran steps 1 to 4 in a fresh clone on 2026-11-11 and steps 5, 6, 7 and 9 on 2026-11-12, on Linux with Python
+3.12, and got what the See column says.
 
 ```sh
 git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
@@ -20,10 +21,11 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 | 2 | `.venv/bin/python near/intents-quote.py --selftest` | Eight `[PASS]` lines, then `8 passed, 0 failed`. The signature code gets the same hashes as the Swift tests and rejects a quote whose deposit address was swapped. |
 | 3 | `.venv/bin/python near/intents-quote.py --from ETH:arbitrum --to BTC:bitcoin --amount 0.01` | `[FAIL] 1Click signature`, a note, and exit code 1. Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either, so the app only lets you approve those yourself, after a warning ([why](NEAR.md#what-hermit-checks-for-you)). |
 | 4 | `.venv/bin/python near/near-account.py` | From the public test phrase (`abandon` eleven times, then `about`): path `m/44'/397'/0'`, public key `ed25519:6j4b6zUa...`, implicit account `5510e2b4...ee412` and three `[PASS]` lines against the Swift test vector. Then that account's NEAR, USDC, USDT and wNEAR balances from mainnet RPC, read-only. |
-| 5 | `.venv/bin/python near/verify-attestation.py` | A fresh nonce, then NEAR AI Cloud's live report for `Qwen/Qwen3.8-27B`, one `[PASS]` per check: the Intel TDX quote, Intel DCAP with `TCB UpToDate`, the nonce, the signer, MRCONFIGID, RTMR3, the TLS key, the GPU evidence and NVIDIA's verdict. The last line is `23 passed, 0 failed, 1 skipped`. The skip is the answer's signature, which needs a key. |
-| 6 | `F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures; .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline` | The recorded report our Swift tests use, checked offline: `17 passed, 0 failed, 4 skipped`. |
-| 7 | `.venv/bin/pip install -r near/requirements-sdk.txt`, then `.venv/bin/python near/verify-attestation.py --sdk` | The same checks plus NEAR's own `nearai-inference-sdk` running `verify(model)`: `25 passed, 0 failed, 1 skipped`. |
-| 8 | `NEARAI_API_KEY=... .venv/bin/python near/verify-attestation.py --sdk` | Also one short completion on the attested connection, and the enclave's signature over it. Our run on 2026-11-08 ended `29 passed, 0 failed, 0 skipped` ([log](logs/verify-attestation-with-key-2026-11-08.txt)). A key comes from https://cloud.near.ai, or $10 of credit from https://nearbuilders.org/dashboard. |
+| 5 | `.venv/bin/python near/verify-attestation.py` | A fresh nonce, then NEAR AI Cloud's live report for `Qwen/Qwen3.8-27B`, one `[PASS]` per check: the Intel TDX quote, Intel DCAP with `TCB UpToDate`, the nonce, the signer, MRCONFIGID, RTMR3, the TLS key, the GPU evidence and NVIDIA's verdict. Then the checks that it is NEAR's software: the guest OS (`dstack-0.5.12` for the gateway, `dstack-nvidia-0.5.12` for the model) with MRTD, RTMR1 and RTMR2 rebuilt from NEAR's download, a `Built from NEAR's repository` line for `cloud-api`, `cvm-ingress`, `compose-manager` and `vllm-proxy-rs`, and the model's compose files matched to tags of `nearai/cvm-compose-files`. The last line is `44 passed, 0 failed, 4 skipped` ([log](logs/verify-attestation-no-key-2026-11-12.txt)). The skips are the answer's signature, which needs a key, and three lists of images whose builder isn't checked. The run downloads two 17 MB images and makes five anonymous GitHub API calls; GitHub allows 60 an hour per address, and past that those lines read `[SKIP]` and say so (set `GITHUB_TOKEN` to avoid it). |
+| 6 | `F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures; .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline` | The recorded report our Swift tests use, checked offline: `31 passed, 0 failed, 12 skipped` ([log](logs/verify-attestation-offline-2026-11-12.txt)). Offline, the OS measurements are compared with the values pinned in the script, the same ones the app pins, and everything that needs the network is skipped. |
+| 7 | `.venv/bin/pip install -r near/requirements-sdk.txt`, then `.venv/bin/python near/verify-attestation.py --sdk` | The same checks plus NEAR's own `nearai-inference-sdk` running `verify(model)` and its image-provenance helper on the gateway's containers: `47 passed, 0 failed, 4 skipped` ([log](logs/verify-attestation-sdk-no-key-2026-11-12.txt)). |
+| 8 | `NEARAI_API_KEY=... .venv/bin/python near/verify-attestation.py --sdk` | Also one short completion on the attested connection, and the enclave's signature over it. Our run on 2026-11-08 ended `29 passed, 0 failed, 0 skipped` ([log](logs/verify-attestation-with-key-2026-11-08.txt)). That was before the checks added on 2026-11-12, and we haven't re-run it with a key since: expect step 7's lines with four completion lines in place of the signature skip. A key comes from https://cloud.near.ai, or $10 of credit from https://nearbuilders.org/dashboard. |
+| 9 | `python3 near/attack-demo.py` | No installs and no network. A step-by-step log of ten attacks and controls against a Python mirror of the app's guard and spending policy: an injected tool result and an attached file that try to send funds to `0x...dEaD` are `[BLOCKED]`, an address you typed is `[ALLOWED]` to review, and the $100 cap, own-address rule, 10% loss cap and daily limit each block a swap. The last line is `8 attacks blocked, 3 legitimate actions allowed` ([log](logs/attack-demo-2026-11-12.txt)). The Swift tests below are the source of truth ([why](SECURITY-DEMO.md#without-a-mac)). |
 
 More pairs to try: `--from ETH:arbitrum --to USDC:solana --amount 0.01` and `--from NEAR:near --to USDC:hyperliquid
 --amount 5` both end in `[PASS]`. `near-account.py --account near` reads any account. The test phrase is public, so
@@ -39,7 +41,7 @@ bash scripts/core-tests.sh
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-On our Mac on 2026-11-12 the first one ended with `Executed 248 tests, with 13 tests skipped and 0 failures`
+On our Mac on 2026-11-12 the first one ended with `Executed 260 tests, with 13 tests skipped and 0 failures`
 ([log](logs/core-tests-2026-11-12.txt)). The
 skipped tests need the network (`HERMIT_LIVE=1`, `HERMIT_LIVE_DAPP=1` or `ONECLICK_LIVE=1`) or a Secure Enclave. The
 second runs the 29 tests behind the prompt-injection demo and the spending policy; they all passed in that run. The

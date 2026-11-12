@@ -166,7 +166,9 @@ extension HermitToolbox {
 
     /// prepare_deposit: checks the request against the spending policy and the balance, then the Deposit review opens
     /// prefilled (EarnDepositSheet: allowance, approve + supply, each simulated and signed with Face ID).
-    @MainActor static func prepareDeposit(_ a: [String: Any]) async throws -> ToolOutcome {
+    /// NEAR isn't lent on Aave: a deposit of NEAR is a stake with a validator (HermitToolbox+Staking.swift).
+    @MainActor static func prepareDeposit(_ a: [String: Any], label: String? = nil) async throws -> ToolOutcome {
+        if NearStaking.handles(symbol: a["symbol"] as? String, chain: a["chain"] as? String) { return try await prepareStake(a, label: label) }
         let project = ((a["project"] as? String) ?? (a["pool"] as? String) ?? "aave-v3").lowercased()
         guard project.isEmpty || project.contains("aave") else {
             return json(["status": "unsupported", "prepared": false,
@@ -210,7 +212,9 @@ extension HermitToolbox {
     }
 
     /// prepare_withdraw: finds the user's Aave supply and prepares the withdrawal (all of it, or `amount`).
+    /// For NEAR it's the staking exit: withdraw what's ready, or unstake (HermitToolbox+Staking.swift).
     @MainActor static func prepareWithdraw(_ a: [String: Any], label: String) async throws -> ToolOutcome {
+        if NearStaking.handles(symbol: a["symbol"] as? String, chain: a["chain"] as? String) { return try await prepareUnstake(a, label: label) }
         guard let symbol = (a["symbol"] as? String)?.uppercased(), !symbol.isEmpty else { throw ToolError("Needs symbol") }
         let amount = (a["amount"] as? NSNumber)?.doubleValue ?? (a["amount"] as? String).flatMap(Double.init)
         let vm = WalletsViewModel.shared

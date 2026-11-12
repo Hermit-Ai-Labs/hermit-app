@@ -60,8 +60,9 @@ struct EarnSavings: View {
             }
             TradeRows(data: list) { p in row(p) }
             if !list.isEmpty {
-                MarketSource(text: "Live rates from DefiLlama. Rates change; past rates aren't a promise.").padding(.top, 10)
+                MarketSource(text: "Live rates from DefiLlama. Rates change; past rates aren't a promise." + feed.ageNote).padding(.top, 10)
             }
+            EarnStakeNear()
         }
         .marketPoll(every: 600) { await feed.refresh() }
     }

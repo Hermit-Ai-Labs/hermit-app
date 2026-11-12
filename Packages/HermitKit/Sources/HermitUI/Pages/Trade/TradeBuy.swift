@@ -70,7 +70,9 @@ enum TradeBuy {
     /// SOL's dollar price: the wallet's price feed, else Jupiter's list. Nil when neither has one yet.
     @MainActor static func solPrice() -> Double? {
         if let p = WalletsViewModel.shared.price("SOL"), p > 0 { return p }
-        guard let p = JupiterTokens.shared.rows.first(where: { $0.id == Jupiter.solMint })?.price, p > 0 else { return nil }
+        // The list may be a saved copy up to a day old: its price only counts while it's under an hour old.
+        guard let u = JupiterTokens.shared.updated, Date().timeIntervalSince(u) < 3600,
+              let p = JupiterTokens.shared.rows.first(where: { $0.id == Jupiter.solMint })?.price, p > 0 else { return nil }
         return p
     }
 

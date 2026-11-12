@@ -181,7 +181,12 @@ public final class NearClient: Sendable {
     public func view(_ contract: String, _ method: String, args: [UInt8] = Array("{}".utf8)) async throws -> JSON {
         let r = try await call("query", ["request_type": "call_function", "finality": "final", "account_id": .string(contract),
                                          "method_name": .string(method), "args_base64": .string(Data(args).base64EncodedString())])
-        let bytes = (r["result"]?.array ?? []).compactMap { $0.double.map { UInt8($0) } }
+        return Self.viewValue(r)
+    }
+
+    /// The JSON a contract method returned, from a `call_function` result (its `result` is the bytes as a number array).
+    static func viewValue(_ r: JSON) -> JSON {
+        let bytes = (r["result"]?.array ?? []).compactMap { $0.double.flatMap { UInt8(exactly: $0) } }
         return (try? JSONDecoder().decode(JSON.self, from: Data(bytes))) ?? .null
     }
 

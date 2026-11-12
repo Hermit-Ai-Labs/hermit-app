@@ -82,7 +82,7 @@ enum EarnData {
     }
 
     /// One day of a pool's history.
-    struct Point: Sendable { let date: Date; let apy: Double }
+    struct Point: Sendable, Codable { let date: Date; let apy: Double }
 
     static let filters: [(String, (Pool) -> Bool)] = [
         ("All", { _ in true }),
@@ -210,13 +210,16 @@ final class YieldsFeed {
     var state: FeedState = .loading
     var updated: Date?
     var history: [String: [EarnData.Point]] = [:]
+    /// Pools whose history was read this session (a saved one may be showing for the others).
+    @ObservationIgnored private var historyRead: Set<String> = []
     /// The fetch under way, so Savings, DeFi and the assistant asking at once share one 11 MB download.
     @ObservationIgnored private var fetching: Task<[EarnData.Pool], Error>?
 
     func refresh(force: Bool = false) async {
         guard !SnapshotMode.active else { return }
-        // The last list shows at once, up to 6 hours old; it's fetched again once it's an hour old.
-        if pools.isEmpty, let cached = MarketDiskCache.load("yields", maxAge: 6 * 3600, as: [EarnData.Pool].self), !cached.isEmpty {
+        // The last list shows at once, up to 3 days old (the screens say how old once it's past an hour); it's fetched
+        // again once it's an hour old.
+        if pools.isEmpty, let cached = MarketDiskCache.load("yields", maxAge: 3 * 86_400, as: [EarnData.Pool].self), !cached.isEmpty {
             pools = cached; state = .ready; updated = MarketDiskCache.saved("yields")
         }
         if !force, let updated, Date().timeIntervalSince(updated) < 3600 { return }
@@ -233,9 +236,22 @@ final class YieldsFeed {
 
     func loadHistory(_ pool: String) async -> Bool {
         guard !SnapshotMode.active else { return history[pool] != nil }
-        if history[pool] != nil { return true }
-        guard let h = try? await EarnAPI.history(pool), !h.isEmpty else { return false }
+        if historyRead.contains(pool) { return true }
+        // Daily points: last time's chart draws at once, then the new one replaces it.
+        if history[pool] == nil, let s = SnapshotStore.live.load("yield-history-" + pool, as: [EarnData.Point].self, maxAge: 3 * 86_400) {
+            history[pool] = s.value
+        }
+        guard let h = try? await EarnAPI.history(pool), !h.isEmpty else { return history[pool] != nil }
         history[pool] = h
+        historyRead.insert(pool)
+        SnapshotStore.live.save(h, "yield-history-" + pool)
         return true
+    }
+
+    /// " Updated 3 h ago." once the list on screen is older than its hourly refresh (a saved copy, or DefiLlama is
+    /// down); nothing while it's fresh.
+    var ageNote: String {
+        guard let updated, Date().timeIntervalSince(updated) > 3600 else { return "" }
+        return " Updated \(Freshness.ago(updated))."
     }
 }

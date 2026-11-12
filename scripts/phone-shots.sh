@@ -146,7 +146,7 @@ for entry in $SHOTS; do
     a=(${=args}); for (( i = 2; i <= $#a; i++ )); do [[ ${a[i-1]} == -hermitAsk ]] && a[i]=${a[i]//_/ }; done
     [[ $args == *-hermitMode* ]] || extra+=(-hermitMode device)
     # -hermitFresh: no saved chats read or written, so earlier runs never show up in a shot.
-    xcrun simctl launch "$UDID" $BID -hermitUser Rahul -hermitFresh YES $extra "${a[@]}" >/dev/null
+    xcrun simctl launch "$UDID" $BID -hermitUser Anon -hermitFresh YES $extra "${a[@]}" >/dev/null
   fi
   w=${WAIT:-5}; [[ $name == chat-* ]] && w=${CHATWAIT:-40}; [[ $name == sheet-proof || $name == sheet-quote* || $name == home-cloud ]] && w=12; [[ $name == browser* ]] && w=20; [[ $name == aave-* || $name == batch-* ]] && w=12
   sleep $w

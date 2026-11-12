@@ -358,7 +358,7 @@ public struct Preflight: Sendable {
         .init(id: "nc.tcb", group: "Not checked on \(CloudDevice.here)", title: "Intel TCB level and revocation",
               detail: "Needs Intel's collateral (TCB info, QE identity, CRLs). near/verify-attestation.py checks it with dcap-qvl", status: .skipped, source: .none),
         .init(id: "nc.provenance", group: "Not checked on \(CloudDevice.here)", title: "Image provenance of the containers",
-              detail: "The compose hash is bound to the quote; who built each image is not checked", status: .skipped, source: .none),
+              detail: "The compose hash is bound to the quote. Who built each image is checked by near/verify-attestation.py (NEAR's build attestations), not on \(CloudDevice.here)", status: .skipped, source: .none),
         .init(id: "nc.hop", group: "Not checked on \(CloudDevice.here)", title: "Gateway to model hop for this request",
               detail: "TLS binding covers the \(CloudDevice.noun)-to-gateway connection. NEAR doesn't yet prove which model instance served a request", status: .skipped, source: .none),
     ]

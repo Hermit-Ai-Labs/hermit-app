@@ -31,8 +31,8 @@ whichever path fits your machine:
 | A Mac (Apple silicon, macOS 26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
 | An iPhone (iOS 26) | Join the iPhone beta on TestFlight: https://testflight.apple.com/join/ed9vUh7d | Hermit on your iPhone, installed through Apple's TestFlight |
 | A Mac, through TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
-| A Mac with Xcode 26 | Build it from source ([docs/BUILD.md](docs/BUILD.md)) and run `bash scripts/core-tests.sh` | `Executed 248 tests, with 13 tests skipped and 0 failures` |
-| Any machine, Linux included | Run the three Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live |
+| A Mac with Xcode 26 | Build it from source ([docs/BUILD.md](docs/BUILD.md)) and run `bash scripts/core-tests.sh` | `Executed 260 tests, with 13 tests skipped and 0 failures` |
+| Any machine, Linux included | Run the four Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live, and the attacks on the assistant, blocked |
 | No Mac or iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
 
 On first launch the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it answers with Wi-Fi
@@ -68,22 +68,26 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
 
 | Track | What the track asks for | What Hermit does | Where |
 | --- | --- | --- | --- |
-| Privacy & Private AI | AI that protects sensitive data: private AI, TEE, NEAR AI Cloud | The model runs on your device. Bigger questions go to NEAR AI Cloud only after the device has checked the enclave itself: the Intel TDX quote, NVIDIA's GPU verdict, a fresh nonce, the TLS key, then the model's signature on the answer | `HermitCloud/`, `near/verify-attestation.py`, `HermitCloudTests` |
-| AI Security & Defense | Spending limits, policy engines, sandboxed wallets: give AI money without the keys | The assistant never holds a key, so there's no key to scope or steal: the keys stay sealed by the Secure Enclave, and it can only prepare a move for your review. A policy caps what it can prepare, a guard in code stops injected text from starting a send, and TEE attestation covers the cloud model | `HermitWallet/SpendPolicy.swift`, `HermitCore/AgentTools.swift`, [SECURITY-DEMO.md](docs/SECURITY-DEMO.md) |
+| Privacy & Private AI | AI that protects sensitive data: private AI, TEE, NEAR AI Cloud | The model runs on your device. Bigger questions go to NEAR AI Cloud only after the device has checked the enclave itself: the Intel TDX quote, NVIDIA's GPU verdict, a fresh nonce, the TLS key, then the model's signature on the answer. It also checks the enclave booted an OS image NEAR publishes, and the script checks that NEAR's containers were built from NEAR's public repositories | `HermitCloud/`, `near/verify-attestation.py`, `HermitCloudTests` |
+| AI Security & Defense | Spending limits, policy engines, sandboxed wallets: give AI money without the keys | The assistant never holds a key, so there's no key to scope or steal: the keys stay sealed by the Secure Enclave, and it can only prepare a move for your review. A policy caps what it can prepare, a guard in code stops injected text from starting a send, and TEE attestation covers the cloud model. `python3 near/attack-demo.py` replays the attacks on any machine and prints the log | `HermitWallet/SpendPolicy.swift`, `HermitCore/AgentTools.swift`, [near/attack-demo.py](near/attack-demo.py) ([log](docs/logs/attack-demo-2026-11-12.txt)), [SECURITY-DEMO.md](docs/SECURITY-DEMO.md) |
 | Unstoppable DeFi | Trading that settles across chains through NEAR Intents, no custodian | Ask for a swap or a bridge and NEAR Intents quotes and settles it, from your own keys. One sentence funds a Hyperliquid account from any chain, and the next opens a perp with take profit and stop loss | `HermitWallet/NearIntents.swift`, `IntentsSwap.swift`, `near/intents-quote.py` |
 
 ## Check it yourself
 
-On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, about a minute. These scripts are written
-apart from the app and make the same checks it does, so you can see the NEAR side working without a Mac:
+On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, a couple of minutes. These scripts are written
+apart from the app and make the same checks it does, so you can see the NEAR side and the guard working without a Mac:
 
 ```sh
 git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
 python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 .venv/bin/python near/intents-quote.py        # a live dry quote, ends with [PASS] 1Click signature
 .venv/bin/python near/near-account.py         # the NEAR account from a public test phrase, three [PASS] lines
-.venv/bin/python near/verify-attestation.py   # NEAR AI Cloud's enclave, ends with 23 passed, 0 failed, 1 skipped
+.venv/bin/python near/verify-attestation.py   # NEAR AI Cloud's enclave, ends with 0 failed (44 passed, 4 skipped for us)
+python3 near/attack-demo.py                   # attacks on the assistant, ends with 8 attacks blocked, 3 legitimate actions allowed
 ```
+
+The last one is a Python mirror of the app's guard and spending policy, with the same vectors as the Swift tests
+([SECURITY-DEMO.md](docs/SECURITY-DEMO.md#without-a-mac)). It needs no installs.
 
 With Xcode 26, `bash scripts/core-tests.sh` runs the app's NEAR, wallet, assistant and attestation tests. Our last run
 is in [docs/logs](docs/logs), and [GitHub Actions](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml)
@@ -100,6 +104,7 @@ you should see.
 | A prompt injection in a tool result can't start a send | `HermitCore/ToolLoop.swift`, `ToolCalls.swift` | `ToolLoopTests.testPromptInjectionInToolResultCannotPrepareSend` |
 | Keys are sealed by the Secure Enclave and open only for a signature | `HermitWallet/KeyVault.swift` | `TableAndVaultTests.testSealOpenRemoveRoundTrip` (needs a Mac with a Secure Enclave) |
 | Private Cloud checks the TDX quote, NVIDIA evidence and TLS key before the prompt | `HermitCloud/Attestation.swift`, `TDXQuote.swift`, `TLSBinding.swift` | `HermitCloudTests.testRealReportsPassEveryCheck` and the tamper tests after it |
+| The enclave booted an OS image NEAR publishes, and NEAR's containers come from NEAR's repositories | `HermitCloud/Attestation.swift` (`knownOSImage`), `near/verify-attestation.py` | `HermitCloudTests.testGuestOSIsOneNEARPublishes`, [the script's log](docs/logs/verify-attestation-no-key-2026-11-12.txt) |
 | An answer's review buttons need the attested model's signature | `HermitCloud/ResponseSignature.swift`, `NearCloudAgent.swift` | `HermitCloudTests.testSignatureVerifies` |
 | Every wallet has a NEAR account, derived on the device | `HermitWallet/Near.swift` | `NearTests.testDerivation`, `testTransferMatchesNearApiJs` |
 | The model is ours and pinned by hash | `HermitModel/ModelCatalog.swift`, `ModelPins.swift` | `ModelUpgradeTests.testShippedCatalog` |
@@ -168,7 +173,7 @@ value, and swap output only to your own addresses.
 
 **What if someone tricks the AI with a prompt injection?** Text from a web page, a file or a tool result can't start a
 send, because a send only goes to an address you typed yourself. The guard checks that in code, not in the model, and
-a test runs the attack ([SECURITY-DEMO.md](docs/SECURITY-DEMO.md)).
+a test runs the attack ([SECURITY-DEMO.md](docs/SECURITY-DEMO.md)). `python3 near/attack-demo.py` replays it on any machine.
 
 **What stops a fake quote?** Every 1Click quote is signed. The device checks the ed25519 signature against 1Click's key
 and refuses a quote that fails. Quotes that start or end on Bitcoin don't verify with NEAR's own SDK either, so those
@@ -179,9 +184,13 @@ so you can always send what you like from the Send and Swap screens.
 
 **How private is Private Cloud?** The device checks NEAR AI Cloud's proof before every reply: a genuine Intel TDX
 enclave with debug off, genuine NVIDIA GPUs (through NVIDIA's attestation service), a fresh nonce, and the enclave's
-own key on the connection your prompt goes out on. Then it checks the model's signature on the answer. The proof
-pins the hash of the software the enclave runs, and the Verified sheet shows it; Hermit doesn't yet compare that hash
-to a list of NEAR releases. [NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) lists every check.
+own key on the connection your prompt goes out on. Then it checks the model's signature on the answer. The app also
+checks that the enclave booted a guest OS image NEAR publishes. `near/verify-attestation.py` goes further: it rebuilds
+those OS measurements from NEAR's download, checks that NEAR's own containers (the gateway, the compose manager and
+the inference proxy that signs answers) were built by GitHub Actions from NEAR's public repositories, and that the
+model's compose files are tagged files in NEAR's public repo. Not checked by either: who built the other images (the
+model engines among them), and which model instance the gateway handed your request to.
+[NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) lists every check.
 
 **What leaves my device in on-device mode?** Your chats don't. There's no account, no sign-up and no analytics.
 

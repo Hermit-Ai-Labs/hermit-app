@@ -147,7 +147,7 @@ struct StatTile: View {
 }
 
 /// One OHLC candle.
-public struct Candle: Hashable, Sendable {
+public struct Candle: Hashable, Sendable, Codable {
     public let o, h, l, c: Double
     public init(o: Double, h: Double, l: Double, c: Double) { self.o = o; self.h = h; self.l = l; self.c = c }
 

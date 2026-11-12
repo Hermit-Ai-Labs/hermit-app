@@ -587,7 +587,8 @@ enum IconCache {
     private static var failed: Set<URL> = []
     private static let session: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 15
+        // Each logo tries a proxy, then its own host: a dead one shouldn't hold the row's logo for long.
+        c.timeoutIntervalForRequest = 8
         c.requestCachePolicy = .returnCacheDataElseLoad
         c.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20, directory: nil)
         return URLSession(configuration: c)

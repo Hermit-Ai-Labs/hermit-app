@@ -56,6 +56,8 @@ struct TradeTerminal: View {
     @State private var width: CGFloat = 1000
     @State private var candles: [Candle] = []
     @State private var chartState: FeedState = .loading
+    /// Set while the chart shows the candles saved last time, until fresh ones arrive.
+    @State private var candlesSaved: Date?
     @State private var book: TradeData.Book?
     @State private var prints: [TradeData.Print] = []
     @State private var bookState: FeedState = .loading
@@ -129,7 +131,7 @@ struct TradeTerminal: View {
         .marketPollBackingOff(every: hasHere ? 5 : 20, id: "\(hl.address ?? "")|\(hasHere)") { await hl.poll() }
         .onChange(of: mkt?.px != nil, initial: true) { _, has in if has && defaultsFor != coin { setDefaults(side) } }
         .onChange(of: lev) { _, _ in if tpText + "|" + slText == autoLevels { setDefaults(side) } }
-        .onChange(of: tf) { candles = []; chartState = .loading; rangeLevels = [] }
+        .onChange(of: tf) { candles = []; chartState = .loading; candlesSaved = nil; rangeLevels = [] }
     }
 
     // MARK: Header: market picker and stats
@@ -137,7 +139,7 @@ struct TradeTerminal: View {
     private var header: some View {
         let m = mkt
         let stats: [(String, String, Color)] = [
-            (m != nil && feed.perpsStale ? "Mark, not updating" : "Mark", m.map { "$" + $0.px.tradePx } ?? "—", Theme.text),
+            (m != nil && feed.perpsStale ? (feed.perpsSaved ? "Mark, last known" : "Mark, not updating") : "Mark", m.map { "$" + $0.px.tradePx } ?? "—", Theme.text),
             ("24h", m?.ch.tradePct ?? "—", (m?.ch ?? 0) >= 0 ? Theme.green : Theme.red),
             ("Volume", m?.vol.tradeCompactUSD ?? "—", Theme.text), ("Open interest", m?.oiUSD.tradeCompactUSD ?? "—", Theme.text),
             ("Funding / h", m.map { $0.fundPct.tradeTrim(4) + "%" } ?? "—", (m?.funding ?? 0) >= 0 ? Theme.green : Theme.red),
@@ -248,7 +250,7 @@ struct TradeTerminal: View {
             HStack {
                 Segmented(options: TradeData.timeframes.map { ($0.0, $0.0) }, selection: $tf).fixedSize()
                 Spacer(minLength: 8)
-                if width >= 440 { MarketSource(text: "Hyperliquid candles") }
+                if width >= 440 { MarketSource(text: candlesSaved.map { "Hyperliquid candles, saved \(Freshness.ago($0))" } ?? "Hyperliquid candles") }
             }
             Group {
                 if !candles.isEmpty {
@@ -278,11 +280,17 @@ struct TradeTerminal: View {
 
     @discardableResult private func loadCandles() async -> Bool {
         let t = TradeData.timeframes.first { $0.0 == tf } ?? TradeData.timeframes[1]
-        let want = coin + tf
+        let want = coin + tf, key = "candles-\(coin)-\(tf)"
+        // The last candles for this market and timeframe draw at once (while they still cover most of the window);
+        // the fresh ones replace them.
+        if candles.isEmpty, let s = SnapshotStore.live.load(key, as: [Candle].self, maxAge: t.2 * 30) {
+            candles = s.value; chartState = .ready; candlesSaved = s.saved
+        }
         do {
             let c = try await TradeAPI.perpCandles(coin, interval: t.1, seconds: t.2)
             guard want == coin + tf else { return true }
-            candles = c; chartState = .ready
+            candles = c; chartState = .ready; candlesSaved = nil
+            SnapshotStore.live.save(c, key)
             return true
         } catch {
             if candles.isEmpty { chartState = .failed }
@@ -741,7 +749,7 @@ struct TradeTerminal: View {
     private func pick(_ c: String) {
         withAnimation(.smooth(duration: 0.25)) {
             coin = c
-            candles = []; chartState = .loading; book = nil; prints = []; bookState = .loading
+            candles = []; chartState = .loading; candlesSaved = nil; book = nil; prints = []; bookState = .loading
             rangeLevels = []; limitText = ""; positionError = nil
             lev = min(lev, Double(feed.perps[c]?.maxLev ?? 10))
             setDefaults(side)
@@ -886,7 +894,8 @@ struct TradePredictions: View {
             }
             if !feed.predictions.isEmpty {
                 HStack {
-                    MarketSource(text: "Live odds from Polymarket, busiest first. Tap one to open it on Polymarket. Betting from Hermit: Coming soon.")
+                    MarketSource(text: (feed.predsUpdated.flatMap { Date().timeIntervalSince($0) > 180 ? "Odds from Polymarket, \(Freshness.ago($0))" : nil }
+                                        ?? "Live odds from Polymarket") + ", busiest first. Tap one to open it on Polymarket. Betting from Hermit: Coming soon.")
                     Spacer()
                 }
                 .padding(.top, 8)

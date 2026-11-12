@@ -1012,12 +1012,13 @@ enum ToolsV3 {
         symbol == chain.nativeSymbol && chain.kind != .evm ? symbol : "\(symbol) on \(chain.name)"
     }
 
-    /// The total across the wallet, Solana tokens, Aave and Hyperliquid. Each place is rounded to the cent and the total
-    /// is their sum, so the two always agree; places worth nothing are left out. The three biggest single holdings follow.
+    /// The total across the wallet, Solana tokens, Aave, staked NEAR and Hyperliquid. Each place is rounded to the cent
+    /// and the total is their sum, so the two always agree; places worth nothing are left out. The three biggest single
+    /// holdings follow.
     static func portfolio(wallet: String, parts: [Part], unreachable: [String], note: String? = nil) -> [String: Any] {
         var byPlace: [[String: Any]] = []
         var total = 0.0
-        for place in ["Wallet", "Spot tokens", "Aave", "Hyperliquid"] {
+        for place in ["Wallet", "Spot tokens", "Aave", "NEAR staking", "Hyperliquid"] {
             let sum = r2(parts.filter { $0.place == place }.reduce(0) { $0 + $1.usd })
             if sum >= 0.01 { byPlace.append(["place": place, "usd": sum]); total += sum }
         }

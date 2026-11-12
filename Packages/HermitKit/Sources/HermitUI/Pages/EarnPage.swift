@@ -1,12 +1,14 @@
 import SwiftUI
 import HermitCore
 
-/// Earn, simple first: Savings (Aave pools you can deposit into, Deposit on the row), Your deposits (what's earning, with
-/// Withdraw), and Explore (every big yield, funding carry and the vault explainer) for people who want more.
+/// Earn, simple first: Savings (Aave pools you can deposit into, Deposit on the row, and NEAR validators to stake with),
+/// Your deposits (what's earning, with Withdraw and Unstake), and Explore (every big yield, funding carry and the vault
+/// explainer) for people who want more.
 struct EarnPage: View {
     @Environment(AppModel.self) private var model
     @State private var tab = "save"
     @Bindable private var flow = EarnFlow.shared
+    @Bindable private var stake = NearStakeFlow.shared
     static let tabs = [("save", "Savings"), ("positions", "Your deposits"), ("explore", "Explore")]
     /// Tab ids from before Explore held them all, still asked for by links and the Mac tour.
     static let aliases = ["defi": "explore", "arb": "explore", "reverse": "explore"]
@@ -22,7 +24,8 @@ struct EarnPage: View {
             }
         }
         .sheet(item: $flow.deposit) { p in EarnDepositSheet(pool: p).environment(model).tint(Theme.text) }
-        .approvalHost(sheetOpen: flow.deposit != nil) { flow.deposit = nil }
+        .sheet(item: $stake.request) { r in NearStakeSheet(request: r).environment(model).tint(Theme.text) }
+        .approvalHost(sheetOpen: flow.deposit != nil || stake.request != nil) { flow.deposit = nil; stake.request = nil }
         #if DEBUG
         .task {
             try? await Task.sleep(for: .seconds(1.2))

@@ -38,6 +38,9 @@ final class WalletsViewModel {
     private(set) var pricesAt: Date?
     /// Networks that didn't answer on the last refresh (their balances are unknown, not zero).
     private(set) var unreachable: [Chain] = []
+    /// When the balances on screen were saved, while they're last launch's copy and the first refresh hasn't landed.
+    /// `loaded` stays false until then, so anything that must act on live balances (chat's tools, Send) still waits.
+    private(set) var savedAt: Date?
     var whitelistOnly: Bool {
         didSet { UserDefaults.standard.set(whitelistOnly, forKey: "hermit.wallet.whitelistOnly") }
     }
@@ -56,6 +59,7 @@ final class WalletsViewModel {
         }
         #endif
         reloadLocal()
+        restoreSaved()
     }
 
     // MARK: Home API
@@ -83,7 +87,7 @@ final class WalletsViewModel {
     /// Dollar value of every wallet's mainnet coins. nil when it isn't known: no wallet, balances not loaded yet,
     /// a network didn't answer, or there is no price for something held. Testnet coins count as nothing.
     var totalUSD: Double? {
-        guard hasWallet, loaded, unreachable.allSatisfy(\.isTestnet) else { return nil }
+        guard hasWallet, loaded || savedAt != nil, unreachable.allSatisfy(\.isTestnet) else { return nil }
         let main = holdings.filter { !$0.chain.isTestnet && $0.amount > 0 }
         guard main.allSatisfy(\.priced) else { return nil }
         return main.reduce(0) { $0 + $1.usd } + extrasUSD(nil)
@@ -130,40 +134,103 @@ final class WalletsViewModel {
 
     private func load() async {
         reloadLocal()
-        guard hasWallet else { holdings = []; loaded = true; return }
+        guard hasWallet else { holdings = []; loaded = true; savedAt = nil; return }
         refreshing = true
         defer { refreshing = false }
         async let quotes = PriceFeed.shared.quotes()
         async let aave = service.aavePositions(wallets: wallets.map(\.record))
         async let hlDone: () = HyperliquidStore.shared.refresh()
+        // Every wallet at once (each already reads its networks in parallel).
+        let svc = service
+        let jobs = wallets.map { ($0.id, $0.record) }
+        var results: [String: (balances: [String: [Balance]], failed: [Chain])] = [:]
+        await withTaskGroup(of: (String, [String: [Balance]], [Chain]).self) { g in
+            for (id, record) in jobs {
+                g.addTask { let r = await svc.fetchBalances(for: record, chains: Chain.all); return (id, r.balances, r.failed) }
+            }
+            for await (id, b, f) in g { results[id] = (b, f) }
+        }
         var hs: [Holding] = [], failed = Set<Chain>()
         for w in wallets {
-            let r = await service.fetchBalances(for: w.record, chains: Chain.all)
+            guard let r = results[w.id] else { continue }
             failed.formUnion(r.failed)
             for (_, bs) in r.balances { hs += bs.map { holding($0, wallet: w.id) } }
             // Keep the last known numbers for a network that didn't answer this time.
             for c in r.failed { hs += holdings.filter { $0.walletID == w.id && $0.chain == c } }
         }
+        // Balances and prices show together, without waiting for Aave and Hyperliquid (those add to the total after).
         let q = await quotes
         let stale = await PriceFeed.shared.stale
         let fetchedAt = await PriceFeed.shared.updated
-        let positions = await aave
-        _ = await hlDone
-        var byWallet: [String: Double] = [:]
-        for p in positions.positions {
-            let amount = Double(p.text) ?? 0
-            let price = q[p.token.symbol]?.usd ?? (["USDC", "USDT", "DAI", "USDC.e", "USDS"].contains(p.token.symbol) ? 1 : 0)
-            byWallet[p.walletID.uuidString, default: 0] += amount * price
-        }
         withAnimation(.smooth) {
-            aaveUSD = byWallet
             prices = q
             pricesStale = stale
             pricesAt = fetchedAt
             holdings = hs.map { h in var h = h; applyPrice(&h); return h }
             unreachable = Chain.all.filter { failed.contains($0) }
             loaded = true
+            savedAt = nil
             lastUpdated = Date()
+        }
+        let positions = await aave
+        var byWallet: [String: Double] = [:]
+        for p in positions.positions {
+            let amount = Double(p.text) ?? 0
+            let price = q[p.token.symbol]?.usd ?? (["USDC", "USDT", "DAI", "USDC.e", "USDS"].contains(p.token.symbol) ? 1 : 0)
+            byWallet[p.walletID.uuidString, default: 0] += amount * price
+        }
+        withAnimation(.smooth) { aaveUSD = byWallet }
+        _ = await hlDone
+        saveSnapshot(failed: results.mapValues { $0.failed }, aaveOK: positions.failed.isEmpty)
+    }
+
+    // MARK: Saved balances
+
+    /// One wallet's balances and Aave dollars as last shown, saved on this device only. Amounts and prices, nothing
+    /// that could move money.
+    struct Saved: Codable, Sendable {
+        struct Row: Codable, Sendable {
+            let chain, symbol, name, exact: String
+            let amount: Double
+            let price, change: Double?
+        }
+        var rows: [Row]
+        var aaveUSD: Double
+    }
+
+    /// Last launch's balances, so Home, the sidebar and Wallets show a total at once. `savedAt` marks them as saved.
+    private func restoreSaved() {
+        let store = SnapshotStore.live
+        var hs: [Holding] = [], aave: [String: Double] = [:], oldest: Date?
+        for w in wallets {
+            // Every wallet needs its copy, or the total would quietly leave one out.
+            guard let s = store.load("balances", wallet: w.id, as: Saved.self, maxAge: 30 * 86_400) else { return }
+            hs += s.value.rows.compactMap { r in
+                Chain.with(id: r.chain).map { Holding(walletID: w.id, chain: $0, symbol: r.symbol, name: r.name, exact: r.exact,
+                                                      amount: r.amount, price: r.price, change: r.change) }
+            }
+            if s.value.aaveUSD > 0 { aave[w.id] = s.value.aaveUSD }
+            oldest = min(oldest ?? s.saved, s.saved)
+        }
+        guard let oldest else { return }
+        holdings = hs
+        aaveUSD = aave
+        savedAt = oldest
+    }
+
+    /// Saves each wallet whose networks all answered and whose mainnet coins all have a price, so a saved copy is
+    /// never less complete than what it replaces.
+    private func saveSnapshot(failed: [String: [Chain]], aaveOK: Bool) {
+        let store = SnapshotStore.live
+        for w in wallets {
+            guard let f = failed[w.id], f.isEmpty else { continue }
+            let mine = holdings.filter { $0.walletID == w.id }
+            guard mine.allSatisfy({ $0.chain.isTestnet || $0.amount == 0 || $0.priced }) else { continue }
+            // Aave didn't answer everywhere: keep the last copy, whose Aave figure is complete.
+            if !aaveOK, store.load("balances", wallet: w.id, as: Saved.self, maxAge: .infinity) != nil { continue }
+            let rows = mine.map { Saved.Row(chain: $0.chain.id, symbol: $0.symbol, name: $0.name, exact: $0.exact, amount: $0.amount,
+                                           price: $0.price, change: $0.change) }
+            store.save(Saved(rows: rows, aaveUSD: aaveUSD[w.id] ?? 0), "balances", wallet: w.id)
         }
     }
 
@@ -267,6 +334,7 @@ final class WalletsViewModel {
         guard let u = UUID(uuidString: id) else { return }
         try service.deleteWallet(u)
         DappPermissions.shared.disconnect(walletID: u)
+        SnapshotStore.live.removeAll(wallet: id)
         withAnimation(.smooth) { reloadLocal() }
     }
 

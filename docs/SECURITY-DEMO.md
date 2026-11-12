@@ -2,7 +2,8 @@
 
 The security track asks for "a script where a prompt-injected agent tries to pay a known-bad address and gets
 stopped." Ours is a set of unit tests. They run the app's real tool loop, guard and spending policy. Only the model is
-scripted, and it obeys the attacker completely, which is the worst a real model could do.
+scripted, and it obeys the attacker completely, which is the worst a real model could do. [Without a Mac](#without-a-mac),
+a Python script replays the same attacks and prints the log.
 
 After the demo this page covers the model, the keys, the browser wallet and what leaves the device. Short code paths
 are under `Packages/HermitKit/Sources/`.
@@ -16,9 +17,27 @@ bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutraliz
 ```
 
 The filter picks 29 tests, and the run should end in `0 failures`. Our full run on 2026-11-12, on a MacBook Air M3,
-ended with `Executed 248 tests, with 13 tests skipped and 0 failures`:
-[logs/core-tests-2026-11-12.txt](logs/core-tests-2026-11-12.txt). The Swift tests need a Mac; without one, read the tests and
-that log.
+ended with `Executed 260 tests, with 13 tests skipped and 0 failures`:
+[logs/core-tests-2026-11-12.txt](logs/core-tests-2026-11-12.txt).
+
+## Without a Mac
+
+```sh
+python3 near/attack-demo.py
+```
+
+Any machine with Python 3.10 or later, no installs, no network. It ends with
+`8 attacks blocked, 3 legitimate actions allowed` and exit code 0
+([our log](logs/attack-demo-2026-11-12.txt)).
+
+`near/attack-demo.py` is a Python mirror of the Swift logic: `ToolGuard`, the file and tool-result cleaning, and
+`SpendPolicy`, ported rule for rule, each function naming the Swift it came from. It uses the Swift tests' own vectors,
+so you can set the two side by side. The app runs the Swift, so the Swift tests stay the source of truth; the script
+is there so you can watch the decisions without Xcode. It replays, in order: an injected tool result that tells the
+assistant to send 5000 USDC to `0x...dEaD` (refused, no review opens), the same address inside an attached file
+(refused), an address you typed (prepared for review), a $500 swap (blocked by the $100 cap), an $80 swap (prepared),
+swap output to someone else's address (blocked), a swap losing 15% (blocked), a swap past the daily limit (blocked), a
+token with no price (blocked), and leveraged trades with $150 and $20 of margin (blocked, prepared).
 
 ## The attack
 

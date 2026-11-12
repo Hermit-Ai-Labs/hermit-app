@@ -93,6 +93,8 @@ final class ActivityFeed {
     private(set) var loadedOnce = false
     /// Networks whose history couldn't be read this time.
     private(set) var failed: [String] = []
+    /// When the history on screen was saved, while it's last launch's copy and the first read hasn't finished.
+    private(set) var savedAt: Date?
     @ObservationIgnored private var chainItems: [ActivityItem] = []
     @ObservationIgnored private var last = Date.distantPast
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -115,42 +117,73 @@ final class ActivityFeed {
         task = nil
     }
 
+    /// One history read: the network's name on screen, the wallet, the chain id its items carry, and the read.
+    private typealias Job = (name: String, wallet: String, chain: String, read: @Sendable () async throws -> [ActivityItem])
+
     private func load() async {
         let wallets = WalletsViewModel.shared.service.wallets
         guard !wallets.isEmpty else { chainItems = []; loadedOnce = true; rebuild(); return }
+        // Last launch's history shows at once while the chains are read again.
+        if !loadedOnce, chainItems.isEmpty { restoreSaved(wallets.map { $0.id.uuidString }) }
         loading = true
         defer { loading = false }
         let key = Self.etherscanKey
-        let jobs: [(String, String, @Sendable () async throws -> [ActivityItem])] = wallets.flatMap { w -> [(String, String, @Sendable () async throws -> [ActivityItem])] in
+        let jobs: [Job] = wallets.flatMap { w -> [Job] in
             let wid = w.id.uuidString, sol = w.solanaAddress, near = w.nearAccount ?? "", evm = w.evmAddress
-            var list: [(String, String, @Sendable () async throws -> [ActivityItem])] = []
-            if !sol.isEmpty { list.append(("Solana", wid, { try await ChainHistory.solana(address: sol, walletID: wid) })) }
-            if !near.isEmpty { list.append(("NEAR", wid, { try await ChainHistory.near(account: near, walletID: wid) })) }
+            var list: [Job] = []
+            if !sol.isEmpty { list.append(("Solana", wid, Chain.solana.id, { try await ChainHistory.solana(address: sol, walletID: wid) })) }
+            if !near.isEmpty { list.append(("NEAR", wid, Chain.near.id, { try await ChainHistory.near(account: near, walletID: wid) })) }
             if let key {
                 for c in Chain.evmMainnets where c.id != "robinhood" {
-                    list.append((c.name, wid, { try await ChainHistory.etherscan(chain: c, address: evm, walletID: wid, key: key) }))
+                    list.append((c.name, wid, c.id, { try await ChainHistory.etherscan(chain: c, address: evm, walletID: wid, key: key) }))
                 }
             } else if let eth = Chain.with(id: "ethereum") {
-                list.append(("Ethereum", wid, { try await ChainHistory.blockscout(chain: eth, host: "eth.blockscout.com", address: evm, walletID: wid) }))
+                list.append(("Ethereum", wid, eth.id, { try await ChainHistory.blockscout(chain: eth, host: "eth.blockscout.com", address: evm, walletID: wid) }))
             }
-            list.append(("Hyperliquid", wid, { try await ChainHistory.hyperliquid(address: evm, walletID: wid) }))
+            list.append(("Hyperliquid", wid, "hyperliquid", { try await ChainHistory.hyperliquid(address: evm, walletID: wid) }))
             return list
         }
         var out: [ActivityItem] = [], bad: [String] = []
-        await withTaskGroup(of: (String?, [ActivityItem]).self) { g in
-            for (name, _, job) in jobs {
+        let before = chainItems
+        await withTaskGroup(of: (String?, [ActivityItem], String, String).self) { g in
+            for job in jobs {
+                let name = job.name, wid = job.wallet, chain = job.chain, read = job.read
                 g.addTask {
-                    do { return (nil, try await job()) }
-                    catch let p as PartialHistory { return (name, p.items) }   // shown, and the notice says some is missing
-                    catch { return (name, []) }
+                    do { return (nil, try await read(), wid, chain) }
+                    catch let p as PartialHistory { return (name, p.items, wid, chain) }   // shown, and the notice says some is missing
+                    catch { return (name, [], wid, chain) }
                 }
             }
-            for await (err, list) in g { out += list; if let err { bad.append(err) } }
+            for await (err, list, wid, chain) in g {
+                out += list
+                guard let err else { continue }
+                bad.append(err)
+                // A network that didn't answer keeps what was last read from it (the notice says it couldn't be read).
+                if list.isEmpty { out += before.filter { $0.walletID == wid && $0.chainID == chain } }
+            }
         }
         chainItems = out
         failed = Array(Set(bad)).sorted()
         last = Date()
         loadedOnce = true
+        savedAt = nil
+        rebuild()
+        let store = SnapshotStore.live
+        for w in wallets.map({ $0.id.uuidString }) { store.save(out.filter { $0.walletID == w }, "activity", wallet: w) }
+    }
+
+    /// The chain history saved last time, per wallet. Hermit's own records are already on this device.
+    private func restoreSaved(_ walletIDs: [String]) {
+        let store = SnapshotStore.live
+        var items: [ActivityItem] = [], oldest: Date?
+        for w in walletIDs {
+            guard let s = store.load("activity", wallet: w, as: [ActivityItem].self, maxAge: 30 * 86_400) else { continue }
+            items += s.value
+            oldest = min(oldest ?? s.saved, s.saved)
+        }
+        guard let oldest else { return }
+        chainItems = items
+        savedAt = oldest
         rebuild()
     }
 

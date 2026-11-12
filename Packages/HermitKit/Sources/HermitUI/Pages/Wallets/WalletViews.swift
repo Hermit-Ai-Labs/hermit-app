@@ -97,6 +97,7 @@ struct BalanceCard<Sub: View>: View {
     }
 
     private var status: String {
+        if let at = vm.savedAt, !vm.loaded { return "Balances from \(Freshness.ago(at))" + (vm.refreshing ? ". Updating…" : ".") }
         if vm.refreshing && !vm.loaded { return "Loading balances…" }
         let down = vm.unreachable.filter { !$0.isTestnet }
         if !down.isEmpty { return "Couldn't reach \(down.map(\.name).joined(separator: ", ")). Total unknown." }
@@ -428,7 +429,7 @@ struct ActivityList: View {
         let items = feed.items.filter { (walletID == nil || $0.walletID == walletID) && (chain == nil || $0.chainID == chain?.id) }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(items.isEmpty ? (feed.loadedOnce ? "Nothing yet" : "") : "\(items.count) recent").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                Text(items.isEmpty ? (feed.loadedOnce ? "Nothing yet" : "") : "\(items.count) recent" + (feed.savedAt != nil && feed.loading ? ", updating…" : "")).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
                 Button { Task { await feed.refresh(force: true) } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 12)).foregroundStyle(Theme.muted).frame(width: 26, height: 26).contentShape(Rectangle())
