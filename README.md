@@ -223,7 +223,7 @@ requests, cryptography, eth-account and dcap-qvl. No templates.
 
 ## Team
 
-- Ryan Chi: https://www.linkedin.com/in/mrryanchi/
-- Daksh Joshi: https://www.linkedin.com/in/joshidaksh/
+- Ryan Chi: [ryanchi.com](https://www.ryanchi.com/), [X](https://x.com/MrRyanChi), [LinkedIn](https://www.linkedin.com/in/mrryanchi/)
+- Daksh Joshi: [X](https://x.com/dakshbigshit), [LinkedIn](https://www.linkedin.com/in/joshidaksh/)
 
 MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my.
