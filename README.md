@@ -167,10 +167,6 @@ to a list of NEAR releases. [NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) l
 **What leaves my device in on-device mode?** Your chats don't. The app reads prices, balances and quotes from public
 APIs and chain nodes, and downloads the model once. There's no account, no sign-up and no analytics.
 
-**Is there an API key inside the app?** Yes, a shared NEAR AI Cloud key, so Private Cloud works without signing up. It
-allows 30 messages per device per day. Anyone who digs it out of the app can spend our credits, but it gives no access
-to anyone's wallet or chats. You can paste your own key in Settings, Private Cloud.
-
 **Who holds the keys?** You do. One 12-word recovery phrase, sealed with a key inside the Secure Enclave on your
 device. Nothing syncs to iCloud and nothing reaches our servers. Write the phrase down and you can restore the wallet
 anywhere.
