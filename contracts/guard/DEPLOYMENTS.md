@@ -103,6 +103,19 @@ So registering the guard costs exactly 0.00125 NEAR per token (0.0025 NEAR for b
 | Register with USDC | https://nearblocks.io/txns/4yDCUvAm4oB39Zs1JywCyk9DtvDMSYrERvm5mtQjR5P8 |
 | Register with USDT | https://nearblocks.io/txns/ArW8tiihoRarmniD3Qra4UquSs1Sus2dMyN2EUxbBpUS |
 
+Real-money test on mainnet, 2026-11-12, with a small vault that was closed afterwards:
+
+| What | Result | Transaction |
+|---|---|---|
+| Open a vault with 0.2 NEAR | ok | https://nearblocks.io/txns/7bBseVxUoTG5UtMeyz4dXqCAErxHfbrFu3YBVd8vzJxN |
+| Add the pocket key, create a pocket (0.05 NEAR a payment, 0.1 a day, one allowed recipient) | ok | https://nearblocks.io/txns/AmskR4XUPsZFpkwBFWgPRGZpKfEEU6t7GokF5wykEAGQ, https://nearblocks.io/txns/EzGuyYg39nKweMMB7tMtA8fomBHdqpGJCFoSgDvSbz99 |
+| Pocket key pays 0.02 NEAR to the allowed recipient | paid | https://nearblocks.io/txns/7L4ny5A2jAJGnALcYh484rLy6gTLzJnBAY4pvHvjAGKS |
+| Pocket key tries 0.06 NEAR | refused: over per-payment cap | https://nearblocks.io/txns/8JVeNtxz4U4NcQQJumdU2k9VyhSDofi1B2abNd4TGqUA |
+| Pocket key tries another recipient | refused: recipient not allowed | https://nearblocks.io/txns/4Am1L4p2A9TnWFjLuHhevdgLhLPGCCFMh3MjNrmGh3k8 |
+| Pocket key tries `withdraw` | refused by the protocol before it reaches a block: `DepositWithFunctionCall` | none |
+| Owner withdraws everything | ok | https://nearblocks.io/txns/ADRHYejxfDDSuHzsZoM1p27hjszgHbMF57xFCW8RP22x |
+| Remove the pocket, delete its key, close the vault (0.5 NEAR refunded) | ok | https://nearblocks.io/txns/FrNmPK5WjWtYuXKkYjz2jcwRi5AvptssU2bL57Q1zazZ, https://nearblocks.io/txns/H7je4hC1nCL3wm5DeuywVJmRju8kLJYHRMvTuwxw7T8H |
+
 Check it yourself, no key needed: `.venv/bin/python near/guard.py --network mainnet view info` prints the version, the tokens and
 the code sha256 on chain.
 
