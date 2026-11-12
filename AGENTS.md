@@ -42,3 +42,26 @@ The README's "Where each claim lives" table maps every claim to a source file an
 Every commit was made after the hackathon was announced (2026-10-19); the first is tagged `pre-hackathon`. The NEAR
 work starts after commit `8fe7b71` (2026-11-08):
 https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main
+
+## Exact test names
+
+The tests behind the README's claims table, in its order:
+
+- `NearIntentsTests.testSignatureNonDryAndTampering`
+- `NearIntentsTests.testUnsignedQuotesAreRefused`
+- `NearIntentsTests.testSpendPolicy`
+- `NearIntentsTests.testSpendPolicyAgentTrade`
+- `ToolLoopTests.testSendToTypedAddressIsPrepared`
+- `ToolLoopTests.testGuardMatching`
+- `ToolLoopTests.testPromptInjectionInToolResultCannotPrepareSend`
+- `TableAndVaultTests.testSealOpenRemoveRoundTrip`
+- `HermitCloudTests.testRealReportsPassEveryCheck`
+- `HermitCloudTests.testGuestOSIsOneNEARPublishes`
+- `HermitCloudTests.testSignatureVerifies`
+- `NearTests.testDerivation`
+- `NearTests.testTransferMatchesNearApiJs`
+- `NearStakingTests.testStakingCallsMatchNearApiJs`
+- `NearStakingTests.testUnstakeAndWithdrawReviews`
+- `ModelUpgradeTests.testShippedCatalog`
+
+Hermit Guard's tests are in `contracts/guard/src/tests.rs` (40) and `contracts/guard/sandbox-tests/tests/story.rs` (12).

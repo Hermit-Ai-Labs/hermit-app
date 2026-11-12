@@ -66,6 +66,9 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
   same recovery phrase as the EVM and Solana accounts. Hermit builds and signs its NEAR transactions on the device:
   sending NEAR and NEAR tokens, and [staking NEAR](docs/NEAR.md#staking-near) with a validator from Earn or by asking
   "stake 5 NEAR".
+- **[Hermit Guard](#hermit-guard-an-on-chain-budget-for-ai-agents)** is our own smart contract on NEAR mainnet,
+  [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near). It holds a small budget with on-chain rules
+  for standing orders and for agents you give a key to. In the app it's Wallets, Security, Budgets.
 
 ## Hermit Guard: an on-chain budget for AI agents
 
@@ -76,8 +79,16 @@ checks every payment on chain. Standing orders run on NEAR even when your phone 
 your approval, every payment is logged with its reason, and one call freezes everything. Only the owner can withdraw,
 and nobody else, us included, can move a user's funds.
 
-It is live on NEAR mainnet as [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near), and in the app
-under Wallets, Security, Budgets. The same code runs on testnet (`guard.hermit-guard-owner-1794512081.testnet`), with 40
+It is live on NEAR mainnet and in the app under Wallets, Security, Budgets:
+
+| | |
+| --- | --- |
+| Contract | [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near) |
+| Code hash on chain | [`Fsv3tUSAn4TQtgw4mJQ5cQcdjQmPbk9meGzNLEQ2Ljdm`](https://nearblocks.io/address/hermit-guard.near?tab=contract) (sha256 `dd0ea418…1b64`, the build in [contracts/guard/dist](contracts/guard/dist)) |
+| Contract account key | [`ed25519:2FcbxFv9GFXDYgtu69hTq21kuFeatctKRJseEJj1jahN`](https://nearblocks.io/address/hermit-guard.near?tab=accesskeys) |
+| Deployed in | [5Q9MS41K…VpqDE](https://nearblocks.io/txns/5Q9MS41Kgc1Nw9sx4uDtR26ZtqAKwSJTxwe5iRKVpqDE) |
+| Real-money test | [paid inside the rules](https://nearblocks.io/txns/7L4ny5A2jAJGnALcYh484rLy6gTLzJnBAY4pvHvjAGKS), [refused over the cap](https://nearblocks.io/txns/8JVeNtxz4U4NcQQJumdU2k9VyhSDofi1B2abNd4TGqUA), [refused a stranger](https://nearblocks.io/txns/4Am1L4p2A9TnWFjLuHhevdgLhLPGCCFMh3MjNrmGh3k8) |
+ The same code runs on testnet (`guard.hermit-guard-owner-1794512081.testnet`), with 40
 unit tests and 12 sandbox tests that play the attacks with real access keys. To see it refuse an overspend, a stranger and a pocket key reaching for
 `withdraw`, with the real transactions:
 
@@ -113,22 +124,22 @@ you should see.
 
 ## Where each claim lives
 
-<table>
-<tr><th width="34%" align="left">Claim</th><th width="33%" align="left">Code</th><th width="33%" align="left">Test</th></tr>
-<tr><td valign="top">A swap quote with a bad signature is refused</td><td valign="top"><code>HermitWallet/NearIntents.swift</code><br><code>HermitWallet/IntentsSwap.swift</code></td><td valign="top"><code>testSignatureNonDryAndTampering</code><br><code>testUnsignedQuotesAreRefused</code></td></tr>
-<tr><td valign="top">The assistant can prepare up to $100 per move</td><td valign="top"><code>HermitWallet/SpendPolicy.swift</code></td><td valign="top"><code>testSpendPolicy</code><br><code>testSpendPolicyAgentTrade</code></td></tr>
-<tr><td valign="top">A send only goes to an address you typed</td><td valign="top"><code>HermitCore/AgentTools.swift</code></td><td valign="top"><code>testSendToTypedAddressIsPrepared</code><br><code>testGuardMatching</code></td></tr>
-<tr><td valign="top">Injected text in a tool result can't start a send</td><td valign="top"><code>HermitCore/ToolLoop.swift</code><br><code>HermitCore/ToolCalls.swift</code></td><td valign="top"><code>testPromptInjectionInToolResultCannotPrepareSend</code></td></tr>
-<tr><td valign="top">Keys are sealed by the Secure Enclave</td><td valign="top"><code>HermitWallet/KeyVault.swift</code></td><td valign="top"><code>testSealOpenRemoveRoundTrip</code></td></tr>
-<tr><td valign="top">Private Cloud checks the enclave before the prompt</td><td valign="top"><code>HermitCloud/Attestation.swift</code><br><code>HermitCloud/TDXQuote.swift</code><br><code>HermitCloud/TLSBinding.swift</code></td><td valign="top"><code>testRealReportsPassEveryCheck</code><br>and the tamper tests after it</td></tr>
-<tr><td valign="top">The enclave runs an OS image NEAR publishes</td><td valign="top"><code>HermitCloud/Attestation.swift</code><br><code>near/verify-attestation.py</code></td><td valign="top"><code>testGuestOSIsOneNEARPublishes</code><br><a href="docs/logs/verify-attestation-no-key-2026-11-12.txt">the script's log</a></td></tr>
-<tr><td valign="top">Review buttons need the model's signature</td><td valign="top"><code>HermitCloud/ResponseSignature.swift</code><br><code>HermitCloud/NearCloudAgent.swift</code></td><td valign="top"><code>testSignatureVerifies</code></td></tr>
-<tr><td valign="top">Every wallet has a NEAR account, made on the device</td><td valign="top"><code>HermitWallet/Near.swift</code></td><td valign="top"><code>testDerivation</code><br><code>testTransferMatchesNearApiJs</code></td></tr>
-<tr><td valign="top">You can stake NEAR and always get it back</td><td valign="top"><code>HermitWallet/NearStaking.swift</code></td><td valign="top"><code>testStakingCallsMatchNearApiJs</code><br><code>testUnstakeAndWithdrawReviews</code></td></tr>
-<tr><td valign="top">The model is ours and pinned by hash</td><td valign="top"><code>HermitModel/ModelCatalog.swift</code><br><code>HermitModel/ModelPins.swift</code></td><td valign="top"><code>testShippedCatalog</code></td></tr>
-</table>
+| Claim | Code | Test |
+| --- | --- | --- |
+| A swap quote with a bad signature is refused | [NearIntents.swift](Packages/HermitKit/Sources/HermitWallet/NearIntents.swift), [IntentsSwap.swift](Packages/HermitKit/Sources/HermitWallet/IntentsSwap.swift) | [tampered quote](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift), [unsigned quote](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift) |
+| The assistant can prepare up to $100 per move | [SpendPolicy.swift](Packages/HermitKit/Sources/HermitWallet/SpendPolicy.swift) | [spend policy](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift), [agent trade](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift) |
+| A send only goes to an address you typed | [AgentTools.swift](Packages/HermitKit/Sources/HermitCore/AgentTools.swift) | [typed address](Packages/HermitKit/Tests/HermitCoreTests/ToolLoopTests.swift), [guard matching](Packages/HermitKit/Tests/HermitCoreTests/ToolLoopTests.swift) |
+| Injected text can't start a send | [ToolLoop.swift](Packages/HermitKit/Sources/HermitCore/ToolLoop.swift), [ToolCalls.swift](Packages/HermitKit/Sources/HermitCore/ToolCalls.swift) | [prompt injection](Packages/HermitKit/Tests/HermitCoreTests/ToolLoopTests.swift), [attack demo](near/attack-demo.py) |
+| Keys are sealed by the Secure Enclave | [KeyVault.swift](Packages/HermitKit/Sources/HermitWallet/KeyVault.swift) | [seal and open](Packages/HermitKit/Tests/HermitWalletTests/HermitWalletTests.swift) |
+| Private Cloud checks the enclave first | [Attestation.swift](Packages/HermitKit/Sources/HermitCloud/Attestation.swift), [TDXQuote.swift](Packages/HermitKit/Sources/HermitCloud/TDXQuote.swift) | [real reports](Packages/HermitKit/Tests/HermitCloudTests/HermitCloudTests.swift), [script log](docs/logs/verify-attestation-no-key-2026-11-12.txt) |
+| The enclave runs an OS image NEAR publishes | [Attestation.swift](Packages/HermitKit/Sources/HermitCloud/Attestation.swift), [verify-attestation.py](near/verify-attestation.py) | [guest OS](Packages/HermitKit/Tests/HermitCloudTests/HermitCloudTests.swift) |
+| Review buttons need the model's signature | [ResponseSignature.swift](Packages/HermitKit/Sources/HermitCloud/ResponseSignature.swift) | [signature](Packages/HermitKit/Tests/HermitCloudTests/HermitCloudTests.swift) |
+| Every wallet has a NEAR account | [Near.swift](Packages/HermitKit/Sources/HermitWallet/Near.swift) | [derivation](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift), [transfer bytes](Packages/HermitKit/Tests/HermitWalletTests/NearIntentsTests.swift) |
+| You can stake NEAR and always get it back | [NearStaking.swift](Packages/HermitKit/Sources/HermitWallet/NearStaking.swift) | [staking calls](Packages/HermitKit/Tests/HermitWalletTests/NearStakingTests.swift), [unstake, withdraw](Packages/HermitKit/Tests/HermitWalletTests/NearStakingTests.swift) |
+| A pocket key can't pass its caps or withdraw | [guard contract](contracts/guard/src/lib.rs), [NearGuard.swift](Packages/HermitKit/Sources/HermitWallet/NearGuard.swift) | [sandbox story](contracts/guard/sandbox-tests/tests/story.rs), [mainnet run](contracts/guard/DEPLOYMENTS.md) |
+| The model is ours and pinned by hash | [ModelCatalog.swift](Packages/HermitKit/Sources/HermitModel/ModelCatalog.swift), [ModelPins.swift](Packages/HermitKit/Sources/HermitModel/ModelPins.swift) | [shipped catalog](Packages/HermitKit/Tests/HermitModelTests/ModelUpgradeTests.swift) |
 
-Code is under `Packages/HermitKit/Sources/`, tests under `Packages/HermitKit/Tests/`. Search a test's name to open it.
+Every name is a link to the file. The exact test names are in [AGENTS.md](AGENTS.md).
 
 ## How it works
 
