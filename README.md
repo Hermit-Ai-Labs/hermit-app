@@ -47,6 +47,7 @@ off. It's mainnet, so real swaps move real money, and nothing moves without your
 | Swap 500 USDC on Base to NEAR | A refusal: the assistant can prepare up to $100 per move. You can change that in Wallets, Security |
 | Long ETH with $50 at 5x | A Review long ETH button for a Hyperliquid order |
 | Pay everyone in USDC on Base (with a spreadsheet attached) | One batch review for every row |
+| Stake 5 NEAR | A Review stake button, with a live validator and its fee |
 | Every morning at 8, brief me on my portfolio | An automation that runs while the app is open |
 | Explain what a perp is in two sentences (Wi-Fi off) | An answer from the model on your device |
 
@@ -62,7 +63,9 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
   The device checks the enclave's Intel TDX and NVIDIA proof before it sends the prompt, and the model's signature on
   every answer.
 - **[A NEAR account](docs/NEAR.md#a-near-account-in-every-wallet)** is in every wallet, derived on the device from the
-  same recovery phrase as the EVM and Solana accounts.
+  same recovery phrase as the EVM and Solana accounts. Hermit builds and signs its NEAR transactions on the device:
+  sending NEAR and NEAR tokens, and [staking NEAR](docs/NEAR.md#staking-near) with a validator from Earn or by asking
+  "stake 5 NEAR".
 
 ## How it fits the tracks
 
