@@ -401,11 +401,14 @@ public struct HermitToolbox: AgentToolbox {
             throw ToolError("\(coin) prices are per 1,000 \(token): the mark is \(Hyperliquid.wire(mark)). Give limit_price, take_profit and stop_loss in that unit.")
         }
         // A take profit or stop loss on the wrong side of the entry would fire at once.
+        // The error names a valid value 2% away, so the model can call again at once instead of repeating itself.
+        let side = isBuy ? "long" : "short"
+        func off(_ pct: Double) -> String { Hyperliquid.wire(Hyperliquid.roundPrice(px * (1 + pct), szDecimals: asset.szDecimals)) }
         if let tp = tpIn, tp <= 0 || (isBuy ? tp <= px : tp >= px) {
-            throw ToolError("take_profit must be \(isBuy ? "above" : "below") the entry (\(Hyperliquid.wire(px))) for a \(isBuy ? "long" : "short")")
+            throw ToolError("take_profit \(Hyperliquid.wire(tp)) is on the wrong side: for a \(side) it must be \(isBuy ? "above" : "below") the entry \(Hyperliquid.wire(px)), or it would fire at once. Call prepare_trade again with take_profit \(isBuy ? "above" : "below") \(Hyperliquid.wire(px)), for example \(off(isBuy ? 0.02 : -0.02)), or leave it out. Nothing was prepared.")
         }
         if let sl = slIn, sl <= 0 || (isBuy ? sl >= px : sl <= px) {
-            throw ToolError("stop_loss must be \(isBuy ? "below" : "above") the entry (\(Hyperliquid.wire(px))) for a \(isBuy ? "long" : "short")")
+            throw ToolError("stop_loss \(Hyperliquid.wire(sl)) is on the wrong side: for a \(side) it must be \(isBuy ? "below" : "above") the entry \(Hyperliquid.wire(px)), or it would fire at once. Call prepare_trade again with stop_loss \(isBuy ? "below" : "above") \(Hyperliquid.wire(px)), for example \(off(isBuy ? -0.02 : 0.02)), or leave it out. Nothing was prepared.")
         }
         let qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
         guard qty > 0 else { throw ToolError("Size too small for \(coin)") }
