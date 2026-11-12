@@ -487,6 +487,19 @@ def cmd_create_account(args, chain):
     return report(chain, h, res)
 
 
+def cmd_create_named(args, chain):
+    """Create a top-level named account (name.near / name.testnet) through the network's registrar contract and fund it
+    with --near. The key's account pays. Full-access key of the new account = --public-key."""
+    key = load_key(args)
+    payer = signer_for(args, key)
+    registrar = "near" if chain.network == "mainnet" else "testnet"
+    if not args.name.endswith("." + registrar) or args.name.count(".") != 1:
+        raise SystemExit(f"a named account here looks like name.{registrar}")
+    body = json.dumps({"new_account_id": args.name, "new_public_key": args.public_key}).encode()
+    h, res = chain.send(key, payer, registrar, [act_call("create_account", body, 60 * TGAS, int(Decimal(args.near) * YOCTO))])
+    return report(chain, h, res)
+
+
 def cmd_deploy(args, chain):
     """DeployContract + `new` in ONE transaction signed by the contract account (so nobody can init it first)."""
     key = load_key(args)
@@ -665,6 +678,10 @@ def build_parser():
     p.add_argument("--key-out", required=True)
     p = add("register-tokens", cmd_register_tokens, "register the contract with every allowlisted NEP-141 token (pays each token's minimum storage deposit)")
     p = add("create-account", cmd_create_account, "create and fund a sub-account of the key's account")
+    p.add_argument("--name", required=True)
+    p.add_argument("--public-key", required=True, help="full-access key of the new account")
+    p.add_argument("--near", required=True, help="NEAR to send to the new account")
+    p = add("create-named", cmd_create_named, "create and fund a top-level named account (name.near / name.testnet) through the registrar")
     p.add_argument("--name", required=True)
     p.add_argument("--public-key", required=True, help="full-access key of the new account")
     p.add_argument("--near", required=True, help="NEAR to send to the new account")

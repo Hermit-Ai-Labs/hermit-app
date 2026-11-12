@@ -96,6 +96,34 @@ Code: `HermitWallet/NearStaking.swift`, `HermitUI/Pages/Earn/EarnStaking.swift`,
 against near-api-js 4.0.4, parses a real `get_account` answer and a real validator set recorded on 2026-11-12, and
 covers the reserve, the assistant's cap and the tool routing.
 
+## Budgets (Hermit Guard)
+
+This is the app side of `contracts/guard/`, a separate NEAR contract with its own README and security notes. The app
+shows Budgets only when a Guard contract is set in `GuardConfig` (`contractID` is nil until the mainnet one is
+deployed, and debug builds can point at the testnet one with the `hermit.guard.contract` launch argument). In Wallets >
+Security, under the spending policy, a Budgets card opens a screen for a vault held in that contract: balances with Add
+and Withdraw, a Freeze button, pockets, standing orders, requests waiting for approval and the last payments.
+
+A pocket is a budget with a limit per payment, a limit per day, a list of recipients and an expiry. A pocket made with a
+key gets a new ed25519 key made on the device, added to your NEAR account as a function-call key that can only call
+`spend` and `request` on the contract (0.25 NEAR of gas budget), and shown once so you can hand it to an app or an
+agent. Hermit doesn't keep it. That is two transactions signed in one Face ID check: AddKey first, then `create_pocket`.
+If `create_pocket` is refused, a DeleteKey signed in the same unlock goes out at once, so no key is left behind.
+Removing a pocket runs `remove_pocket`, then deletes its key, and only a key Hermit made is ever deleted (a function-call
+key for this contract limited to those two methods), never a full-access key. The assistant doesn't get a pocket and
+nothing in chat changes.
+
+Every owner call attaches exactly 1 yoctoNEAR, which a function-call key can't attach, and carries 150 Tgas (200 for a
+token deposit, which goes through the token's `ft_transfer_call`). Before a review opens, Hermit reads the vault, checks
+the contract id is the configured one and, for money or authority going in, that its code hash is the one it checked.
+It also says in plain words what a pocket can pay without asking you, checks the token is registered on both sides before
+a token deposit, and looks at the vault afterwards to be sure the tokens weren't handed back.
+
+Code: `HermitWallet/NearGuard.swift` (actions, reviews), `NearGuardService.swift` (reads, signing and sending),
+`HermitUI/Pages/Wallets/GuardViews.swift`. Tests: `NearGuardTests.swift` checks AddKey, DeleteKey and every call byte for
+byte against near-api-js 4.0.4, checks each call's arguments against `contracts/guard/src/lib.rs`, decodes real testnet
+answers recorded on 2026-11-12, and covers the key ordering, the reviews and the hidden-until-configured switch.
+
 ## Private Cloud on NEAR AI Cloud
 
 The chat box has a mode menu: On-device (the default) or Private Cloud. Private Cloud talks to NEAR AI Cloud's

@@ -1,0 +1,49 @@
+{
+ "jsonrpc": "2.0",
+ "id": "hermit",
+ "result": {
+  "final_execution_status": "FINAL",
+  "status": {
+   "Failure": {
+    "ActionError": {
+     "index": 0,
+     "kind": {
+      "FunctionCallError": {
+       "ExecutionError": "Smart contract panicked: over per-payment cap"
+      }
+     }
+    }
+   }
+  },
+  "transaction": {
+   "hash": "9fQjv5HS6rfektMUNxhZcPcdJEaw7Pk3gsmMvXRiBTwP",
+   "signer_id": "hermit-guard-owner-1794510146.testnet",
+   "receiver_id": "hermit-guard-1794510023.testnet"
+  },
+  "receipts_outcome": [
+   {
+    "outcome": {
+     "status": {
+      "Failure": {
+       "ActionError": {
+        "index": 0,
+        "kind": {
+         "FunctionCallError": {
+          "ExecutionError": "Smart contract panicked: over per-payment cap"
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "outcome": {
+     "status": {
+      "SuccessValue": ""
+     }
+    }
+   }
+  ]
+ }
+}

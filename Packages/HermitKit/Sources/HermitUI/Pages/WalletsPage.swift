@@ -136,6 +136,8 @@ struct WalletsPage: View {
             AddWalletSheet(vm: vm, custody: custody, start: start ?? .pick) { w in withAnimation(.smooth) { selected = w.id } }
         case .phrase(let id):
             RecoveryPhraseSheet(vm: vm, walletID: id)
+        case .budgets(let id):
+            GuardBudgetsSheet(vm: vm, walletID: id, reopen: { open(.budgets(wallet: id)) })
         }
     }
 }
@@ -152,6 +154,7 @@ enum WalletSheet: Identifiable {
     case activity(ActivityItem)
     case addWallet(WalletAccount.Custody, start: AddWalletSheet.Step?)
     case phrase(String)
+    case budgets(wallet: String)
 
     var id: String {
         switch self {
@@ -166,10 +169,11 @@ enum WalletSheet: Identifiable {
         case .activity(let a): "activity-\(a.id)"
         case .addWallet(let c, _): "add-\(c.rawValue)"
         case .phrase(let id): "phrase-\(id)"
+        case .budgets: "budgets"
         }
     }
 
     var needsWallet: Bool {
-        switch self { case .send, .swap, .tryQuote, .agentSwap, .transfer, .receive, .phrase: true; default: false }
+        switch self { case .send, .swap, .tryQuote, .agentSwap, .transfer, .receive, .phrase, .budgets: true; default: false }
     }
 }

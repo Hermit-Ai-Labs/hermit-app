@@ -34,10 +34,15 @@ public struct Borsh {
     public mutating func fixed(_ b: [UInt8]) { bytes += b }
 }
 
-/// The actions Hermit uses. Borsh enum tags follow nearcore's `Action` (Transfer = 3, FunctionCall = 2).
+/// The actions Hermit uses. Borsh enum tags follow nearcore's `Action` (FunctionCall = 2, Transfer = 3, AddKey = 5, DeleteKey = 6).
 public enum NearAction: Equatable, Sendable {
     case transfer(deposit: UInt128)
     case functionCall(method: String, args: [UInt8], gas: UInt64, deposit: UInt128)
+    /// Adds an ed25519 access key that can only call `methods` on `receiver`, never attach NEAR, and pays its own gas
+    /// from `allowance`. There is deliberately no full-access variant: Hermit never adds one.
+    case addFunctionCallKey(publicKey: [UInt8], allowance: UInt128, receiver: String, methods: [String])
+    /// Removes an access key from the signer's account.
+    case deleteKey(publicKey: [UInt8])
 
     public static let tgas: UInt64 = 1_000_000_000_000
     /// One yoctoNEAR: NEP-141 `ft_transfer` requires exactly this attached (it proves a full-access key signed).
@@ -60,13 +65,27 @@ public enum NearAction: Equatable, Sendable {
         switch self {
         case .transfer(let d): w.u8(3); w.u128(d)
         case .functionCall(let m, let a, let g, let d): w.u8(2); w.string(m); w.vec(a); w.u64(g); w.u128(d)
+        case .addFunctionCallKey(let key, let allowance, let receiver, let methods):
+            // AddKey { public_key, access_key { nonce: 0, permission: FunctionCall { allowance: Some(u128), receiver_id, method_names } } }
+            w.u8(5); w.u8(0); w.fixed(key)
+            w.u64(0)
+            w.u8(0); w.u8(1); w.u128(allowance); w.string(receiver)
+            w.u32(UInt32(methods.count)); for m in methods { w.string(m) }
+        case .deleteKey(let key): w.u8(6); w.u8(0); w.fixed(key)
         }
     }
     public var attached: UInt128 {
-        switch self { case .transfer(let d): d; case .functionCall(_, _, _, let d): d }
+        switch self {
+        case .transfer(let d): d
+        case .functionCall(_, _, _, let d): d
+        case .addFunctionCallKey, .deleteKey: 0
+        }
     }
     public var gas: UInt64 {
-        switch self { case .transfer: 0; case .functionCall(_, _, let g, _): g }
+        switch self {
+        case .transfer, .addFunctionCallKey, .deleteKey: 0
+        case .functionCall(_, _, let g, _): g
+        }
     }
 }
 
