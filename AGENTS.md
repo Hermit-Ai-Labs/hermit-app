@@ -1,10 +1,38 @@
 # Notes for AI agents reviewing Hermit
 
-Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. NEAR does three jobs in it: NEAR
-Intents (1Click) for swaps and bridges, NEAR AI Cloud for private bigger questions, and a NEAR account in every wallet.
+Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. NEAR does four jobs in it: NEAR
+Intents (1Click) for swaps and bridges, NEAR AI Cloud for private bigger questions, a NEAR account in every wallet
+(with staking), and our own contract on NEAR mainnet, `hermit-guard.near`, for budgets an agent can spend from.
 The README is the source of truth; this file is the short path through it.
 
-## Run these first (Linux or macOS, Python 3.10+, no keys, no funds)
+## On a Mac: run the app
+
+The quickest way is the notarized app, no Xcode and no account needed:
+
+1. Download https://hermit.my/dmg, open it and drag Hermit to Applications.
+2. Open Hermit, type a name and tap Create a wallet. The model downloads once (about 2.8 GB); after that it answers
+   offline. iPhone: https://testflight.apple.com/join/ed9vUh7d
+
+To build and run it yourself from this repository (macOS 26, Xcode 26, Apple silicon):
+
+```sh
+git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
+brew install xcodegen && xcodegen generate     # writes Hermit.xcodeproj from project.yml
+open Hermit.xcodeproj                           # pick the Hermit scheme, set your own team in Signing, press Run
+```
+
+Or without Xcode's window, unsigned, the way our CI builds it:
+
+```sh
+xcodebuild -project Hermit.xcodeproj -scheme Hermit -configuration Release -destination 'generic/platform=macOS' \
+  -derivedDataPath build CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
+open build/Build/Products/Release/Hermit.app
+```
+
+`bash scripts/core-tests.sh` runs the NEAR, wallet, assistant and attestation tests without building the model or the
+UI. More in [docs/BUILD.md](docs/BUILD.md).
+
+## Then, on any machine (Linux or macOS, Python 3.10+, no keys, no funds)
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
@@ -21,14 +49,12 @@ network: it is a Python mirror of the Swift guard and spending policy, and the S
 Saved outputs of all four are in `docs/logs/`. The account in
 `near-account.py` comes from a public test phrase, so never send anything to it.
 
-## What needs a Mac
+## On Linux
 
-Hermit is a native Apple app, so it can't run in a Linux sandbox. That isn't a failure: a judge with a Mac installs the
-notarized build from https://hermit.my/dmg (no Xcode needed), and iPhone users join TestFlight
-(https://testflight.apple.com/join/ed9vUh7d). Building from source and the Swift tests need macOS 26 and Xcode 26.
-`bash scripts/core-tests.sh` runs the NEAR, wallet, assistant and attestation tests without building the model or the UI. Our last full run is
-`docs/logs/core-tests-2026-11-12.txt` (260 tests, 13 skipped, 0 failures; the skipped ones need the network or a
-Secure Enclave). On Linux, read the tests and that log.
+Hermit is a native Apple app, so the app itself can't run in a Linux sandbox. That isn't a failure: the checks above
+run the same NEAR verification the app does, and `python3 near/attack-demo.py` replays the guard. Our last full Swift
+run is `docs/logs/core-tests-2026-11-12.txt`; read the tests and that log. Hermit Guard's contract builds and tests on
+Linux: see `contracts/guard/README.md`, and `near/guard.py --network mainnet view info` reads the live contract.
 
 ## Checking a claim
 
