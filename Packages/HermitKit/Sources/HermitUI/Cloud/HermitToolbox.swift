@@ -349,11 +349,20 @@ public struct HermitToolbox: AgentToolbox {
 
     @MainActor static func prepareTrade(_ a: [String: Any], label: String = "Hermit Private Cloud") async throws -> ToolOutcome {
         func n(_ k: String) -> Double? { (a[k] as? NSNumber)?.doubleValue }
-        guard let coinIn = a["coin"] as? String, let side = a["side"] as? String, let size = n("size_usd"), let levIn = n("leverage") else {
+        guard let coinIn = a["coin"] as? String, let side = a["side"] as? String, let sizeIn = n("size_usd"), let levIn = n("leverage") else {
             throw ToolError("Needs coin, side, size_usd and leverage")
         }
         let isBuy = try isLong(side)
-        guard size > 0, levIn > 0 else { throw ToolError("size_usd and leverage must be positive") }
+        guard sizeIn > 0, levIn > 0 else { throw ToolError("size_usd and leverage must be positive") }
+        // What the app changed so the order can go through. Each one is shown in the review and told to the model, so
+        // nothing is changed silently, and the user still approves the exact order.
+        var fixes: [String] = []
+        let minUSD = 10.0
+        var size = sizeIn
+        if size < minUSD {
+            size = minUSD
+            fixes.append("Size raised to a $10 position, Hyperliquid's smallest order (asked for $\(Hyperliquid.wire(sizeIn))).")
+        }
         let hl = HyperliquidStore.shared
         guard hl.hasWallet, let trader = hl.trader() else { throw ToolError("No wallet on \(Device.here) to trade with") }
         // Hyperliquid's own spelling ("kPEPE", "xyz:NVDA"): the asset table is keyed by it. A fresh mark, not the cache.
@@ -400,21 +409,18 @@ public struct HermitToolbox: AgentToolbox {
             // A per-token PEPE price given for kPEPE, which is priced per 1,000.
             throw ToolError("\(coin) prices are per 1,000 \(token): the mark is \(Hyperliquid.wire(mark)). Give limit_price, take_profit and stop_loss in that unit.")
         }
-        // A take profit or stop loss on the wrong side of the entry would fire at once.
-        // The error names a valid value 2% away, so the model can call again at once instead of repeating itself.
-        let side = isBuy ? "long" : "short"
-        func off(_ pct: Double) -> String { Hyperliquid.wire(Hyperliquid.roundPrice(px * (1 + pct), szDecimals: asset.szDecimals)) }
-        if let tp = tpIn, tp <= 0 || (isBuy ? tp <= px : tp >= px) {
-            throw ToolError("take_profit \(Hyperliquid.wire(tp)) is on the wrong side: for a \(side) it must be \(isBuy ? "above" : "below") the entry \(Hyperliquid.wire(px)), or it would fire at once. Call prepare_trade again with take_profit \(isBuy ? "above" : "below") \(Hyperliquid.wire(px)), for example \(off(isBuy ? 0.02 : -0.02)), or leave it out. Nothing was prepared.")
+        // A take profit or stop loss on the wrong side of the entry would fire at once: put it 2% the right way instead,
+        // and say so in the review. Small models get this sign wrong now and then; the order should still be right.
+        func off(_ pct: Double) -> Double { Hyperliquid.roundPrice(px * (1 + pct), szDecimals: asset.szDecimals) }
+        let money = { (x: Double) in "$" + Hyperliquid.wire(x) }
+        var tp = tpIn, sl = slIn
+        if let t = tp, t <= 0 || (isBuy ? t <= px : t >= px) {
+            tp = off(isBuy ? 0.02 : -0.02)
+            fixes.append("Take profit moved to \(money(tp!)), 2% \(isBuy ? "above" : "below") the price: \(money(t)) was on the wrong side and would have closed the order at once.")
         }
-        if let sl = slIn, sl <= 0 || (isBuy ? sl >= px : sl <= px) {
-            throw ToolError("stop_loss \(Hyperliquid.wire(sl)) is on the wrong side: for a \(side) it must be \(isBuy ? "below" : "above") the entry \(Hyperliquid.wire(px)), or it would fire at once. Call prepare_trade again with stop_loss \(isBuy ? "below" : "above") \(Hyperliquid.wire(px)), for example \(off(isBuy ? -0.02 : 0.02)), or leave it out. Nothing was prepared.")
-        }
-        // Hyperliquid refuses orders under $10 of position. Catch it here, before a review opens, and say what would work.
-        let minUSD = 10.0
-        if size < minUSD {
-            let lev = max(levIn, 1)
-            throw ToolError("Hyperliquid's smallest order is $10 of position, and size_usd \(Hyperliquid.wire(size)) is below that. size_usd is the position, not the margin: at \(Hyperliquid.wire(lev))x, a $10 position needs $\(Hyperliquid.wire((minUSD / lev * 100).rounded(.up) / 100)) of margin. If the user meant $\(Hyperliquid.wire(size)) of margin, call prepare_trade again with size_usd \(Hyperliquid.wire(max(minUSD, size * lev))); otherwise use size_usd 10. Nothing was prepared.")
+        if let l = sl, l <= 0 || (isBuy ? l >= px : l <= px) {
+            sl = off(isBuy ? -0.02 : 0.02)
+            fixes.append("Stop loss moved to \(money(sl!)), 2% \(isBuy ? "below" : "above") the price: \(money(l)) was on the wrong side and would have closed the order at once.")
         }
         var qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
         // Rounding the size down can drop a $10 order just under the minimum: take one more step instead.
@@ -426,7 +432,7 @@ public struct HermitToolbox: AgentToolbox {
         guard qty > 0 else { throw ToolError("Size too small for \(coin)") }
         let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
         let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: price, size: qty, tif: limitIn == nil ? .ioc : .gtc,
-                                      takeProfit: tpIn, stopLoss: slIn)
+                                      takeProfit: tp, stopLoss: sl)
         // Hyperliquid's maintenance margin is half the initial margin at the market's max leverage. Estimated as if
         // isolated, so the account's other margin can only push it further away.
         let liq = liquidation(entry: px, leverage: Double(lev), mm: 1 / (2 * Double(max(asset.maxLeverage, 1))), long: isBuy)
@@ -436,12 +442,12 @@ public struct HermitToolbox: AgentToolbox {
                                  [limitIn == nil ? "Worst price" : "Limit price", "$" + Hyperliquid.wire(price)],
                                  ["Liquidation, est.", "$" + String(format: liq < 1 ? "%.6f" : "%.2f", liq)]]
         if let token = thousandOf(coin) { lines.insert(["Contract", "1 \(coin) = 1,000 \(token), prices are per 1,000"], at: 1) }
-        if let tp = tpIn { lines.append(["Take profit", "$\(tp)"]) }
-        if let sl = slIn { lines.append(["Stop loss", "$\(sl)"]) }
+        if let tp { lines.append(["Take profit", money(tp)]) }
+        if let sl { lines.append(["Stop loss", money(sl)]) }
         lines.append(["Asked for by", "\(label), from your message"])
         // Leverage is per coin: changing it also changes an open position in this coin (as on the Trade page).
         let cur = hl.account?.positions.first { $0.coin == asset.coin }
-        var warnings = verdict.warnings + ["Leveraged trades can lose all their margin"]
+        var warnings = fixes + verdict.warnings + ["Leveraged trades can lose all their margin"]
         if !(cur?.leverage == lev && cur?.cross == !asset.onlyIsolated) {
             lines.insert(["Leverage", "Sets \(coin) to \(lev)x"], at: 4)
             if cur != nil { warnings.append("This also changes the leverage of your open \(coin) position.") }
@@ -454,7 +460,14 @@ public struct HermitToolbox: AgentToolbox {
             policy.limit.record(usd: spent)
             return summary
         }
-        return ToolOutcome(content: prepared("trade"), action: Action("Review \(isBuy ? "long" : "short") \(coin)", approval: approval))
+        var content = prepared("trade")
+        if !fixes.isEmpty, let d = try? JSONSerialization.data(withJSONObject: ["status": "review_opened", "kind": "trade", "executed": false,
+                                                                            "adjusted": fixes,
+                                                                            "note": "Waiting for the user to approve with \(Device.bio). Tell the user what was adjusted, in one sentence."] as [String: Any],
+                                                               options: [.sortedKeys]) {
+            content = String(decoding: d, as: UTF8.self)
+        }
+        return ToolOutcome(content: content, action: Action("Review \(isBuy ? "long" : "short") \(coin)", approval: approval))
     }
 
     @MainActor static func prepareSend(_ a: [String: Any]) async throws -> ToolOutcome {
