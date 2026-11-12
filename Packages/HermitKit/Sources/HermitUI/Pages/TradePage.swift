@@ -37,6 +37,7 @@ struct TradePositions: View {
     @State private var open: PerpSheetItem?
     @State private var done: PerpDone?
     @State private var cancelling: Set<Int> = []
+    @State private var withdrawing = false
     private var hl: HyperliquidStore { .shared }
 
     var body: some View {
@@ -84,8 +85,13 @@ struct TradePositions: View {
                 .environment(model)
                 .tint(Theme.text)
         }
+        .sheet(isPresented: $withdrawing) {
+            HyperliquidWithdrawSheet()
+                .environment(model)
+                .tint(Theme.text)
+        }
         // A close from the sheet closes it first; the approval sheet follows.
-        .approvalHost(sheetOpen: open != nil) { open = nil }
+        .approvalHost(sheetOpen: open != nil || withdrawing) { open = nil; withdrawing = false }
     }
 
     private var summary: some View {
@@ -97,8 +103,12 @@ struct TradePositions: View {
                 ("Free margin", a.map { "$" + $0.withdrawable.tradeGrouped(2) } ?? "—", Theme.text),
                 ("Unrealized P&L", a.map { _ in PerpFmt.pnl(upnl) } ?? "—", upnl >= 0 ? Theme.green : Theme.red),
             ])
+            HyperliquidWithdrawStatus()
             HStack(spacing: 8) {
                 Button("Deposit") { hl.openDeposit(model) }.buttonStyle(TradeSmallButton(kind: .primary))
+                if (a?.accountValue ?? 0) > 0 || hl.withdrawal != nil {
+                    Button("Withdraw") { withdrawing = true }.buttonStyle(TradeSmallButton())
+                }
                 if let addr = hl.address, let url = URL(string: "https://app.hyperliquid.xyz/explorer/address/\(addr)") {
                     Link(destination: url) { Label("Explorer", systemImage: "arrow.up.right") }.buttonStyle(TradeSmallButton())
                 }

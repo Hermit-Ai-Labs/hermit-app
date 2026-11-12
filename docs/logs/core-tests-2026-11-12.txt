@@ -1,4 +1,4 @@
-# bash scripts/core-tests.sh  (MacBook Air M3, macOS 26.5, Xcode 26.6, Swift version 6.3.3; 2026-11-12, Mac local time UTC+5:30)
+# bash scripts/core-tests.sh  (MacBook Air M3, macOS 26.5, Xcode 26.6, Swift version 6.3.3; 2026-11-12)
 # Filtered to the XCTest lines; paths shortened to the repo. Nothing else edited.
 Test Suite 'All tests' started at 2026-11-13 00:50:15.856.
 Test Suite 'HermitCoreTestsPackageTests.xctest' started at 2026-11-13 00:50:15.862.

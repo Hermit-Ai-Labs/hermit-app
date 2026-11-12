@@ -2,7 +2,7 @@ import SwiftUI
 import AVFoundation
 import HermitCore
 
-/// First launch: no account, just what Hermit should call you. Editorial type in the r4hu1.xyz manner: oversized
+/// First launch: no account, just what Hermit should call you. Editorial type: oversized
 /// light serif with an italic last line, a dial of ticks in the corner, plain facts in grey, a name pill with a
 /// glossy black button, and a warm glow over grid paper. Wide windows add the crab film on the right.
 /// The name is kept on this device and can be changed in Settings > Profile.

@@ -44,6 +44,15 @@ final class WalletsViewModel {
     var whitelistOnly: Bool {
         didSet { UserDefaults.standard.set(whitelistOnly, forKey: "hermit.wallet.whitelistOnly") }
     }
+    /// Balances are on screen from this pass (every mainnet answered or gave up), before testnets and extras finish.
+    private(set) var mainnetsRead = false
+    /// Networks read so far in the running pass, and how many there are.
+    private(set) var networksDone = 0
+    private(set) var networksTotal = 0
+    private var showProgress = false
+    /// This pass's prices have arrived (until then fresh rows keep the price they had).
+    @ObservationIgnored private var pricesReady = false
+    @ObservationIgnored private var passStarted: Date?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var needsAgain = false
 
@@ -87,7 +96,7 @@ final class WalletsViewModel {
     /// Dollar value of every wallet's mainnet coins. nil when it isn't known: no wallet, balances not loaded yet,
     /// a network didn't answer, or there is no price for something held. Testnet coins count as nothing.
     var totalUSD: Double? {
-        guard hasWallet, loaded || savedAt != nil, unreachable.allSatisfy(\.isTestnet) else { return nil }
+        guard hasWallet, loaded || savedAt != nil || mainnetsRead, unreachable.allSatisfy(\.isTestnet) else { return nil }
         let main = holdings.filter { !$0.chain.isTestnet && $0.amount > 0 }
         guard main.allSatisfy(\.priced) else { return nil }
         return main.reduce(0) { $0 + $1.usd } + extrasUSD(nil)
@@ -119,60 +128,93 @@ final class WalletsViewModel {
     /// Reloads balances for every wallet on every network, plus prices. Safe to call often: runs one at a time.
     /// A call that lands while a load is running gets one more pass after it, so a send or a new wallet made
     /// mid-load still shows (the running pass read wallets and balances before it).
-    func refresh() async {
-        if let t = refreshTask { needsAgain = true; await t.value; return }
+    /// `manual`: the person asked (the refresh button), so the page shows progress even when it already has numbers.
+    func refresh(manual: Bool = false) async {
+        if manual { showProgress = true }
+        if let t = refreshTask {
+            // A press right after a pass began has nothing to add; any other call wants a pass that starts after it.
+            if !(manual && (passStarted.map { Date().timeIntervalSince($0) < 3 } ?? false)) { needsAgain = true }
+            await t.value; return
+        }
         let t = Task {
             repeat {
                 needsAgain = false
                 await load()
             } while needsAgain
+            showProgress = false
         }
         refreshTask = t
         await t.value
         refreshTask = nil
     }
 
+    /// The timer's and "app became active" refresh: does nothing while a load is running or when the numbers on screen
+    /// are younger than `seconds`.
+    func refreshIfStale(_ seconds: TimeInterval = 20) async {
+        guard refreshTask == nil, !WalletsViewModel.runningTests else { return }
+        if let at = lastUpdated, loaded, Date().timeIntervalSince(at) < seconds { return }
+        await refresh()
+    }
+
+    /// The page should show a spinner and "Updating" now: the first read, last launch's numbers still on screen, or the
+    /// person pressed refresh. A quiet timer pass shows nothing.
+    var showsRefresh: Bool { refreshing && (showProgress || !loaded || savedAt != nil) }
+
+    /// What one pass has read so far, by wallet id and network id.
+    private struct Pass {
+        var read: [String: [String: [Balance]]] = [:]
+        var failed: Set<String> = []          // "walletID|chainID"
+        var answered: Set<String> = []        // "walletID|chainID"
+        mutating func add(_ u: WalletService.BalanceUpdate) {
+            let key = "\(u.walletID.uuidString)|\(u.chain.id)"
+            answered.insert(key)
+            if let b = u.balances { read[u.walletID.uuidString, default: [:]][u.chain.id] = b } else { failed.insert(key) }
+        }
+        func failedChains() -> Set<String> { Set(failed.compactMap { $0.split(separator: "|").last.map(String.init) }) }
+    }
+
     private func load() async {
         reloadLocal()
         guard hasWallet else { holdings = []; loaded = true; savedAt = nil; return }
         refreshing = true
+        passStarted = Date()
         defer { refreshing = false }
-        async let quotes = PriceFeed.shared.quotes()
+        // Prices, Aave and Hyperliquid run alongside; balances show as each network answers, not after the slowest.
+        let priceTask = Task { () -> (quotes: [String: PriceQuote], stale: Bool, at: Date?) in
+            let q = await PriceFeed.shared.quotes()
+            return (q, await PriceFeed.shared.stale, await PriceFeed.shared.updated)
+        }
         async let aave = service.aavePositions(wallets: wallets.map(\.record))
         async let hlDone: () = HyperliquidStore.shared.refresh()
-        // Every wallet at once (each already reads its networks in parallel).
-        let svc = service
-        let jobs = wallets.map { ($0.id, $0.record) }
-        var results: [String: (balances: [String: [Balance]], failed: [Chain])] = [:]
-        await withTaskGroup(of: (String, [String: [Balance]], [Chain]).self) { g in
-            for (id, record) in jobs {
-                g.addTask { let r = await svc.fetchBalances(for: record, chains: Chain.all); return (id, r.balances, r.failed) }
-            }
-            for await (id, b, f) in g { results[id] = (b, f) }
+        let ws = wallets
+        let chains = Chain.all
+        networksTotal = chains.count
+        networksDone = 0
+        pricesReady = false
+        let priceApply = Task { @MainActor in
+            let p = await priceTask.value
+            self.pricesReady = true
+            self.applyQuotes(p.quotes, stale: p.stale, at: p.at)
         }
-        var hs: [Holding] = [], failed = Set<Chain>()
-        for w in wallets {
-            guard let r = results[w.id] else { continue }
-            failed.formUnion(r.failed)
-            for (_, bs) in r.balances { hs += bs.map { holding($0, wallet: w.id) } }
-            // Keep the last known numbers for a network that didn't answer this time.
-            for c in r.failed { hs += holdings.filter { $0.walletID == w.id && $0.chain == c } }
+        var pass = Pass()
+        for await u in service.balanceUpdates(wallets: ws.map(\.record), chains: chains) {
+            pass.add(u)
+            publish(pass, wallets: ws, chains: chains)
         }
-        // Balances and prices show together, without waiting for Aave and Hyperliquid (those add to the total after).
-        let q = await quotes
-        let stale = await PriceFeed.shared.stale
-        let fetchedAt = await PriceFeed.shared.updated
+        await priceApply.value
+        // Final: every network has answered or given up. Prices that arrived after the last network are on screen now.
+        pricesReady = true
+        publish(pass, wallets: ws, chains: chains)
+        let failedByWallet: [String: [Chain]] = Dictionary(uniqueKeysWithValues: ws.map { w in
+            (w.id, chains.filter { pass.failed.contains("\(w.id)|\($0.id)") })
+        })
         withAnimation(.smooth) {
-            prices = q
-            pricesStale = stale
-            pricesAt = fetchedAt
-            holdings = hs.map { h in var h = h; applyPrice(&h); return h }
-            unreachable = Chain.all.filter { failed.contains($0) }
             loaded = true
             savedAt = nil
             lastUpdated = Date()
         }
         let positions = await aave
+        let q = prices
         var byWallet: [String: Double] = [:]
         for p in positions.positions {
             let amount = Double(p.text) ?? 0
@@ -181,7 +223,50 @@ final class WalletsViewModel {
         }
         withAnimation(.smooth) { aaveUSD = byWallet }
         _ = await hlDone
-        saveSnapshot(failed: results.mapValues { $0.failed }, aaveOK: positions.failed.isEmpty)
+        saveSnapshot(failed: failedByWallet, aaveOK: positions.failed.isEmpty)
+    }
+
+    /// Puts what the pass has read so far on screen: networks that answered replace their rows, the rest keep their last
+    /// known rows (a failed or not-yet-answered network is unknown, not zero).
+    private func publish(_ pass: Pass, wallets ws: [WalletAccount], chains: [Chain]) {
+        var hs: [Holding] = []
+        for w in ws {
+            for c in chains {
+                if let bs = pass.read[w.id]?[c.id] {
+                    for b in bs {
+                        var h = holding(b, wallet: w.id)
+                        applyPrice(&h)
+                        // Prices not in yet: keep the price the row had, so the total doesn't blink out meanwhile.
+                        if h.price == nil, !pricesReady, !c.isTestnet,
+                           let old = holdings.first(where: { $0.walletID == w.id && $0.chain == c && $0.symbol == h.symbol }) {
+                            h.price = old.price; h.change = old.change
+                        }
+                        hs.append(h)
+                    }
+                } else {
+                    hs += holdings.filter { $0.walletID == w.id && $0.chain == c }
+                }
+            }
+        }
+        let failedNow = pass.failedChains()
+        let answeredAll = Set(chains.filter { c in ws.allSatisfy { pass.answered.contains("\($0.id)|\(c.id)") } })
+        withAnimation(.smooth) {
+            holdings = hs
+            unreachable = chains.filter { c in answeredAll.contains(c) ? failedNow.contains(c.id) : unreachable.contains(c) }
+            networksDone = answeredAll.count
+            // Every mainnet has answered or given up: the total can show (testnets count as nothing in it).
+            if chains.filter({ !$0.isTestnet }).allSatisfy({ answeredAll.contains($0) }) { mainnetsRead = true }
+        }
+    }
+
+    /// New prices: reprice every row and note how old they are.
+    private func applyQuotes(_ q: [String: PriceQuote], stale: Bool, at: Date?) {
+        withAnimation(.smooth) {
+            prices = q
+            pricesStale = stale
+            pricesAt = at
+            holdings = holdings.map { h in var h = h; applyPrice(&h); return h }
+        }
     }
 
     // MARK: Saved balances

@@ -44,13 +44,13 @@ struct BalanceCard<Sub: View>: View {
             HStack {
                 Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
                 Spacer()
-                Button { Task { await vm.refresh() } } label: {
+                Button { Task { await vm.refresh(manual: true) } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 13)).foregroundStyle(Theme.muted)
                         .frame(width: 30, height: 30).contentShape(Rectangle())
-                        .rotationEffect(.degrees(vm.refreshing ? 360 : 0))
-                        .animation(vm.refreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: vm.refreshing)
+                        .rotationEffect(.degrees(vm.showsRefresh ? 360 : 0))
+                        .animation(vm.showsRefresh ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: vm.showsRefresh)
                 }
-                .buttonStyle(PressStyle()).disabled(vm.refreshing)
+                .buttonStyle(PressStyle()).disabled(vm.showsRefresh)
                 .help("Refresh balances").accessibilityLabel("Refresh balances")
                 Button { open(.history(wallet: walletID)) } label: {
                     Image(systemName: "clock.arrow.circlepath").font(.system(size: 14)).foregroundStyle(Theme.muted)
@@ -97,8 +97,9 @@ struct BalanceCard<Sub: View>: View {
     }
 
     private var status: String {
-        if let at = vm.savedAt, !vm.loaded { return "Balances from \(Freshness.ago(at))" + (vm.refreshing ? ". Updating…" : ".") }
-        if vm.refreshing && !vm.loaded { return "Loading balances…" }
+        if let at = vm.savedAt, !vm.loaded { return "Balances from \(Freshness.ago(at))" + (vm.refreshing ? ". Updating" + progress : ".") }
+        if vm.refreshing && !vm.loaded { return "Loading balances" + progress }
+        if vm.showsRefresh && vm.unreachable.allSatisfy(\.isTestnet) { return "Updating" + progress }
         let down = vm.unreachable.filter { !$0.isTestnet }
         if !down.isEmpty { return "Couldn't reach \(down.map(\.name).joined(separator: ", ")). Total unknown." }
         if vm.loaded && vm.totalUSD == nil && vm.prices.isEmpty { return "Prices unavailable right now." }
@@ -106,8 +107,13 @@ struct BalanceCard<Sub: View>: View {
             let mins = max(1, Int(Date().timeIntervalSince(at) / 60))
             return "Prices from \(mins) min ago. Testnet coins count as $0."
         }
-        if let d = vm.lastUpdated { return "Mainnet value, updated \(d.formatted(date: .omitted, time: .shortened)). Testnet coins count as $0." }
+        if let d = vm.lastUpdated { return "Mainnet value. Updated \(Freshness.ago(d)). Testnet coins count as $0." }
         return "Mainnet value."
+    }
+
+    /// "… 7 of 16 networks" while a pass is running.
+    private var progress: String {
+        vm.networksTotal > 0 && vm.networksDone < vm.networksTotal ? "… \(vm.networksDone) of \(vm.networksTotal) networks" : "…"
     }
 }
 

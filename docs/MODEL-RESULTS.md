@@ -85,6 +85,7 @@ conversations: multi-step requests and follow-ups.
 
 ## Where to find more
 
+- The training data, generators, test suites, raw results and recipe: [Hermit-Ai-Labs/hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
 - The models: [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) and
   [Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit) on Hugging Face, each with its model
   card.

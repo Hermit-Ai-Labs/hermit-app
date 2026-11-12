@@ -61,6 +61,16 @@ public struct RootView: View {
                 .foregroundStyle(Theme.text)
                 .fitSheet()
         }
+        // A send, swap, stake, trade or withdrawal was approved and went through: read the balances now, and again once
+        // it has had a few seconds to confirm.
+        .onChange(of: model.approvalCount) { _, _ in
+            guard !SnapshotMode.active, !WalletsViewModel.runningTests else { return }
+            Task { @MainActor in
+                await WalletsViewModel.shared.refresh()
+                try? await Task.sleep(for: .seconds(6))
+                await WalletsViewModel.shared.refreshIfStale(4)
+            }
+        }
         .onAppear {
             // The window chat's tools act in (open_app opens the browser here).
             ToolHost.shared.model = model

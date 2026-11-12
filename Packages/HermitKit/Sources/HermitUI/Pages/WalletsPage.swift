@@ -54,7 +54,8 @@ struct WalletsPage: View {
         }
         // With a single wallet, "All wallets" is the same thing with less on it: open that wallet.
         .onAppear { if selected == "all" && vm.wallets.count == 1 { selected = vm.wallets[0].id } }
-        .task { if !WalletsViewModel.runningTests { await vm.refresh() } }
+        .task { await vm.refreshIfStale(10) }
+        .walletAutoRefresh(vm, paused: sheet != nil)
     }
 
     /// Other pages can open a tab (`model.open(.wallets, tab: "gas")`) or a flow

@@ -34,6 +34,7 @@ struct TradeTerminal: View {
     @Environment(AppModel.self) private var model
     @Environment(\.askApproval) private var askApproval
     @State private var placing = false
+    @State private var withdrawing = false
     @State private var orderError: String?
     private var hl: HyperliquidStore { .shared }
     private var feed: MarketFeed { .shared }
@@ -132,6 +133,11 @@ struct TradeTerminal: View {
         .onChange(of: mkt?.px != nil, initial: true) { _, has in if has && defaultsFor != coin { setDefaults(side) } }
         .onChange(of: lev) { _, _ in if tpText + "|" + slText == autoLevels { setDefaults(side) } }
         .onChange(of: tf) { candles = []; chartState = .loading; candlesSaved = nil; rangeLevels = [] }
+        .sheet(isPresented: $withdrawing) {
+            HyperliquidWithdrawSheet().environment(model).tint(Theme.text)
+        }
+        // Review closes the withdraw sheet first; the approval sheet follows.
+        .approvalHost(sheetOpen: withdrawing) { withdrawing = false }
     }
 
     // MARK: Header: market picker and stats
@@ -489,7 +495,10 @@ struct TradeTerminal: View {
                 HStack {
                     Text(hl.account.map { "$\($0.withdrawable.tradeGrouped(2)) available on Hyperliquid" } ?? "Checking your Hyperliquid balance")
                     Spacer()
-                    if hl.account != nil { Button("Deposit") { hl.openDeposit(model) }.buttonStyle(.plain).foregroundStyle(Theme.text) }
+                    if hl.account != nil {
+                        if (hl.account?.accountValue ?? 0) > 0 { Button("Withdraw") { withdrawing = true }.buttonStyle(.plain).foregroundStyle(Theme.text) }
+                        Button("Deposit") { hl.openDeposit(model) }.buttonStyle(.plain).foregroundStyle(Theme.text)
+                    }
                 }
                 .font(.system(size: 12.5)).foregroundStyle(Theme.muted)
             }

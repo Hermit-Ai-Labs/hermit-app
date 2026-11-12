@@ -190,6 +190,9 @@ On held-out test conversations, run in a real tool loop:
 Hermit 1.3's numbers are from its first training pass; the weights in the app have a second pass on top. Every test,
 both models side by side: [docs/MODEL-RESULTS.md](docs/MODEL-RESULTS.md).
 
+The training data, the generators, the test suites with every result and the recipe are public:
+[Hermit-Ai-Labs/hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
+
 ## Questions we get
 
 **Did this exist before the hackathon?** No. The repository starts on 2026-10-29, after the hackathon was announced
@@ -240,8 +243,9 @@ sealed by the Secure Enclave. The app is built on the iOS 26 and macOS 26 SDKs.
 **Is it mainnet?** Yes. NEAR Intents has no testnet, so every swap is real. The Python checks and the demo quotes are
 dry quotes, which can't move anything.
 
-**Can I reproduce the model?** The weights, their hashes and the test results are public on Hugging Face. Our
-training data and pipeline aren't published.
+**Can I reproduce the model?** Yes. The weights and their hashes are on Hugging Face, and the 21,361 training
+conversations, the generators, the test suites and the exact recipe are in
+[hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
 
 **Did you use AI to write this?** Yes. We wrote a lot of the code, tests and docs with AI coding agents (Claude Code),
 and we review all of it ourselves.
@@ -271,8 +275,8 @@ the NEAR work and what we built alongside it.
 
 The app uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use
 requests, cryptography, eth-account and dcap-qvl. No templates. Two things of ours live outside this repository,
-both made in the same window: the web prototype above, and the lab where we generate training data and train and test
-the models.
+both made in the same window: the web prototype above, and the model training work, which is public at
+[hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
 
 ## Team
 

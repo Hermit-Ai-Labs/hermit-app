@@ -23,6 +23,21 @@ final class HyperliquidStore {
     /// USDC free to open new positions with.
     var available: Double { account?.withdrawable ?? 0 }
 
+    /// A withdrawal to Arbitrum that was just sent: waiting for the Hyperliquid balance to drop, then on its way until the
+    /// USDC shows in Wallets. Kept for this launch only.
+    struct Withdrawal: Equatable {
+        enum Phase { case waiting, onTheWay, arrived }
+        let walletID: String
+        let amount: Double
+        let receive: Double
+        let valueBefore: Double
+        let arbitrumBefore: Double
+        let started: Date
+        var phase: Phase = .waiting
+    }
+    private(set) var withdrawal: Withdrawal?
+    @ObservationIgnored private var arrivalTask: Task<Void, Never>?
+
     /// The read in flight, so the Trade screen, the Positions page, Wallets and chat asking at once share one request.
     @ObservationIgnored private var loading: Task<Bool, Never>?
     /// The address `account` belongs to: another wallet picked never shows the last one's positions.
@@ -60,7 +75,7 @@ final class HyperliquidStore {
         do {
             let a = try await Hyperliquid.account(address)
             // The wallet may have changed while this was loading.
-            if address == self.address { account = a; state = .ready }
+            if address == self.address { account = a; state = .ready; checkWithdrawal(a) }
         } catch {
             ok = false
             if account == nil { state = .failed }
@@ -107,6 +122,43 @@ final class HyperliquidStore {
             return .unknown
         }
         return .free(free)
+    }
+
+    // MARK: Withdrawal progress
+
+    /// Called once a withdrawal was approved and Hyperliquid accepted it.
+    func startWithdrawal(_ r: Hyperliquid.WithdrawReview) {
+        let id = r.walletID.uuidString
+        arrivalTask?.cancel()
+        withdrawal = Withdrawal(walletID: id, amount: NSDecimalNumber(decimal: r.amount).doubleValue,
+                                receive: NSDecimalNumber(decimal: r.receive).doubleValue,
+                                valueBefore: account?.accountValue ?? 0,
+                                arbitrumBefore: wallets.balance(of: "USDC", wallet: id, chain: .arbitrum), started: Date())
+        refreshAfterTrade()
+    }
+
+    func dismissWithdrawal() { arrivalTask?.cancel(); withdrawal = nil }
+
+    /// The balance dropped: the withdrawal is on its way. Wallets is read now and every 30 s for about 12 minutes, until
+    /// the USDC shows on Arbitrum.
+    private func checkWithdrawal(_ a: Hyperliquid.Account) {
+        guard var w = withdrawal, w.phase == .waiting, a.accountValue <= w.valueBefore - w.amount * 0.5 else { return }
+        w.phase = .onTheWay
+        withdrawal = w
+        arrivalTask?.cancel()
+        arrivalTask = Task { @MainActor in
+            for _ in 0..<24 {
+                await wallets.refresh()
+                guard !Task.isCancelled, var cur = withdrawal else { return }
+                if wallets.balance(of: "USDC", wallet: cur.walletID, chain: .arbitrum) >= cur.arbitrumBefore + cur.receive * 0.9 {
+                    cur.phase = .arrived
+                    withdrawal = cur
+                    return
+                }
+                try? await Task.sleep(for: .seconds(30))
+                if Task.isCancelled { return }
+            }
+        }
     }
 
     func trader() -> HyperliquidTrader? {

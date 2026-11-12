@@ -6,7 +6,7 @@ private let log = Logger(subsystem: "my.hermit", category: "model-download")
 /// Where model bytes can come from. Every source serves the same files (checked against `ModelPin`), so a piece
 /// that fails from one is fetched from the next.
 ///   mirror       models.hermit.my, Hermit's Cloudflare R2 bucket. Big files are stored as 128 MiB pieces so every
-///                piece sits in Cloudflare's edge cache near the phone (US, India, Hong Kong, Taiwan, Europe...).
+///                piece sits in Cloudflare's edge cache near the phone (the Americas, Asia, Europe...).
 ///   modelscope   ModelScope (Alibaba), served from mainland China, where Hugging Face is blocked and Cloudflare
 ///                doesn't serve from inside the country.
 ///   huggingface  the original repo, pinned to the release's commit. The fallback everywhere.

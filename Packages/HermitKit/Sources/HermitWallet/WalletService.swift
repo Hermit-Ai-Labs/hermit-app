@@ -82,6 +82,15 @@ public struct TxReceipt: Equatable, Sendable {
     public var explorerURL: URL? { chain.explorerURL(tx: hash) }
 }
 
+/// One wallet on one network, with the clients to read it (made on the main actor, read anywhere).
+struct BalanceJob: Sendable {
+    let walletID: UUID
+    let chain: Chain
+    let address: String
+    let evm: EVMClient?
+    let solana: SolanaClient?
+}
+
 /// The wallet for the UI: wallets, balances on every chain from one recovery phrase, and sends that go through the
 /// approval sheet. Sends default to Base Sepolia; mainnet sends follow `mainnetSendsEnabled`.
 @MainActor @Observable
@@ -181,19 +190,83 @@ public final class WalletService {
         lastError = failures.isEmpty ? nil : "Couldn't reach \(failures.compactMap { Chain.with(id: $0)?.name }.sorted().joined(separator: ", "))."
     }
 
+    /// How long one network gets to answer a balance read, and what a retry after a quick failure waits. Balance reads
+    /// only: sending a transaction keeps the RPC client's own 20 s timeout.
+    nonisolated static let balanceDeadline: Double = 8
+    nonisolated static let balanceRetryPause: Duration = .milliseconds(300)
+
+    /// One network's balances for one wallet, or nil when it didn't answer. It gets `balanceDeadline` seconds; a read that
+    /// fails fast (an error, not silence) is tried once more. A network that goes quiet isn't retried: it already held
+    /// its turn for the full deadline, and the next refresh asks again.
+    nonisolated static func readBalances(chain: Chain, address: String, evm: EVMClient?, solana: SolanaClient?,
+                                         near: NearClient?) async -> [Balance]? {
+        for attempt in 0..<2 {
+            if Task.isCancelled { return nil }
+            let r = await withDeadline(balanceDeadline) {
+                try await Self.fetchBalances(chain: chain, address: address, evm: evm, solana: solana, near: near)
+            }
+            if let value = r.value { return value }
+            if r.timedOut || attempt == 1 { return nil }
+            try? await Task.sleep(for: balanceRetryPause)
+        }
+        return nil
+    }
+
+    /// Runs `work` and gives up on it (cancelling it) after `seconds`. `value` is nil when it threw or ran out of time.
+    nonisolated static func withDeadline<T: Sendable>(_ seconds: Double, _ work: @escaping @Sendable () async throws -> T) async -> (value: T?, timedOut: Bool) {
+        await withTaskGroup(of: (T?, Bool).self) { g in
+            g.addTask { (try? await work(), false) }
+            g.addTask { try? await Task.sleep(for: .seconds(seconds)); return (nil, true) }
+            let first = await g.next() ?? (nil, false)
+            g.cancelAll()
+            return (value: first.0, timedOut: first.1)
+        }
+    }
+
+    /// One answer (or failure) of a balance read.
+    public struct BalanceUpdate: Sendable {
+        public let walletID: UUID
+        public let chain: Chain
+        /// nil when the network didn't answer: its numbers are unknown, not zero.
+        public let balances: [Balance]?
+    }
+
+    /// Reads every wallet on every chain at once and yields each (wallet, network) as soon as it answers, mainnets
+    /// started before testnets. The stream ends when all of them have answered or given up.
+    public func balanceUpdates(wallets: [WalletRecord], chains: [Chain]) -> AsyncStream<BalanceUpdate> {
+        let ordered = chains.filter { !$0.isTestnet } + chains.filter(\.isTestnet)
+        var jobs: [BalanceJob] = []
+        for c in ordered {
+            for w in wallets {
+                jobs.append(BalanceJob(walletID: w.id, chain: c, address: w.address(on: c),
+                                       evm: c.kind == .evm ? evm(c) : nil, solana: c.kind == .solana ? sol(c) : nil))
+            }
+        }
+        let nc = nearClient
+        let work = jobs
+        return AsyncStream { continuation in
+            let task = Task {
+                await withTaskGroup(of: BalanceUpdate.self) { g in
+                    for j in work {
+                        g.addTask {
+                            BalanceUpdate(walletID: j.walletID, chain: j.chain,
+                                          balances: await Self.readBalances(chain: j.chain, address: j.address, evm: j.evm, solana: j.solana, near: nc))
+                        }
+                    }
+                    for await u in g { continuation.yield(u) }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// Native + known stablecoins for any wallet on the given chains, in parallel. Returns what came back and the
     /// chains that failed (their numbers are unknown, not zero).
     public func fetchBalances(for wallet: WalletRecord, chains: [Chain]) async -> (balances: [String: [Balance]], failed: [Chain]) {
         var out: [String: [Balance]] = [:], failed: [Chain] = []
-        await withTaskGroup(of: (Chain, [Balance]?).self) { g in
-            for c in chains {
-                let address = wallet.address(on: c)
-                let ec = c.kind == .evm ? evm(c) : nil, sc = c.kind == .solana ? sol(c) : nil, nc = nearClient
-                g.addTask { (c, try? await Self.fetchBalances(chain: c, address: address, evm: ec, solana: sc, near: nc)) }
-            }
-            for await (c, b) in g {
-                if let b { out[c.id] = b } else { failed.append(c) }
-            }
+        for await u in balanceUpdates(wallets: [wallet], chains: chains) {
+            if let b = u.balances { out[u.chain.id] = b } else { failed.append(u.chain) }
         }
         return (out, failed)
     }
@@ -204,10 +277,18 @@ public final class WalletService {
         case .evm:
             guard let c = evm else { return [] }
             guard let a = EVMAddress(address) else { throw WalletError.invalidAddress(address) }
-            var out = [Balance(chain: chain, token: nil, amount: try await c.balance(a))]
-            for t in chain.tokens {
-                out.append(Balance(chain: chain, token: t, amount: try await c.tokenBalance(token: EVMAddress(t.address)!, owner: a)))
+            // The coin and every token at once (one round trip, not one after another).
+            let tokens = chain.tokens
+            async let native = c.balance(a)
+            var amounts = [UInt128](repeating: 0, count: tokens.count)
+            try await withThrowingTaskGroup(of: (Int, UInt128).self) { g in
+                for (i, t) in tokens.enumerated() {
+                    g.addTask { (i, try await c.tokenBalance(token: EVMAddress(t.address)!, owner: a)) }
+                }
+                for try await (i, v) in g { amounts[i] = v }
             }
+            var out = [Balance(chain: chain, token: nil, amount: try await native)]
+            for (t, v) in zip(tokens, amounts) { out.append(Balance(chain: chain, token: t, amount: v)) }
             return out
         case .solana:
             guard let c = solana else { return [] }
