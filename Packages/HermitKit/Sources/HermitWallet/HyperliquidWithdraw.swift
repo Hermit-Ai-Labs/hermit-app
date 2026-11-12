@@ -13,7 +13,7 @@ import HermitCore
 // Spec: hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint ("Initiate a withdrawal request"):
 // "There is a $1 fee for withdrawing at the time of this writing and withdrawals take approximately 5 minutes to
 // finalize." Field types: hyperliquid-python-sdk utils/signing.py (WITHDRAW_SIGN_TYPES, sign_withdraw_from_bridge_action).
-// The docs say nothing about unified or portfolio-margin accounts, so Hermit refuses those instead of guessing.
+// Unified and portfolio-margin accounts withdraw from their single USDC balance (account abstraction modes, Hyperliquid docs).
 
 extension Hyperliquid {
     /// What Hyperliquid charges per withdrawal, in USDC (docs: "$1 fee ... at the time of this writing").
@@ -79,8 +79,11 @@ extension Hyperliquid {
         var checks: [HazardCheck] = []
 
         if account.isUnified {
-            checks.append(HazardCheck(title: "Account type", status: .fail,
-                                      detail: "This Hyperliquid account uses unified or portfolio margin. Hermit can't withdraw from that type yet. Use app.hyperliquid.xyz to withdraw."))
+            // Unified and portfolio margin keep one USDC balance for spot and every perp dex. Hyperliquid's withdraw3 takes
+            // from that balance; `withdrawable` is already the part free after maintenance margin (account(states:...)).
+            checks.append(HazardCheck(title: "One balance for spot and perps", status: open ? .warn : .pass,
+                                      detail: open ? "Your account shares one USDC balance across spot and perps, and it also backs your open positions."
+                                                   : "Your account shares one USDC balance across spot and perps."))
         }
         if dest == own, EVMAddress(own) != nil {
             checks.append(HazardCheck(title: "Goes to your own address on Arbitrum", status: .pass, detail: "Paid out as USDC to \(own)."))

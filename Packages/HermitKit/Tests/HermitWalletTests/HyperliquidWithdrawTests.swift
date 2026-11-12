@@ -92,11 +92,12 @@ final class HyperliquidWithdrawTests: XCTestCase {
         XCTAssertFalse(roomy.checks.contains { $0.status == .warn })
     }
 
-    func testOnlyYourOwnAddressAndNotUnifiedAccounts() throws {
+    func testOnlyYourOwnAddressAndUnifiedAccountsToo() throws {
         XCTAssertFalse(try review("50", .make(accountValue: 100, withdrawable: 100), to: "0x1111111111111111111111111111111111111111").canSend)
-        let u = try review("50", .make(accountValue: 100, withdrawable: 100, mode: "unifiedAccount"))
-        XCTAssertFalse(u.canSend)
-        XCTAssertFalse(try review("50", .make(accountValue: 100, withdrawable: 100, mode: "portfolioMargin")).canSend)
+        // Unified and portfolio margin withdraw from their one USDC balance, still within what's free.
+        XCTAssertTrue(try review("50", .make(accountValue: 100, withdrawable: 100, mode: "unifiedAccount")).canSend)
+        XCTAssertTrue(try review("50", .make(accountValue: 100, withdrawable: 100, mode: "portfolioMargin")).canSend)
+        XCTAssertFalse(try review("150", .make(accountValue: 100, withdrawable: 100, mode: "unifiedAccount")).canSend)
         XCTAssertThrowsError(try review("abc", .make(accountValue: 100, withdrawable: 100)))
     }
 }

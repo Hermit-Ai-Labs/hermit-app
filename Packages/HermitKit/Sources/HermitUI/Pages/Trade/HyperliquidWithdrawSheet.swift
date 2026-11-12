@@ -15,9 +15,8 @@ struct HyperliquidWithdrawSheet: View {
     private var free: Double { account?.withdrawable ?? 0 }
     private var value: Decimal? { Hyperliquid.parseUSDC(AmountText.clean(amount)) }
     private var fee: Decimal { Hyperliquid.withdrawFee }
-    private var unified: Bool { account?.isUnified == true }
     private var canReview: Bool {
-        guard let v = value, !busy, !unified, account != nil else { return false }
+        guard let v = value, !busy, account != nil else { return false }
         return v > fee
     }
     /// Free USDC cut to 6 decimals, rounded down so Max never asks for a hair more than there is.
@@ -43,9 +42,7 @@ struct HyperliquidWithdrawSheet: View {
             DetailLines(lines: [("Fee", "\(Hyperliquid.usdcText(fee)) USDC"),
                                 ("You get about", value.map { $0 > fee ? "\(Hyperliquid.usdcText($0 - fee)) USDC on Arbitrum" : "Nothing" } ?? "—"),
                                 ("Arrives", "In about \(Hyperliquid.withdrawMinutes) minutes")])
-            if unified {
-                NoteBox(symbol: "info.circle", text: "This Hyperliquid account uses unified or portfolio margin. Hermit can't withdraw from that type yet. Use app.hyperliquid.xyz.", tint: Theme.red)
-            } else if let v = value, account != nil, v > dec(free) {
+            if let v = value, account != nil, v > dec(free) {
                 Text("You can withdraw up to \(maxText) USDC.").font(.system(size: 12.5)).foregroundStyle(Theme.red)
             } else if let v = value, v <= fee {
                 Text("Hyperliquid charges \(Hyperliquid.usdcText(fee)) USDC per withdrawal. Withdraw more than that.").font(.system(size: 12.5)).foregroundStyle(Theme.red)
