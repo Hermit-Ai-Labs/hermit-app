@@ -1,0 +1,81 @@
+name: guard
+
+# Builds Hermit Guard, runs the unit tests and the sandbox tests, and uploads the wasm.
+on:
+  push:
+    branches: [guard-dev, main]
+    paths: ["contracts/guard/**", ".github/workflows/guard.yml"]
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/guard/target
+            contracts/guard/test-ft/target
+            contracts/guard/sandbox-tests/target
+          key: guard-${{ runner.os }}-${{ hashFiles('contracts/guard/**/Cargo.lock', 'contracts/guard/rust-toolchain.toml') }}
+          restore-keys: guard-${{ runner.os }}-
+
+      - name: Rust toolchains (pinned for the contract, stable for the sandbox tests)
+        run: |
+          cd contracts/guard
+          rustup show active-toolchain || rustup toolchain install   # reads rust-toolchain.toml (1.86.0 + wasm32)
+          rustup show
+          rustup toolchain install stable --profile minimal
+
+      - name: Install binaryen v119 and wasm-tools
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/binaryen.tgz https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz
+          echo "716bcf9f5f36a6f466239fbb09a925eeaf54c46411ccefac979ec649e7c06d2d  /tmp/binaryen.tgz" | sha256sum -c -
+          tar xzf /tmp/binaryen.tgz -C /tmp
+          echo "/tmp/binaryen-version_119/bin" >> "$GITHUB_PATH"
+          curl -sSL -o /tmp/wt.tgz https://github.com/bytecodealliance/wasm-tools/releases/download/v1.263.0/wasm-tools-1.263.0-x86_64-linux.tar.gz
+          mkdir -p /tmp/wt && tar xzf /tmp/wt.tgz -C /tmp/wt --strip-components=1
+          echo "/tmp/wt" >> "$GITHUB_PATH"
+
+      - name: Unit tests
+        working-directory: contracts/guard
+        run: cargo test --lib --locked -- --nocapture --test-threads=1
+
+      - name: Build wasm (contract + test token), MVP-validated
+        working-directory: contracts/guard
+        run: ./build.sh dist
+
+      - name: Sandbox tests (real wasm, real access keys)
+        working-directory: contracts/guard/sandbox-tests
+        env:
+          GUARD_WASM: ${{ github.workspace }}/contracts/guard/dist/guard.wasm
+          FT_WASM: ${{ github.workspace }}/contracts/guard/dist/test_ft.wasm
+        run: cargo test --locked -- --nocapture --test-threads=2
+
+      - name: Wasm size and hash
+        working-directory: contracts/guard
+        run: |
+          sha256sum dist/guard.wasm | tee dist/guard.wasm.sha256
+          echo "guard.wasm: $(stat -c %s dist/guard.wasm) bytes"
+          echo "### guard.wasm $(stat -c %s dist/guard.wasm) bytes, sha256 $(cut -d' ' -f1 dist/guard.wasm.sha256)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermit-guard-wasm
+          path: |
+            contracts/guard/dist/guard.wasm
+            contracts/guard/dist/guard.wasm.sha256
+            contracts/guard/Cargo.lock
+            contracts/guard/test-ft/Cargo.lock
+            contracts/guard/sandbox-tests/Cargo.lock

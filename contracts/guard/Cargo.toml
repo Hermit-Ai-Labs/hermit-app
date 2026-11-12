@@ -1,0 +1,29 @@
+[package]
+name = "hermit-guard"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.86"
+description = "Hermit Guard: shared NEAR vault contract with spending pockets"
+license = "MIT"
+publish = false
+
+# Not part of any parent workspace: the contract, the test token and the sandbox tests each build on their own.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.17.2"
+
+[dev-dependencies]
+near-sdk = { version = "=5.17.2", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = true

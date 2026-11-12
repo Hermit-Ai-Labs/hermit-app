@@ -1,0 +1,7 @@
+# 1.86 is the newest compiler cargo-near's own reproducible image uses; newer rustc emits wasm
+# features (reference types, multivalue) that nearcore rejects with "PrepareError"/"Deserialization".
+[toolchain]
+channel = "1.86.0"
+components = ["rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

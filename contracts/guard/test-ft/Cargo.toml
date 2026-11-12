@@ -1,0 +1,25 @@
+[package]
+name = "test-ft"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.86"
+publish = false
+
+# TEST TOKEN ONLY. Never deployed anywhere but the sandbox and testnet.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.17.2"
+near-contract-standards = "=5.17.2"
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = true

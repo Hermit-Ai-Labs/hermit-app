@@ -1,0 +1,40 @@
+# The exact list of functions the guard wasm exports. The test `exported_methods_are_pinned` fails if the wasm
+# exports anything not listed here (or loses something listed). Adding a method means editing this file on purpose,
+# in the same change, so a reviewer sees it.
+#
+# name                kind
+new                   init, private: only the contract account itself, once
+on_payout             callback, private: only the contract itself; restores a failed payout, moves no money out
+# --- the only methods that can send funds out of the contract ---
+spend                 pocket key: capped payout
+withdraw              owner (1 yocto): to the owner's own account
+approve               owner (1 yocto): pays a pending request
+execute_order         anyone: pays a due standing order inside the pocket's caps
+close_vault           owner (1 yocto): refunds the storage deposit to the owner
+# --- take money in / change state, cannot send funds out ---
+open_vault            payable
+deposit_near          payable
+ft_on_transfer        NEP-141 receiver
+create_pocket         owner
+update_pocket         owner
+remove_pocket         owner
+pause_pocket          owner
+resume_pocket         owner
+create_order          owner
+cancel_order          owner
+request               pocket key: stores a request, pays nothing
+reject                owner
+freeze                owner
+unfreeze              owner
+# --- views ---
+version
+contract_source_metadata   near-sdk standard view, returns a JSON string
+storage_cost
+get_tokens
+owners_count
+get_vault
+get_pockets
+get_orders
+get_requests
+get_receipts
+due_orders

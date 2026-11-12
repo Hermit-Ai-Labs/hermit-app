@@ -67,6 +67,26 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
   sending NEAR and NEAR tokens, and [staking NEAR](docs/NEAR.md#staking-near) with a validator from Earn or by asking
   "stake 5 NEAR".
 
+## Hermit Guard: an on-chain budget for AI agents
+
+[contracts/guard](contracts/guard) is a NEAR smart contract we wrote for the money an agent may spend on its own. You
+put a small budget in a vault and split it into pockets. Each pocket has a cap per payment, a cap per day, a list of
+allowed recipients and an expiry, and it is spent with a NEAR function-call key that can do nothing else. The contract
+checks every payment on chain. Standing orders run on NEAR even when your phone is off, anything above a cap waits for
+your approval, every payment is logged with its reason, and one call freezes everything. Only the owner can withdraw,
+and nobody else, us included, can move a user's funds.
+
+It runs on NEAR testnet today (`guard.hermit-guard-owner-1794512081.testnet`), with 40 unit tests and 12 sandbox tests
+that play the attacks with real access keys. To see it refuse an overspend, a stranger and a pocket key reaching for
+`withdraw`, with the real transactions:
+
+```sh
+.venv/bin/python near/guard-demo.py           # ends with 33 checks matched, 0 mismatched
+```
+
+The rules, the threat model and each guarantee with its test are in [contracts/guard/README.md](contracts/guard/README.md)
+and [SECURITY.md](contracts/guard/SECURITY.md).
+
 ## Check it yourself
 
 On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, a couple of minutes. These scripts are written

@@ -1,0 +1,3 @@
+# Pick dependency versions that build on the pinned compiler instead of the newest ones.
+[resolver]
+incompatible-rust-versions = "fallback"
