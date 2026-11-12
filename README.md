@@ -1,5 +1,6 @@
 # Hermit
 
+[![checks](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml/badge.svg)](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml)
 [![Download for Mac](https://img.shields.io/badge/download-Mac-4E1F96?logo=apple&logoColor=white)](https://hermit.my/dmg)
 [![iPhone on TestFlight](https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white)](https://testflight.apple.com/join/ed9vUh7d)
 [![Built on NEAR](https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111)](docs/NEAR.md)
