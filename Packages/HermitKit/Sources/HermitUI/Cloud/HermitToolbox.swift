@@ -422,15 +422,16 @@ public struct HermitToolbox: AgentToolbox {
             sl = off(isBuy ? -0.02 : 0.02)
             fixes.append("Stop loss moved to \(money(sl!)), 2% \(isBuy ? "below" : "above") the price: \(money(l)) was on the wrong side and would have closed the order at once.")
         }
+        let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
+        // Hyperliquid checks the $10 minimum against the order's own price, which for a market short sits 5% under the
+        // mark. Size against the lower of the two, and round up a step rather than down when that drops under $10.
+        let floorPx = min(px, price)
         var qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
-        // Rounding the size down can drop a $10 order just under the minimum: take one more step instead.
-        if qty * px < minUSD {
+        if qty * floorPx < minUSD {
             let step = pow(10, -Double(asset.szDecimals))
-            qty = Hyperliquid.roundSize(qty + step, szDecimals: asset.szDecimals)
-            while qty * px < minUSD { qty = Hyperliquid.roundSize(qty + step, szDecimals: asset.szDecimals) }
+            repeat { qty = Hyperliquid.roundSize(qty + step, szDecimals: asset.szDecimals) } while qty * floorPx < minUSD
         }
         guard qty > 0 else { throw ToolError("Size too small for \(coin)") }
-        let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
         let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: price, size: qty, tif: limitIn == nil ? .ioc : .gtc,
                                       takeProfit: tp, stopLoss: sl)
         // Hyperliquid's maintenance margin is half the initial margin at the market's max leverage. Estimated as if
