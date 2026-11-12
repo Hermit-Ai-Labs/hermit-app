@@ -60,8 +60,8 @@ Linux: see `contracts/guard/README.md`, and `near/guard.py --network mainnet vie
 
 The README's "Where each claim lives" table maps every claim to a source file and a test. Sources are in
 `Packages/HermitKit/Sources/`, tests in `Packages/HermitKit/Tests/`. The prompt-injection walkthrough is
-`docs/SECURITY-DEMO.md`, every check with its expected output is `docs/VERIFY.md`, and the NEAR details are
-`docs/NEAR.md`.
+`docs/SECURITY-DEMO.md`, every check with its expected output is `docs/VERIFY.md`, the NEAR details are
+`docs/NEAR.md`, and every architecture figure is written out as text and Mermaid in `docs/ARCHITECTURE.md`.
 
 ## Hackathon scope
 

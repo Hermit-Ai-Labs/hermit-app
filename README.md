@@ -162,7 +162,8 @@ The rest is in [docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md), with a prompt-inj
 </tr>
 </table>
 
-Tap any figure to open it full size.
+Tap any figure to open it full size. The same figures as text and Mermaid, plus Hermit Guard, are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Our models
 
