@@ -221,4 +221,9 @@ the NEAR work and what we built alongside it.
 The app uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use
 requests, cryptography, eth-account and dcap-qvl. No templates.
 
-MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my. Team: TODO
+## Team
+
+- Ryan Chi: https://www.linkedin.com/in/mrryanchi/
+- Daksh Joshi: https://www.linkedin.com/in/joshidaksh/
+
+MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my.
