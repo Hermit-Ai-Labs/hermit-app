@@ -22,7 +22,7 @@ Hermit is a native Apple app, so it can't run in a Linux sandbox. That isn't a f
 notarized build from https://hermit.my/dmg (no Xcode needed), and iPhone users join TestFlight
 (https://testflight.apple.com/join/ed9vUh7d). Building from source and the Swift tests need macOS 26 and Xcode 26.
 `bash scripts/core-tests.sh` runs the NEAR, wallet, assistant and attestation tests without building the model or the UI. Our last full run is
-`docs/logs/core-tests-2026-11-12.txt` (247 tests, 13 skipped, 0 failures; the skipped ones need the network or a
+`docs/logs/core-tests-2026-11-12.txt` (248 tests, 13 skipped, 0 failures; the skipped ones need the network or a
 Secure Enclave). On Linux, read the tests and that log.
 
 ## Checking a claim

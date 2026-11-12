@@ -207,6 +207,18 @@ final class NearIntentsTests: XCTestCase {
 
     // MARK: Policy
 
+    func testUnsignedQuotesAreRefused() {
+        // A good signature is never in the way.
+        XCTAssertNil(IntentsQuote.signatureBlock(valid: true, origin: .agent, touchesBitcoin: false))
+        XCTAssertNil(IntentsQuote.signatureBlock(valid: true, origin: .user, touchesBitcoin: true))
+        // The assistant can never use an unsigned quote, Bitcoin or not.
+        XCTAssertNotNil(IntentsQuote.signatureBlock(valid: false, origin: .agent, touchesBitcoin: false))
+        XCTAssertNotNil(IntentsQuote.signatureBlock(valid: false, origin: .agent, touchesBitcoin: true))
+        // You can't either, except on a Bitcoin route, whose signatures don't verify even with NEAR's SDK.
+        XCTAssertNotNil(IntentsQuote.signatureBlock(valid: false, origin: .user, touchesBitcoin: false))
+        XCTAssertNil(IntentsQuote.signatureBlock(valid: false, origin: .user, touchesBitcoin: true))
+    }
+
     func testSpendPolicy() {
         let d = UserDefaults(suiteName: "policy-\(UUID())")!
         let book = AddressBook(defaults: d), limit = SpendLimit(defaults: d)

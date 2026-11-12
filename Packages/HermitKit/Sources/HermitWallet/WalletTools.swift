@@ -161,6 +161,11 @@ public final class WalletTools {
             return Self.json(out)
         }
 
+        if let why = IntentsQuote.signatureBlock(valid: q.signatureValid, origin: .agent, touchesBitcoin: q.touchesBitcoin) {
+            out["status"] = "blocked"; out["reasons"] = [why]
+            out["note"] = "Nothing was prepared. Tell the user why."
+            return Self.json(out)
+        }
         let verdict = service.policy.evaluate(usd: q.amountInUSD, payee: own == nil ? (recipient ?? "", .evm) : nil, origin: .agent)
         out["policy"] = verdict.decision.rawValue
         if verdict.decision == .block {

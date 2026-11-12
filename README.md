@@ -1,11 +1,21 @@
 # Hermit
 
+[![apple](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml/badge.svg)](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4E1F96.svg)](LICENSE)
+
 Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. You ask it in plain words to swap,
 bridge, trade or pay. It prepares the move, and nothing leaves your wallet until you approve it with Face ID or Touch
 ID. We didn't want our balances and plans on somebody's server, so the model lives on your device. When a question
 needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it sends a word.
 
 Tracks: Privacy & Private AI, AI Security & Defense, Unstoppable DeFi, Agent Economy.
+
+<p align="center">
+<img src="docs/img/screens/offline.jpg" width="190" alt="Hermit's home screen on iPhone: your own AI, works offline.">
+<img src="docs/img/screens/swap.jpg" width="190" alt="The Swap review: 5 USDT to 1.37 NEAR via NEAR Intents, cost $0.02 including the 0.2% 1Click fee, under a minute.">
+<img src="docs/img/screens/approve.jpg" width="190" alt="The approval sheet: every check listed, and nothing moves until you approve with Face ID.">
+<img src="docs/img/screens/proof.jpg" width="190" alt="The Private Cloud proof sheet: the NEAR AI Cloud enclave and the reply's signature, each checked on the phone.">
+</p>
 
 ## Try it
 
@@ -15,32 +25,38 @@ whichever path fits your machine:
 | You have | Do this | You'll see |
 | --- | --- | --- |
 | A Mac (Apple silicon, macOS 26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
-| A Mac or an iPhone (iOS 26), via TestFlight | Mac: https://testflight.apple.com/join/P66H5DF8, iPhone: https://testflight.apple.com/join/ed9vUh7d | The same app, installed through Apple's TestFlight |
-| A Mac with Xcode 26 | Build it from source, see [docs/BUILD.md](docs/BUILD.md), and run the tests with `bash scripts/core-tests.sh` | `Executed 247 tests, with 13 tests skipped and 0 failures` |
+| A Mac or an iPhone (iOS 26) | Join TestFlight. Mac: https://testflight.apple.com/join/P66H5DF8, iPhone: https://testflight.apple.com/join/ed9vUh7d | The same app, installed through Apple's TestFlight |
+| A Mac with Xcode 26 | Build it from source ([docs/BUILD.md](docs/BUILD.md)) and run `bash scripts/core-tests.sh` | `Executed 248 tests, with 13 tests skipped and 0 failures` |
 | Any machine, Linux included | Run the three Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live |
-| Nothing to install | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
+| No Mac or iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
 
-On first launch, the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it runs with Wi-Fi
+On first launch the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it answers with Wi-Fi
 off. It's mainnet, so real swaps move real money, and nothing moves without your approval.
 
 ## Things you can ask it
 
-- "How much USDC on Solana would 0.5 ETH on Arbitrum get me?" gets a NEAR Intents quote and prepares nothing.
-- "Swap 20 USDC on Base to NEAR" opens the Swap review, filled in from a NEAR Intents quote.
-- "Swap 500 USDC on Base to NEAR" doesn't. The assistant can prepare up to $100 per move.
-- "Long ETH with $50 at 5x" gives you a Review long ETH button for a Hyperliquid order.
-- Drop in a spreadsheet of addresses and amounts and say "pay everyone in USDC on Base" for one batch review.
+| Type this | You get |
+| --- | --- |
+| How much USDC on Solana would 0.5 ETH on Arbitrum get me? | A live NEAR Intents quote. Nothing is prepared |
+| Swap 20 USDC on Base to NEAR | The Swap review, filled in from a signed NEAR Intents quote |
+| Swap 500 USDC on Base to NEAR | A refusal: the assistant can prepare up to $100 per move. You can change that in Wallets, Security |
+| Long ETH with $50 at 5x | A Review long ETH button for a Hyperliquid order |
+| Pay everyone in USDC on Base (with a spreadsheet attached) | One batch review for every row |
+| Every morning at 8, brief me on my portfolio | An automation that runs while the app is open |
+| Explain what a perp is in two sentences (Wi-Fi off) | An answer from the model on your device |
 
-Turn off Wi-Fi and it still answers. Automations ("every morning at 8, brief me on the market") run while it's open.
-There's also spot on Solana through Jupiter, Aave deposits, and a browser where web apps see a Hermit wallet.
+There's also spot trading on Solana through Jupiter, Aave deposits, and a browser where web apps see a Hermit wallet.
 
-## How we use NEAR
+## How Hermit uses NEAR
 
-- [NEAR Intents](docs/NEAR.md#near-intents-1click) swaps and bridges across EVM chains, Solana, NEAR, Bitcoin and
-  Hyperliquid, and funds the wallet from any chain. The device checks every quote's signature.
-- [Private Cloud](docs/NEAR.md#private-cloud-on-near-ai-cloud) sends bigger questions to NEAR AI Cloud, but only after
-  the device has checked the enclave's attestation. It checks the enclave's signature on each answer too.
-- Every wallet has a [NEAR account](docs/NEAR.md#a-near-account-in-every-wallet), derived on the device.
+- **[NEAR Intents](docs/NEAR.md#near-intents-1click)** does every swap and bridge: between EVM chains, Solana and NEAR,
+  and out to Bitcoin and Hyperliquid. It also funds the wallet from any chain. The device checks each quote's 1Click
+  signature and refuses a quote that fails.
+- **[NEAR AI Cloud](docs/NEAR.md#private-cloud-on-near-ai-cloud)** answers the bigger questions in Private Cloud mode.
+  The device checks the enclave's Intel TDX and NVIDIA proof before it sends the prompt, and the model's signature on
+  every answer.
+- **[A NEAR account](docs/NEAR.md#a-near-account-in-every-wallet)** is in every wallet, derived on the device from the
+  same recovery phrase as the EVM and Solana accounts.
 
 ## Check it yourself
 
@@ -55,36 +71,36 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 .venv/bin/python near/verify-attestation.py   # NEAR AI Cloud's enclave, ends with 23 passed, 0 failed, 1 skipped
 ```
 
-With Xcode 26, `bash scripts/core-tests.sh` runs the app's non-UI tests. Our last run ended with
-`Executed 247 tests, with 13 tests skipped and 0 failures` ([full log](docs/logs/core-tests-2026-11-12.txt)).
-[docs/VERIFY.md](docs/VERIFY.md) has every step and what you should see, and [docs/BUILD.md](docs/BUILD.md) shows how
-to build the apps.
+With Xcode 26, `bash scripts/core-tests.sh` runs the app's NEAR, wallet, assistant and attestation tests. Our last run
+is in [docs/logs](docs/logs), and [GitHub Actions](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/apple.yml)
+runs the whole suite, UI snapshots included, on every push. [docs/VERIFY.md](docs/VERIFY.md) has every step and what
+you should see.
 
 ## Where each claim lives
 
 | Claim | Code | Test |
 | --- | --- | --- |
-| Every 1Click quote's ed25519 signature is checked on the device | `HermitWallet/NearIntents.swift` | `NearIntentsTests.testSignatureNonDryAndTampering` |
-| The assistant can prepare up to $100 per move, never more | `HermitWallet/SpendPolicy.swift` | `NearIntentsTests.testSpendPolicy`, `testSpendPolicyAgentTrade` |
-| Money tools only prepare; nothing signs before Face ID | `HermitCore/AgentTools.swift` (`ToolGuard`), `HermitWallet/KeyVault.swift` | `NearIntentsTests.testAgentToolsParseChainsAndPrepareIsGuarded` |
+| A 1Click quote whose signature fails is refused | `HermitWallet/NearIntents.swift`, `IntentsSwap.swift` | `NearIntentsTests.testSignatureNonDryAndTampering`, `testUnsignedQuotesAreRefused` |
+| The assistant can prepare up to $100 per move | `HermitWallet/SpendPolicy.swift` | `NearIntentsTests.testSpendPolicy`, `testSpendPolicyAgentTrade` |
+| A send only goes to an address you typed | `HermitCore/AgentTools.swift` (`ToolGuard`) | `ToolLoopTests.testSendToTypedAddressIsPrepared`, `testGuardMatching` |
 | A prompt injection in a tool result can't start a send | `HermitCore/ToolLoop.swift`, `ToolCalls.swift` | `ToolLoopTests.testPromptInjectionInToolResultCannotPrepareSend` |
+| Keys are sealed by the Secure Enclave and open only for a signature | `HermitWallet/KeyVault.swift` | `TableAndVaultTests.testSealOpenRemoveRoundTrip` (needs a Mac with a Secure Enclave) |
 | Private Cloud checks the TDX quote, NVIDIA evidence and TLS key before the prompt | `HermitCloud/Attestation.swift`, `TDXQuote.swift`, `TLSBinding.swift` | `HermitCloudTests.testRealReportsPassEveryCheck` and the tamper tests after it |
-| Each Private Cloud answer is signed by the attested model key | `HermitCloud/ResponseSignature.swift` | `HermitCloudTests.testSignatureVerifies` |
+| An answer's review buttons need the attested model's signature | `HermitCloud/ResponseSignature.swift`, `NearCloudAgent.swift` | `HermitCloudTests.testSignatureVerifies` |
 | Every wallet has a NEAR account, derived on the device | `HermitWallet/Near.swift` | `NearTests.testDerivation`, `testTransferMatchesNearApiJs` |
 | The model is ours and pinned by hash | `HermitModel/ModelCatalog.swift`, `ModelPins.swift` | `ModelUpgradeTests.testShippedCatalog` |
 
-Code paths are under `Packages/HermitKit/Sources/`, tests under `Packages/HermitKit/Tests/`.
+Code is under `Packages/HermitKit/Sources/`, tests under `Packages/HermitKit/Tests/`.
 
 ## How it works
 
 <p align="center"><a href="docs/img/system_overview.png"><img src="docs/img/system_overview.png" alt="Hermit system overview: on your iPhone or Mac are the chat, the mode switch, the Hermit 1.3 model, the tool loop with 30 guarded tools, the enclave check, the spending policy, the review with Face ID and the key vault with EVM, Solana and NEAR accounts, and outside it are only NEAR AI Cloud, NEAR Intents 1Click, the chains and venues (NEAR, EVM, Solana, Hyperliquid, Relay and Aave v3, Bitcoin), public data, NVIDIA NRAS and the model download." width="620"></a></p>
 
-By default the Hermit 1.3 model answers on your device, and your chats stay there. In Private Cloud mode the device
-checks the enclave's proof first, then sends your prompt on that same connection. Either way the model can only call
-tools. It never holds a key. Anything that moves money goes through the
+By default Hermit 1.3 answers on your device, and your chats stay there. In Private Cloud mode the device checks the
+enclave's proof first, then sends your prompt on that same connection. Either way the model can only call tools. It
+never holds a key. Anything that moves money goes through the
 [spending policy](docs/SECURITY-DEMO.md#the-spending-policy) and a review you approve, and only then do the keys sign.
-They're sealed with a Secure Enclave key. There's no account and no analytics. The rest is in
-[docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md), with a prompt-injection attack you can run.
+The rest is in [docs/SECURITY-DEMO.md](docs/SECURITY-DEMO.md), with a prompt-injection attack you can run.
 
 <table>
 <tr>
@@ -101,12 +117,78 @@ Tap any figure to open it full size.
 
 ## Our models
 
-We train our own models. [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) is our fine-tune of
+We train our own. [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) is our fine-tune of
 Qwen3-4B, and [Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit) brings the same skills to
 smaller iPhones on Qwen3-1.7B. They learned from 21,000 examples of real Hermit work: all 30 tools, multi-step requests
-like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything unsafe.
-Two passes each on rented GPUs (an L40S and an A6000). Both run on your device with MLX, and the app checks every byte
-it downloads against hashes built into it.
+like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything
+unsafe. Two LoRA passes each, Hermit 1.3 on a rented NVIDIA L40S and Lite on an A6000. Both run on your device with
+MLX, and the app checks every byte it downloads against hashes built into it.
+
+On our held-out tests:
+
+| Test | Result |
+| --- | --- |
+| Never said a move was done without a tool result to back it (Hermit 1.3, first pass) | 1,801 of 1,801 |
+| Never asked for a recovery phrase or a key | 60 of 60 |
+| No money call from text injected into a tool result (Lite) | 60 of 60 |
+| Picked the right tool (Lite) | 97% |
+| Left the tools alone when it should just answer (Lite) | 98% |
+
+Each model card on Hugging Face has the full results.
+
+## Questions we get
+
+**Did this exist before the hackathon?** No. The repository starts on 2026-10-29, after the hackathon was announced
+on 2026-10-19, and every commit is in the window. The NEAR work starts after commit `8fe7b71` on 2026-11-08 (details
+in [Built at NEAR HACKATHON](#built-at-near-hackathon)).
+
+**Can the AI move my money on its own?** No. The model only calls tools, and the money tools only prepare a move. A
+review opens, and nothing signs until you approve it with Face ID, Touch ID or your device passcode. The assistant is
+also held to the spending policy: up to $100 per move and $500 a day by default, no swap that loses over 10% of its
+value, and swap output only to your own addresses.
+
+**What if someone tricks the AI with a prompt injection?** Text from a web page, a file or a tool result can't start a
+send, because a send only goes to an address you typed yourself. The guard checks that in code, not in the model, and
+a test runs the attack ([SECURITY-DEMO.md](docs/SECURITY-DEMO.md)).
+
+**What stops a fake quote?** Every 1Click quote is signed. The device checks the ed25519 signature against 1Click's key
+and refuses a quote that fails. Quotes that start or end on Bitcoin don't verify with NEAR's own SDK either, so those
+are the one exception: you can approve them after a warning, and the assistant can't prepare them.
+
+**Is the spending limit on chain?** No, it's in the app, and it limits the assistant, not you. You hold your own keys,
+so you can always send what you like from the Send and Swap screens.
+
+**How private is Private Cloud?** The device checks NEAR AI Cloud's proof before every reply: a genuine Intel TDX
+enclave with debug off, genuine NVIDIA GPUs (through NVIDIA's attestation service), a fresh nonce, and the enclave's
+own key on the connection your prompt goes out on. Then it checks the model's signature on the answer. The proof
+pins the hash of the software the enclave runs, and the Verified sheet shows it; Hermit doesn't yet compare that hash
+to a list of NEAR releases. [NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) lists every check.
+
+**What leaves my device in on-device mode?** Your chats don't. The app reads prices, balances and quotes from public
+APIs and chain nodes, and downloads the model once. There's no account, no sign-up and no analytics.
+
+**Is there an API key inside the app?** Yes, a shared NEAR AI Cloud key, so Private Cloud works without signing up. It
+allows 30 messages per device per day. Anyone who digs it out of the app can spend our credits, but it gives no access
+to anyone's wallet or chats. You can paste your own key in Settings, Private Cloud.
+
+**Who holds the keys?** You do. One 12-word recovery phrase, sealed with a key inside the Secure Enclave on your
+device. Nothing syncs to iCloud and nothing reaches our servers. Write the phrase down and you can restore the wallet
+anywhere.
+
+**Does Hermit charge a fee?** No. NEAR Intents' 1Click takes 0.2% on a swap, and every quote shows it before you
+approve.
+
+**Why only Mac and iPhone, and why the 26 releases?** The model runs on Apple silicon with Apple's MLX, and the keys are
+sealed by the Secure Enclave. The app is built on the iOS 26 and macOS 26 SDKs.
+
+**Is it mainnet?** Yes. NEAR Intents has no testnet, so every swap is real. The Python checks and the demo quotes are
+dry quotes, which can't move anything.
+
+**Can I reproduce the model?** The weights, their hashes and the test results are public on Hugging Face. Our
+training data and pipeline aren't published.
+
+**Did you use AI to write this?** Yes. We wrote a lot of the code, tests and docs with AI coding agents (Claude Code),
+and we review all of it ourselves.
 
 ## What's in this repository
 
@@ -117,17 +199,21 @@ it downloads against hashes built into it.
 - `near/`: the Python checks above, written apart from the app so you can compare the two.
 - `docs/`: [NEAR.md](docs/NEAR.md) (how we use NEAR), [SECURITY-DEMO.md](docs/SECURITY-DEMO.md),
   [VERIFY.md](docs/VERIFY.md), [BUILD.md](docs/BUILD.md) and saved run logs in [docs/logs](docs/logs).
+- [AGENTS.md](AGENTS.md): the short path for AI reviewers.
 
 ## Built at NEAR HACKATHON
 
 We started this repository on 2026-10-29, ten days after the hackathon was announced on 2026-10-19, so every line
-here was written in the hackathon window. We tagged the first commit `pre-hackathon`. The wallet, the on-device chat and the other chains (EVM, Solana, Hyperliquid) came first. The NEAR
-work starts after commit `8fe7b71` on 2026-11-08: Private Cloud on NEAR AI Cloud, the NEAR account, NEAR Intents and
-the spending policy. [This diff](https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main) shows everything
-since then.
+here was written in the hackathon window. We tagged the first commit `pre-hackathon`. That commit brings in the UI of
+our own web prototype, made on 2026-10-26 (also after the announcement), as the starting point for the Mac app. The
+native SwiftUI apps replaced it the same day.
+
+The wallet, the on-device chat and the other chains (EVM, Solana, Hyperliquid) came first. The NEAR work starts after
+commit `8fe7b71` on 2026-11-08: Private Cloud on NEAR AI Cloud, the NEAR account, NEAR Intents and the spending
+policy. [This diff](https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71...main) shows everything since then,
+the NEAR work and what we built alongside it.
 
 The app uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use
-requests, cryptography, eth-account and dcap-qvl. No templates or boilerplate. We wrote a lot of the code, tests and
-docs with AI coding agents (Claude Code), and we review all of it ourselves.
+requests, cryptography, eth-account and dcap-qvl. No templates.
 
 MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my. Team: TODO

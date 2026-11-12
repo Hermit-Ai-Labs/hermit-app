@@ -100,6 +100,9 @@ extension WalletService {
         guard !quote.request.dry, let deposit = quote.depositAddress else { throw WalletError.blocked("That was a preview quote. Get a live quote first.") }
         guard quote.depositMemo == nil else { throw WalletError.blocked("This route needs a deposit memo, which Hermit can't attach on \(from.name).") }
         if let dl = quote.deadline, dl < Date().addingTimeInterval(60) { throw WalletError.blocked("The quote is about to expire. Get a new one.") }
+        if let why = IntentsQuote.signatureBlock(valid: quote.signatureValid, origin: origin, touchesBitcoin: quote.touchesBitcoin) {
+            throw WalletError.blocked(why)
+        }
         let verdict = policy.evaluate(usd: quote.amountInUSD, payee: payee, origin: origin)
         if verdict.decision == .block { throw WalletError.blocked(verdict.blocks.joined(separator: " ")) }
         // The assistant may not put a swap that loses over 10% of its value in front of the user.
@@ -113,7 +116,7 @@ extension WalletService {
         checks.append(quote.signatureValid
             ? HazardCheck(title: "Quote signed by 1Click", status: .pass, detail: "Ed25519 signature checked against 1Click's key.")
             : HazardCheck(title: "Quote signature not confirmed", status: .warn,
-                          detail: "Fetched from 1Click over HTTPS, but its signature didn't check out here. Check the amount and the deposit address before you approve."))
+                          detail: "A Bitcoin route: 1Click's signature on these doesn't verify, here or with NEAR's own SDK. Check the amount and the deposit address before you approve."))
         checks.append(HazardCheck(title: "Refunds come back to you", status: .pass, detail: "If solvers can't fill it, 1Click refunds \(Self.short(quote.request.refundTo))."))
         if let loss = quote.lossWarning {
             checks.append(HazardCheck(title: "Costly swap", status: .warn, detail: loss + " Check the amount you get before you approve."))

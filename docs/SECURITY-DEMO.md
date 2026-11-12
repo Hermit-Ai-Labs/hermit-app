@@ -16,7 +16,7 @@ bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutraliz
 ```
 
 The filter picks 29 tests, and the run should end in `0 failures`. Our full run on 2026-11-12, on a MacBook Air M3,
-ended with `Executed 247 tests, with 13 tests skipped and 0 failures`:
+ended with `Executed 248 tests, with 13 tests skipped and 0 failures`:
 [logs/core-tests-2026-11-12.txt](logs/core-tests-2026-11-12.txt). The Swift tests need a Mac; without one, read the tests and
 that log.
 

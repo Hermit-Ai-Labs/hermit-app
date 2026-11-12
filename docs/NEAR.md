@@ -103,17 +103,20 @@ We've bought NEAR through NEAR Intents with our own money in the app, and these 
 
 | What | How the device checks it |
 | --- | --- |
-| The quote came from 1Click, unchanged | The quote's signature is checked before the review opens (`testSignatureMatchesSDKOnLiveQuotes`). Bitcoin payouts are the one route the official algorithm can't verify, and the review says so. |
+| The quote came from 1Click, unchanged | The quote's ed25519 signature is checked before anything is prepared (`testSignatureMatchesSDKOnLiveQuotes`), and a quote that fails is refused (`testUnsignedQuotesAreRefused`). The one exception is a route that starts or ends on Bitcoin, whose signatures don't verify with NEAR's own SDK either: you can still approve those after a warning, and the assistant can't prepare them. |
 | The swap pays out to you | The recipient is an address derived from your own wallet. The assistant can't point it anywhere else. |
 | Your NEAR transactions | Built byte for byte like near-api-js, and Hermit checks its own signature before sending. |
-| The enclave is real | The TDX quote, Intel's certificate chain (an embedded copy of Intel's root), debug off, a fresh nonce, the signer, MRCONFIGID and RTMR3. |
+| It's a genuine Intel TDX enclave | The TDX quote and Intel's certificate chain (an embedded copy of Intel's root), debug off, a fresh nonce, the signer bound in the quote, MRCONFIGID equal to the hash of the published compose file, and the event log replayed to RTMR3. The device shows that hash; it doesn't compare it to a list of NEAR releases. |
 | The GPUs are real | NVIDIA NRAS judges the GPU evidence; the device checks the token's signature, issuer, time and nonce. |
 | Your prompt goes only to that enclave | The server key must match the quote's fingerprint, and the prompt goes out on that same connection. |
-| The answer is the model's, unchanged | An EIP-191 signature over `model:sha256(request):sha256(response)` by the attested model key. |
+| The answer is the model's, unchanged | An EIP-191 signature over `model:sha256(request):sha256(response)` by the attested model key, checked as the reply lands. A reply that fails is marked as unverified and loses its review buttons, so it can't lead to a money move. |
 | The on-device model is the one we published | Every file and every 128 MiB piece must match a SHA-256 hash pinned in `HermitModel/ModelPins.swift`. |
 
 `near/verify-attestation.py` goes one step further and checks Intel's TCB status and revocations with `dcap-qvl`. Swap
 progress comes from 1Click's status API, with an explorer link at every step.
 
 Two things nobody can prove today: that the gateway handed your request to that exact model instance (NEAR's TLS
-binding ends at the gateway), and who built the container images (the quote pins their hash, not their origin).
+binding ends at the gateway), and who built the container images (the quote pins their hash, not their origin). So the
+proof says a genuine, non-debug TDX machine with genuine NVIDIA GPUs holds the connection's key and runs the compose
+file whose hash is in the quote, and the script also checks Intel's TCB status. It doesn't prove whose software that
+compose file runs.

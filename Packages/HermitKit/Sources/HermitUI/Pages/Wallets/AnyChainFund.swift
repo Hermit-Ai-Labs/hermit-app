@@ -92,7 +92,7 @@ struct AnyChainFundView: View {
                     Button("Start over") { startOver(addr) }.buttonStyle(WideButton(kind: .plain))
                 }
                 // An unsigned quote: no "I've sent it" until the user says they checked it with 1Click.
-                if !waiting || q.signatureValid || checkedUnsigned {
+                if !waiting || q.signatureValid || (checkedUnsigned && q.touchesBitcoin) {
                     Button(waiting ? "I've sent it" : "Done") { dismiss() }.buttonStyle(WideButton())
                 }
             }
@@ -149,7 +149,10 @@ struct AnyChainFundView: View {
         let s = src
         let state = act.state(addr)
         let unsignedNote = "This quote's 1Click signature didn't check out on \(Device.here), so nothing proves this address came from 1Click. Check the amount and the address with 1Click before you send."
-        if !q.signatureValid && !checkedUnsigned {
+        if let why = IntentsQuote.signatureBlock(valid: q.signatureValid, origin: .user, touchesBitcoin: q.touchesBitcoin) {
+            // Off Bitcoin, an address nothing proves is 1Click's is never shown.
+            NoteBox(symbol: "xmark.shield", text: why, tint: Theme.red)
+        } else if !q.signatureValid && !checkedUnsigned {
             // Nothing proves the address is 1Click's: the warning comes first, and the address only after the user checked.
             NoteBox(symbol: "exclamationmark.triangle", text: unsignedNote, tint: Theme.amber)
             Button("I've checked it") { withAnimation(.smooth) { checkedUnsigned = true } }.buttonStyle(OutlineButton())

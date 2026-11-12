@@ -18,7 +18,7 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 | --- | --- | --- |
 | 1 | `.venv/bin/python near/intents-quote.py` | A live dry 1Click quote for 10 USDC on Base to wNEAR: amount out, minimum out, `1Click fee 20 bps`, a time estimate (35 s for us), `deposit address none (dry quote: nothing can be sent)` and `[PASS] 1Click signature by ed25519:reYaWhvw...`. Exit code 0. |
 | 2 | `.venv/bin/python near/intents-quote.py --selftest` | Eight `[PASS]` lines, then `8 passed, 0 failed`. The signature code gets the same hashes as the Swift tests and rejects a quote whose deposit address was swapped. |
-| 3 | `.venv/bin/python near/intents-quote.py --from ETH:arbitrum --to BTC:bitcoin --amount 0.01` | `[FAIL] 1Click signature`, a note, and exit code 1. Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either, so the app warns about them ([why](NEAR.md#what-the-device-checks-and-what-it-doesnt)). |
+| 3 | `.venv/bin/python near/intents-quote.py --from ETH:arbitrum --to BTC:bitcoin --amount 0.01` | `[FAIL] 1Click signature`, a note, and exit code 1. Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either, so the app only lets you approve those yourself, after a warning ([why](NEAR.md#what-hermit-checks-for-you)). |
 | 4 | `.venv/bin/python near/near-account.py` | From the public test phrase (`abandon` eleven times, then `about`): path `m/44'/397'/0'`, public key `ed25519:6j4b6zUa...`, implicit account `5510e2b4...ee412` and three `[PASS]` lines against the Swift test vector. Then that account's NEAR, USDC, USDT and wNEAR balances from mainnet RPC, read-only. |
 | 5 | `.venv/bin/python near/verify-attestation.py` | A fresh nonce, then NEAR AI Cloud's live report for `Qwen/Qwen3.8-27B`, one `[PASS]` per check: the Intel TDX quote, Intel DCAP with `TCB UpToDate`, the nonce, the signer, MRCONFIGID, RTMR3, the TLS key, the GPU evidence and NVIDIA's verdict. The last line is `23 passed, 0 failed, 1 skipped`. The skip is the answer's signature, which needs a key. |
 | 6 | `F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures; .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline` | The recorded report our Swift tests use, checked offline: `17 passed, 0 failed, 4 skipped`. |
@@ -39,7 +39,7 @@ bash scripts/core-tests.sh
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-On our Mac on 2026-11-12 the first one ended with `Executed 247 tests, with 13 tests skipped and 0 failures`
+On our Mac on 2026-11-12 the first one ended with `Executed 248 tests, with 13 tests skipped and 0 failures`
 ([log](logs/core-tests-2026-11-12.txt)). The
 skipped tests need the network (`HERMIT_LIVE=1`, `HERMIT_LIVE_DAPP=1` or `ONECLICK_LIVE=1`) or a Secure Enclave. The
 second runs the 29 tests behind the prompt-injection demo and the spending policy; they all passed in that run. The

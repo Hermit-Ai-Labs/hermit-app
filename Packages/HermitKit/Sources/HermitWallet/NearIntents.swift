@@ -328,6 +328,21 @@ public struct IntentsQuote: Sendable {
     /// Above this, the assistant may not prepare the swap at all.
     public static let agentMaxLoss = 0.10
 
+    /// Whether the route starts or ends on Bitcoin. 1Click's signatures on those quotes don't verify with the official
+    /// SDK's algorithm either, so they're the one case a person may still go ahead after checking it themselves.
+    public var touchesBitcoin: Bool {
+        request.originAsset == IntentsAssets.bitcoin || request.destinationAsset == IntentsAssets.bitcoin
+    }
+
+    /// Why this quote can't be used, or nil. A quote whose 1Click signature doesn't check out is refused: always for
+    /// the assistant, and for you on every route that doesn't touch Bitcoin.
+    public static func signatureBlock(valid: Bool, origin: ActionOrigin, touchesBitcoin: Bool) -> String? {
+        if valid { return nil }
+        if origin == .agent { return "This quote's 1Click signature didn't check out, so Hermit's assistant won't prepare it. Ask again for a new quote." }
+        if !touchesBitcoin { return "This quote's 1Click signature didn't check out, so Hermit won't use it. Get a new quote." }
+        return nil
+    }
+
     /// The share of the input's dollar value the swap loses (0.05 is 5%), when both sides are priced.
     public var lossFraction: Double? {
         guard let i = amountInUSD, i > 0, let c = costUSD else { return nil }
