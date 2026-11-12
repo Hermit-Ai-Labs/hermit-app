@@ -124,17 +124,21 @@ like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote 
 unsafe. Two LoRA passes each, Hermit 1.3 on a rented NVIDIA L40S and Lite on an A6000. Both run on your device with
 MLX, and the app checks every byte it downloads against hashes built into it.
 
-On our held-out tests:
+On held-out test conversations, run in a real tool loop:
 
-| Test | Result |
-| --- | --- |
-| Never said a move was done without a tool result to back it (Hermit 1.3, first pass) | 1,801 of 1,801 |
-| Never asked for a recovery phrase or a key | 60 of 60 |
-| No money call from text injected into a tool result (Lite) | 60 of 60 |
-| Picked the right tool (Lite) | 97% |
-| Left the tools alone when it should just answer (Lite) | 98% |
+| Check | Qwen3-4B, untouched | Hermit 1.2 | Hermit 1.3 | Hermit 1.3 Lite |
+| --- | --- | --- | --- | --- |
+| Tools it knows | 12 | 12 | 30 | 30 |
+| Whole task right (12-tool set) | 57% | 87% | | |
+| Prepares a swap when you ask for one | 0 of 8 | 8 of 8 | | 12 of 12 |
+| Says "done" or "prepared" without having done it | 9 times | 0 times | 0 of 1,801 | 8 of 1,843 |
+| Never asks for a recovery phrase or a key | | | 60 of 60 | 60 of 60 |
+| No money call from injected text | | | 59 of 60 | 60 of 60 |
+| Every argument traced to your words or a tool result | | | 99.8% | 100% |
+| Exact arguments on the new tools | | | 78 to 87% | 81 to 95% |
+| Leaves the tools alone when it should just answer | 154 of 160 | 159 of 160 | 88.2% | 91.5% |
 
-Each model card on Hugging Face has the full results.
+Every test, both models side by side: [docs/MODEL-RESULTS.md](docs/MODEL-RESULTS.md).
 
 ## Questions we get
 
@@ -164,15 +168,16 @@ own key on the connection your prompt goes out on. Then it checks the model's si
 pins the hash of the software the enclave runs, and the Verified sheet shows it; Hermit doesn't yet compare that hash
 to a list of NEAR releases. [NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) lists every check.
 
-**What leaves my device in on-device mode?** Your chats don't. The app reads prices, balances and quotes from public
-APIs and chain nodes, and downloads the model once. There's no account, no sign-up and no analytics.
+**What leaves my device in on-device mode?** Your chats don't. There's no account, no sign-up and no analytics.
+
+**Do I need a NEAR AI account for Private Cloud?** No. You get 30 free Private Cloud messages a day. After that, you can
+paste your own NEAR AI Cloud key in Settings, Private Cloud.
 
 **Who holds the keys?** You do. One 12-word recovery phrase, sealed with a key inside the Secure Enclave on your
 device. Nothing syncs to iCloud and nothing reaches our servers. Write the phrase down and you can restore the wallet
 anywhere.
 
-**Does Hermit charge a fee?** No. NEAR Intents' 1Click takes 0.2% on a swap, and every quote shows it before you
-approve.
+**Does Hermit charge a fee?** No.
 
 **Why only Mac and iPhone, and why the 26 releases?** The model runs on Apple silicon with Apple's MLX, and the keys are
 sealed by the Secure Enclave. The app is built on the iOS 26 and macOS 26 SDKs.
@@ -194,7 +199,7 @@ and we review all of it ourselves.
   `HermitUI` (the screens).
 - `near/`: the Python checks above, written apart from the app so you can compare the two.
 - `docs/`: [NEAR.md](docs/NEAR.md) (how we use NEAR), [SECURITY-DEMO.md](docs/SECURITY-DEMO.md),
-  [VERIFY.md](docs/VERIFY.md), [BUILD.md](docs/BUILD.md) and saved run logs in [docs/logs](docs/logs).
+  [VERIFY.md](docs/VERIFY.md), [BUILD.md](docs/BUILD.md), [MODEL-RESULTS.md](docs/MODEL-RESULTS.md) and saved run logs in [docs/logs](docs/logs).
 - [AGENTS.md](AGENTS.md): the short path for AI reviewers.
 
 ## Built at NEAR HACKATHON

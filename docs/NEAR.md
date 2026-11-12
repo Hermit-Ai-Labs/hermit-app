@@ -87,9 +87,8 @@ bytes itself, recovers the EIP-191 signer and requires it to be the attested mod
 sheet with every check, who did it and what wasn't checked. Tools still run on the device, under the same spending
 policy as on-device mode.
 
-Your key lives in the Keychain on the device and isn't sent until the checks pass. TestFlight builds may carry our
-shared key, with 30 messages per device per day. It's masked in the bundle, but anyone with the binary can dig it out,
-and the app counts the limit itself. That's a risk to our credits, not to you.
+Private Cloud comes with 30 free messages per device per day. After that, you can paste your own NEAR AI Cloud key in
+Settings, Private Cloud. Your key lives in the Keychain on the device and isn't sent until the checks pass.
 
 Code: `HermitCloud/TDXQuote.swift`, `X509Lite.swift`, `Attestation.swift`, `TLSBinding.swift`,
 `ResponseSignature.swift`, `NearAICloud.swift`, `NearCloudAgent.swift`, and `HermitUI/Cloud/`. Tests:
