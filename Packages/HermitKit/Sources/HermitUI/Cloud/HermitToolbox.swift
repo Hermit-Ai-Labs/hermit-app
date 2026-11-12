@@ -410,7 +410,19 @@ public struct HermitToolbox: AgentToolbox {
         if let sl = slIn, sl <= 0 || (isBuy ? sl >= px : sl <= px) {
             throw ToolError("stop_loss \(Hyperliquid.wire(sl)) is on the wrong side: for a \(side) it must be \(isBuy ? "below" : "above") the entry \(Hyperliquid.wire(px)), or it would fire at once. Call prepare_trade again with stop_loss \(isBuy ? "below" : "above") \(Hyperliquid.wire(px)), for example \(off(isBuy ? -0.02 : 0.02)), or leave it out. Nothing was prepared.")
         }
-        let qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
+        // Hyperliquid refuses orders under $10 of position. Catch it here, before a review opens, and say what would work.
+        let minUSD = 10.0
+        if size < minUSD {
+            let lev = max(levIn, 1)
+            throw ToolError("Hyperliquid's smallest order is $10 of position, and size_usd \(Hyperliquid.wire(size)) is below that. size_usd is the position, not the margin: at \(Hyperliquid.wire(lev))x, a $10 position needs $\(Hyperliquid.wire((minUSD / lev * 100).rounded(.up) / 100)) of margin. If the user meant $\(Hyperliquid.wire(size)) of margin, call prepare_trade again with size_usd \(Hyperliquid.wire(max(minUSD, size * lev))); otherwise use size_usd 10. Nothing was prepared.")
+        }
+        var qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
+        // Rounding the size down can drop a $10 order just under the minimum: take one more step instead.
+        if qty * px < minUSD {
+            let step = pow(10, -Double(asset.szDecimals))
+            qty = Hyperliquid.roundSize(qty + step, szDecimals: asset.szDecimals)
+            while qty * px < minUSD { qty = Hyperliquid.roundSize(qty + step, szDecimals: asset.szDecimals) }
+        }
         guard qty > 0 else { throw ToolError("Size too small for \(coin)") }
         let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
         let order = Hyperliquid.Order(asset: asset, isBuy: isBuy, price: price, size: qty, tif: limitIn == nil ? .ioc : .gtc,
