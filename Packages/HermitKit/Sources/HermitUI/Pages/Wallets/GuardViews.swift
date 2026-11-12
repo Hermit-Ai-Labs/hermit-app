@@ -51,6 +51,29 @@ enum GuardText {
     static func sentence(_ s: String) -> String { s.prefix(1).uppercased() + s.dropFirst() }
 
     static func time(_ ns: UInt64) -> String { NearGuard.date(ns: ns).formatted(date: .abbreviated, time: .shortened) }
+
+    /// The vault's figure: the first token it holds (in the contract's order), or its first token at zero when it holds
+    /// nothing. Tokens can't be added up without prices, so the others are only counted.
+    struct Figure: Equatable {
+        let number: String
+        let symbol: String
+        let more: Int
+    }
+
+    static func figure(_ s: NearGuard.Snapshot, _ v: NearGuard.GuardVault) -> Figure? {
+        let held = s.tokens.filter { v.balance($0.id) > 0 }
+        guard let t = held.first ?? s.tokens.first else { return nil }
+        return Figure(number: t.number(v.balance(t.id)), symbol: t.symbol, more: max(0, held.count - 1))
+    }
+
+    /// `part` as a share of `whole` for the spent-today line: 0 to 2 (over the limit shows as full and red).
+    static func share(_ part: UInt128, of whole: UInt128) -> Double {
+        // Both scaled down together until they fit a UInt64 (the ratio is all that's drawn), so nothing can overflow.
+        var p = part, w = whole
+        while w > (UInt128(1) << 62) { p >>= 10; w >>= 10 }
+        guard w > 0 else { return 0 }
+        return Double(UInt64(min(p, w * 2))) / Double(UInt64(w))
+    }
 }
 
 // MARK: The card in Security
@@ -63,21 +86,28 @@ struct GuardBudgetsCard: View {
     @State private var state: Loaded = .loading
     private var reveal: GuardKeyReveal { .shared }
 
-    enum Loaded: Equatable { case loading, failed, notSetUp, vault(frozen: Bool, pockets: Int, orders: Int, requests: Int) }
+    enum Loaded: Equatable { case loading, failed, notSetUp, vault(frozen: Bool, pockets: Int, orders: Int, requests: Int, figure: GuardText.Figure?) }
 
     var body: some View {
         if GuardConfig.isEnabled, wallet.record.nearAccount != nil {
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel("Budgets")
-                DetailLines(lines: lines)
+                HStack(alignment: .center, spacing: 8) {
+                    SectionLabel("Budgets")
+                    Spacer(minLength: 6)
+                    Button { open(.budgets(wallet: wallet.id)) } label: {
+                        HStack(spacing: 4) {
+                            Text(state == .notSetUp ? "Set up" : "Open")
+                            Image(systemName: "arrow.up.right").font(.system(size: 9.5, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(HoloPillButton())
+                    .accessibilityLabel(state == .notSetUp ? "Set up Budgets" : "Open Budgets")
+                }
+                panel
                 if let k = reveal.pending {
                     NoteBox(symbol: "key", text: "The key for the pocket \(k.pocket) hasn't been saved yet. Open Budgets to see it.", tint: Theme.amber)
                 }
-                HStack(spacing: 8) {
-                    Text(blurb).font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(3)
-                    Spacer(minLength: 6)
-                    Button(state == .notSetUp ? "Set up Budgets" : "Open Budgets") { open(.budgets(wallet: wallet.id)) }.buttonStyle(OutlineButton())
-                }
+                Text(blurb).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             .task(id: wallet.id) { await load() }
         }
@@ -87,22 +117,97 @@ struct GuardBudgetsCard: View {
         "Give an app or agent a small budget with rules, held in a vault on NEAR."
     }
 
-    private var lines: [(String, String)] {
-        switch state {
-        case .loading: return [("Status", "Checking")]
-        case .failed: return [("Status", "Couldn't reach NEAR right now")]
-        case .notSetUp: return [("Status", "Not set up")]
-        case .vault(let frozen, let pockets, let orders, let requests):
-            return [("Status", frozen ? "Frozen" : "Running"), ("Pockets", "\(pockets)"), ("Standing orders", "\(orders)"),
-                    ("Waiting for you", requests == 0 ? "Nothing" : "\(requests) request\(requests == 1 ? "" : "s")")]
+    /// The state in a line, the vault's figure on the right, then the counts in three columns. Same panel as the
+    /// spending policy above it (subtle fill, hairline, 12 pt corners).
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(status).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 13)
+                    .overlay(alignment: .leading) { GuardDot(color: dot) }
+                Spacer(minLength: 8)
+                if let f = figure { GuardFigure(number: f.number, symbol: f.symbol, size: 22, more: f.more) }
+            }
+            if let c = counts {
+                Hairline()
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 0) {
+                        fact(c[0].0, c[0].1)
+                        column
+                        fact(c[1].0, c[1].1)
+                        column
+                        fact(c[2].0, c[2].1, tint: waiting ? Theme.accent : Theme.text)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(0..<3, id: \.self) { i in
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(c[i].0).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                                Spacer(minLength: 8)
+                                Text(c[i].1).font(.system(size: 14, weight: .medium)).monospacedDigit()
+                                    .foregroundStyle(i == 2 && waiting ? Theme.accent : Theme.text)
+                            }
+                        }
+                    }
+                }
+            }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+    }
+
+    private var column: some View { Rectangle().fill(Theme.border).frame(width: 1).padding(.horizontal, 12) }
+
+    private func fact(_ label: String, _ value: String, tint: Color = Theme.text) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize()
+            Text(value).font(.system(size: 14, weight: .medium)).foregroundStyle(tint).monospacedDigit().fixedSize()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var status: String {
+        switch state {
+        case .loading: return "Checking"
+        case .failed: return "Couldn't reach NEAR right now"
+        case .notSetUp: return "Not set up"
+        case .vault(let frozen, _, _, _, _): return frozen ? "Frozen" : "Running"
+        }
+    }
+
+    private var dot: Color {
+        switch state {
+        case .loading, .notSetUp: return Theme.faint
+        case .failed: return Theme.amber
+        case .vault(let frozen, _, _, _, _): return frozen ? Theme.red : Theme.green
+        }
+    }
+
+    private var figure: GuardText.Figure? {
+        if case .vault(_, _, _, _, let f) = state { return f }
+        return nil
+    }
+
+    private var waiting: Bool {
+        if case .vault(_, _, _, let requests, _) = state { return requests > 0 }
+        return false
+    }
+
+    private var counts: [(String, String)]? {
+        guard case .vault(_, let pockets, let orders, let requests, _) = state else { return nil }
+        return [("Pockets", "\(pockets)"), ("Standing orders", "\(orders)"),
+                ("Waiting for you", requests == 0 ? "Nothing" : "\(requests) request\(requests == 1 ? "" : "s")")]
     }
 
     private func load() async {
         guard let id = vm.wallet(wallet.id)?.record.id else { return }
         do {
             let s = try await vm.service.nearGuardSnapshot(walletID: id)
-            if let v = s.vault { state = .vault(frozen: v.frozen, pockets: v.pockets, orders: v.orders, requests: s.requests.count) } else { state = .notSetUp }
+            if let v = s.vault {
+                state = .vault(frozen: v.frozen, pockets: v.pockets, orders: v.orders, requests: s.requests.count, figure: GuardText.figure(s, v))
+            } else { state = .notSetUp }
         } catch { state = .failed }
     }
 }
@@ -212,76 +317,101 @@ struct GuardBudgetsSheet: View {
     }
 
     private func vaultContent(_ s: NearGuard.Snapshot, _ v: NearGuard.GuardVault) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            freezeCard(v)
-            if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
-            if !s.requests.isEmpty { requestsSection(s) }
+        VStack(alignment: .leading, spacing: 26) {
             balancesSection(s, v)
+            VStack(alignment: .leading, spacing: 10) {
+                freezeRow(v)
+                if let error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
+            }
+            if !s.requests.isEmpty { requestsSection(s) }
             pocketsSection(s)
             ordersSection(s)
             receiptsSection(s)
-            VStack(alignment: .leading, spacing: 10) {
-                NoteBox(symbol: "lock.shield", text: "A pocket's key can only pay inside its limits. It can't withdraw, freeze or change a rule: only you can, with \(Device.bio).")
-                Button("Close Budgets and get the deposit back") { act(.closeVault, id: "close") }
-                    .buttonStyle(.plain).font(.system(size: 12.5)).foregroundStyle(Theme.muted).disabled(busy != nil)
-            }
-        }
-    }
-
-    private func freezeCard(_ v: NearGuard.GuardVault) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: v.frozen ? "snowflake" : "checkmark.circle").font(.system(size: 15)).foregroundStyle(v.frozen ? Theme.red : Theme.green).padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(v.frozen ? "Frozen" : "Running").font(.system(size: 14, weight: .medium))
-                    Text(v.frozen ? "Nothing can be paid: no pocket, no standing order, no approval. You can still withdraw."
-                                  : "Pockets can pay inside their limits and standing orders run.")
+            VStack(alignment: .leading, spacing: 12) {
+                Hairline()
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: "lock.shield").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 1)
+                    Text("A pocket's key can only pay inside its limits. It can't withdraw, freeze or change a rule: only you can, with \(Device.bio).")
                         .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            if v.frozen {
-                Button(busy == "freeze" ? "Checking" : "Unfreeze") { act(.setFrozen(false), id: "freeze") }.buttonStyle(WideButton()).disabled(busy != nil)
-            } else {
-                Button(busy == "freeze" ? "Checking" : "Freeze everything") { act(.setFrozen(true), id: "freeze") }.buttonStyle(DangerWideButton()).disabled(busy != nil)
+                Button("Close Budgets and get the deposit back") { act(.closeVault, id: "close") }
+                    .buttonStyle(.plain).font(.system(size: 12.5)).foregroundStyle(Theme.muted).underline().disabled(busy != nil)
             }
         }
-        .padding(14)
-        .background(Theme.subtle, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(v.frozen ? Theme.red.opacity(0.35) : Theme.border))
+        .padding(.top, 6)
     }
 
-    private func balancesSection(_ s: NearGuard.Snapshot, _ v: NearGuard.GuardVault) -> some View {
+    /// Running or Frozen, what that means, and the one control that changes it. Red only once it's frozen.
+    private func freezeRow(_ v: NearGuard.GuardVault) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("In the vault")
+            HStack(spacing: 10) {
+                Text(v.frozen ? "Frozen" : "Running").font(.system(size: 14, weight: .medium)).foregroundStyle(v.frozen ? Theme.red : Theme.text)
+                    .padding(.leading, 13)
+                    .overlay(alignment: .leading) { GuardDot(color: v.frozen ? Theme.red : Theme.green) }
+                Spacer(minLength: 8)
+                if v.frozen {
+                    Button(busy == "freeze" ? "Checking" : "Unfreeze") { act(.setFrozen(false), id: "freeze") }.buttonStyle(GuardSolidButton()).disabled(busy != nil)
+                } else {
+                    Button(busy == "freeze" ? "Checking" : "Freeze everything") { act(.setFrozen(true), id: "freeze") }.buttonStyle(OutlineButton()).disabled(busy != nil)
+                }
+            }
+            Text(v.frozen ? "Nothing can be paid: no pocket, no standing order, no approval. You can still withdraw."
+                          : "Pockets can pay inside their limits and standing orders run.")
+                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(v.frozen ? Theme.red.opacity(0.05) : Color.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(v.frozen ? Theme.red.opacity(0.3) : Theme.border))
+    }
+
+    /// The sheet's header: the vault's figure in the serif, then one row per token with Add and Withdraw.
+    private func balancesSection(_ s: NearGuard.Snapshot, _ v: NearGuard.GuardVault) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GuardEyebrow(text: "In the vault")
+            if let f = GuardText.figure(s, v) {
+                GuardFigure(number: f.number, symbol: f.symbol, size: 30).padding(.top, 4).padding(.bottom, 12)
+            }
             VStack(spacing: 0) {
                 ForEach(s.tokens) { t in
                     let held = v.balance(t.id)
+                    Hairline()
                     ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) { tokenLabel(t, held); Spacer(minLength: 8); balanceButtons(t, held) }
-                        VStack(alignment: .leading, spacing: 8) { tokenLabel(t, held); balanceButtons(t, held) }
+                        HStack(spacing: 12) {
+                            tokenLabel(t)
+                            Spacer(minLength: 8)
+                            tokenAmount(t, held)
+                            balanceButtons(t, held)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) { tokenLabel(t); Spacer(minLength: 8); tokenAmount(t, held) }
+                            balanceButtons(t, held)
+                        }
                     }
                     .padding(.vertical, 10)
-                    if t.id != s.tokens.last?.id { Hairline() }
                 }
             }
             if !s.unknownTokens.isEmpty {
                 Text("\(s.unknownTokens.count) other token\(s.unknownTokens.count == 1 ? "" : "s") on the contract's list couldn't be read, so Hermit leaves them out.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.hint)
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true).padding(.top, 6)
             }
             if v.pendingOut > 0 {
-                Text("A payment is still on its way, so the balance may change in a moment.").font(.system(size: 12)).foregroundStyle(Theme.hint)
+                Text("A payment is still on its way, so the balance may change in a moment.").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
             }
         }
     }
 
-    private func tokenLabel(_ t: NearGuard.TokenInfo, _ held: UInt128) -> some View {
+    private func tokenLabel(_ t: NearGuard.TokenInfo) -> some View {
         HStack(spacing: 10) {
-            LogoMark(t.symbol.lowercased(), size: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(t.symbol).font(.system(size: 14, weight: .medium))
-                Text(t.text(held)).font(.system(size: 12.5)).foregroundStyle(Theme.muted).monospacedDigit()
-            }
+            LogoMark(t.symbol.lowercased(), size: 22)
+            Text(t.symbol).font(.system(size: 14, weight: .medium))
         }
+    }
+
+    private func tokenAmount(_ t: NearGuard.TokenInfo, _ held: UInt128) -> some View {
+        Text(t.number(held)).font(.system(size: 14)).monospacedDigit().foregroundStyle(held == 0 ? Theme.hint : Theme.text)
+            .accessibilityLabel(t.text(held))
     }
 
     private func balanceButtons(_ t: NearGuard.TokenInfo, _ held: UInt128) -> some View {
@@ -292,33 +422,33 @@ struct GuardBudgetsSheet: View {
     }
 
     private func requestsSection(_ s: NearGuard.Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("Waiting for you")
-            VStack(spacing: 0) {
-                ForEach(s.requests) { r in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(GuardText.amount(s, r.token, r.amount)) to \(shortAddr(r.recipient, keep: 10))").font(.system(size: 14, weight: .medium))
-                        Text("Asked by the key of \(r.pocket). Expires \(GuardText.time(r.expiresNs)).").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                        if !r.reason.isEmpty {
-                            Text("\u{201C}\(r.reason)\u{201D}").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(3)
-                        }
-                        HStack(spacing: 8) {
-                            Button(busy == "a\(r.id)" ? "Checking" : "Approve") { act(.approve(r.id), id: "a\(r.id)") }.buttonStyle(AccentButton()).disabled(busy != nil)
-                            Button("Reject") { act(.reject(r.id), id: "r\(r.id)") }.buttonStyle(OutlineButton()).disabled(busy != nil)
-                        }
+        GuardSection(title: "Waiting for you") {
+            GuardChip(text: "\(s.requests.count)", color: Theme.accent)
+        } content: {
+            RowList(items: s.requests) { r in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(GuardText.amount(s, r.token, r.amount)) to \(shortAddr(r.recipient, keep: 10))").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Asked by the key of \(r.pocket). Expires \(GuardText.time(r.expiresNs)).").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !r.reason.isEmpty {
+                        Text("\u{201C}\(r.reason)\u{201D}").font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
-                    if r.id != s.requests.last?.id { Hairline() }
+                    HStack(spacing: 8) {
+                        Button(busy == "a\(r.id)" ? "Checking" : "Approve") { act(.approve(r.id), id: "a\(r.id)") }.buttonStyle(AccentButton()).disabled(busy != nil)
+                        Button("Reject") { act(.reject(r.id), id: "r\(r.id)") }.buttonStyle(OutlineButton()).disabled(busy != nil)
+                    }
+                    .padding(.top, 6)
                 }
+                .padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     private func pocketsSection(_ s: NearGuard.Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(text: "Pockets") {
-                Button("New pocket") { route = .pocket(.new) }.buttonStyle(OutlineButton()).disabled(s.pockets.count >= NearGuard.maxPockets)
-            }
+        GuardSection(title: "Pockets") {
+            Button("New pocket") { route = .pocket(.new) }.buttonStyle(OutlineButton()).disabled(s.pockets.count >= NearGuard.maxPockets)
+        } content: {
             if s.pockets.isEmpty {
                 EmptyNote(text: "No pockets yet. A pocket is a small budget with its own limits, for one app or agent.")
             } else {
@@ -330,15 +460,16 @@ struct GuardBudgetsSheet: View {
     private func pocketRow(_ p: NearGuard.GuardPocket, _ s: NearGuard.Snapshot) -> some View {
         let now = NearGuard.ns(Date())
         let t = s.token(p.token)
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(p.name).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                LogoMark((t?.symbol ?? p.token).lowercased(), size: 18)
+                Text(p.name).font(.system(size: 14, weight: .medium)).fixedSize(horizontal: false, vertical: true)
                 switch p.state(nowNs: now) {
-                case .paused: PillTag(text: "Paused", color: Theme.amber)
-                case .expired: PillTag(text: "Expired", color: Theme.red)
+                case .paused: GuardChip(text: "Paused", color: Theme.amber)
+                case .expired: GuardChip(text: "Expired", color: Theme.red)
                 case .active: EmptyView()
                 }
-                if p.publicKey == nil { PillTag(text: "No key", color: Theme.muted) }
+                if p.publicKey == nil { GuardChip(text: "No key", color: Theme.muted) }
                 Spacer(minLength: 6)
                 Menu {
                     Button("Edit", systemImage: "pencil") { route = .pocket(.edit(p.name)) }
@@ -352,71 +483,96 @@ struct GuardBudgetsSheet: View {
                 .accessibilityLabel("Actions for \(p.name)")
             }
             if let t {
+                pocketSpend(p, t, now: now)
                 Text("Up to \(t.text(p.perPaymentCap)) per payment, \(t.text(p.dailyCap)) a day").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                Text("Spent today \(t.number(p.spentToday(nowNs: now))) of \(t.text(p.dailyCap))").font(.system(size: 12.5)).foregroundStyle(Theme.muted).monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Token \(shortAddr(p.token)), which Hermit can't read").font(.system(size: 12.5)).foregroundStyle(Theme.muted)
             }
             Text("Can pay: \(GuardText.recipients(p.allowedRecipients))" + (p.expiresAt.map { ". Expires \(GuardText.time($0))" } ?? ""))
-                .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(2)
+                .font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Spent today 1.2 of 5 NEAR" over a thin line that fills toward the daily limit.
+    private func pocketSpend(_ p: NearGuard.GuardPocket, _ t: NearGuard.TokenInfo, now: UInt64) -> some View {
+        let spent = p.spentToday(nowNs: now)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Spent today \(t.number(spent)) of \(t.text(p.dailyCap))").font(.system(size: 12.5)).foregroundStyle(Theme.text).monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+            GuardMeter(fraction: GuardText.share(spent, of: p.dailyCap))
+        }
+        .padding(.top, 2).padding(.bottom, 2)
     }
 
     private func ordersSection(_ s: NearGuard.Snapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(text: "Standing orders") {
-                Button("New order") { route = .order }.buttonStyle(OutlineButton()).disabled(s.pockets.isEmpty || s.orders.count >= NearGuard.maxOrders)
-            }
+        GuardSection(title: "Standing orders") {
+            Button("New order") { route = .order }.buttonStyle(OutlineButton()).disabled(s.pockets.isEmpty || s.orders.count >= NearGuard.maxOrders)
+        } content: {
             if s.orders.isEmpty {
                 EmptyNote(text: s.pockets.isEmpty ? "Make a pocket first. A standing order pays from a pocket on a schedule."
                                                   : "No standing orders. An order pays the same amount to the same address on a schedule, even when your phone is off.")
             } else {
                 RowList(items: s.orders) { o in
                     HStack(alignment: .top, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("\(GuardText.amount(s, o.token, o.amount)) to \(shortAddr(o.recipient, keep: 10))").font(.system(size: 14, weight: .medium))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(GuardText.amount(s, o.token, o.amount)) to \(shortAddr(o.recipient, keep: 10))").font(.system(size: 14, weight: .medium)).monospacedDigit()
+                                .fixedSize(horizontal: false, vertical: true)
                             Text("\(GuardText.sentence(NearGuard.everyText(o.intervalSeconds))), from \(o.pocket). Next \(GuardText.time(o.nextDueNs))"
                                  + (o.remaining.map { ", \($0) left" } ?? ""))
                                 .font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                            if !o.memo.isEmpty { Text(o.memo).font(.system(size: 12.5)).foregroundStyle(Theme.hint).lineLimit(1) }
+                            if !o.memo.isEmpty { Text(o.memo).font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true) }
                         }
                         Spacer(minLength: 8)
                         Button(busy == "o\(o.id)" ? "Checking" : "Cancel") { act(.cancelOrder(o.id), id: "o\(o.id)") }.buttonStyle(OutlineButton()).disabled(busy != nil)
                     }
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 12)
                 }
                 Text("Orders run on NEAR even when your phone is off. A due order is paid when someone triggers it, and only inside the pocket's limits.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
             }
         }
     }
 
+    /// A ledger: who and how on the left, the amount on the right in even-width digits. Red only for a failed payment.
     private func receiptsSection(_ s: NearGuard.Snapshot) -> some View {
         let shown = allReceipts ? s.receipts : Array(s.receipts.prefix(8))
-        return VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("Payments")
+        return GuardSection("Payments") {
             if s.receipts.isEmpty {
                 EmptyNote(text: "Nothing has been paid from the vault yet.")
             } else {
-                RowList(items: shown) { r in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            Text("\(GuardText.amount(s, r.token, r.amount)) to \(shortAddr(r.recipient, keep: 10))").font(.system(size: 14, weight: .medium)).lineLimit(1)
-                            if !r.ok { PillTag(text: "Failed, refunded", color: Theme.red) }
-                        }
-                        Text(receiptLine(r)).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                        if !r.reason.isEmpty { Text("\u{201C}\(r.reason)\u{201D}").font(.system(size: 12.5)).foregroundStyle(Theme.hint).lineLimit(2) }
+                RowList(items: shown) { r in receiptRow(r, s) }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("The contract keeps the last \(NearGuard.maxReceipts) payments.").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if s.receipts.count > 8 {
+                        Button(allReceipts ? "Show fewer" : "Show all \(s.receipts.count)") { withAnimation(.smooth) { allReceipts.toggle() } }
+                            .buttonStyle(.plain).font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.text)
                     }
-                    .padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if s.receipts.count > 8 {
-                    Button(allReceipts ? "Show fewer" : "Show all \(s.receipts.count)") { withAnimation(.smooth) { allReceipts.toggle() } }
-                        .buttonStyle(.plain).font(.system(size: 12.5)).foregroundStyle(Theme.muted)
-                }
-                Text("The contract keeps the last \(NearGuard.maxReceipts) payments.").font(.system(size: 12)).foregroundStyle(Theme.hint)
+                .padding(.top, 6)
             }
         }
+    }
+
+    private func receiptRow(_ r: NearGuard.GuardReceipt, _ s: NearGuard.Snapshot) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("To \(shortAddr(r.recipient, keep: 10))").font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
+                Text(receiptLine(r)).font(.system(size: 12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                if !r.reason.isEmpty {
+                    Text("\u{201C}\(r.reason)\u{201D}").font(.system(size: 12.5)).foregroundStyle(Theme.hint).fixedSize(horizontal: false, vertical: true)
+                }
+                if !r.ok { GuardChip(text: "Failed, refunded", color: Theme.red).padding(.top, 2) }
+            }
+            Spacer(minLength: 8)
+            Text(GuardText.amount(s, r.token, r.amount)).font(.system(size: 14, weight: .medium)).monospacedDigit()
+                .foregroundStyle(r.ok ? Theme.text : Theme.red).strikethrough(!r.ok, color: Theme.red)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 11).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func receiptLine(_ r: NearGuard.GuardReceipt) -> String {
