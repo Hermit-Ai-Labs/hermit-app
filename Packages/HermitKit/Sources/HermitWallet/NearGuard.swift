@@ -20,10 +20,10 @@ import CryptoKit
 
 /// Where the Budgets contract is, and whether the feature exists in this build.
 public enum GuardConfig {
-    /// The mainnet contract. nil until it's deployed: while it's nil the whole feature is hidden.
-    public static let mainnetContractID: String? = nil
+    /// The mainnet contract (deployed 2026-11-12, contracts/guard/DEPLOYMENTS.md). If it were nil the whole feature would be hidden.
+    public static let mainnetContractID: String? = "hermit-guard.near"
     /// The code hash (base58 of the wasm's sha256) Hermit expects on the mainnet contract. Pasted in with the id.
-    public static let mainnetCodeHash: String? = nil
+    public static let mainnetCodeHash: String? = "Fsv3tUSAn4TQtgw4mJQ5cQcdjQmPbk9meGzNLEQ2Ljdm"
     /// The hash of the testnet deployment's code (contracts/guard/DEPLOYMENTS.md, sha256 714aaaa4...a994).
     public static let testnetCodeHash = "8dF77PJ84FYaezm4w7mvmGb54mFN9rP5jaPDmXmiD5W3"
     /// Debug builds only: a launch argument (`-hermit.guard.contract name.testnet`) or this UserDefaults key points the app at

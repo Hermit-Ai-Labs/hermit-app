@@ -31,8 +31,8 @@ NETWORKS = {
                 "helper": "https://helper.nearprotocol.com/account"},
     "mainnet": {"rpc": "https://free.rpc.fastnear.com", "explorer": "https://nearblocks.io/txns/", "helper": None},
 }
-# Set after the testnet deployment (see contracts/guard/DEPLOYMENTS.md). Mainnet has no default on purpose.
-DEFAULT_CONTRACT = {"testnet": "guard.hermit-guard-owner-1794512081.testnet", "mainnet": None}
+# Set after the testnet deployment (see contracts/guard/DEPLOYMENTS.md). Mainnet: deployed 2026-11-12.
+DEFAULT_CONTRACT = {"testnet": "guard.hermit-guard-owner-1794512081.testnet", "mainnet": "hermit-guard.near"}
 YOCTO = 10 ** 24
 TGAS = 10 ** 12
 GAS_CALL = 150 * TGAS      # the contract refuses payout calls with less than 120 TGas attached; 150 leaves headroom

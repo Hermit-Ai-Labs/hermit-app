@@ -76,12 +76,14 @@ checks every payment on chain. Standing orders run on NEAR even when your phone 
 your approval, every payment is logged with its reason, and one call freezes everything. Only the owner can withdraw,
 and nobody else, us included, can move a user's funds.
 
-It runs on NEAR testnet today (`guard.hermit-guard-owner-1794512081.testnet`), with 40 unit tests and 12 sandbox tests
-that play the attacks with real access keys. To see it refuse an overspend, a stranger and a pocket key reaching for
+It is live on NEAR mainnet as [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near), and in the app
+under Wallets, Security, Budgets. The same code runs on testnet (`guard.hermit-guard-owner-1794512081.testnet`), with 40
+unit tests and 12 sandbox tests that play the attacks with real access keys. To see it refuse an overspend, a stranger and a pocket key reaching for
 `withdraw`, with the real transactions:
 
 ```sh
-.venv/bin/python near/guard-demo.py           # ends with 33 checks matched, 0 mismatched
+.venv/bin/python near/guard-demo.py                        # testnet story, ends with 33 checks matched, 0 mismatched
+.venv/bin/python near/guard.py --network mainnet view info  # the mainnet contract: version, tokens, code hash
 ```
 
 The rules, the threat model and each guarantee with its test are in [contracts/guard/README.md](contracts/guard/README.md)

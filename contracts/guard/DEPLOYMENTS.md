@@ -85,7 +85,33 @@ Read-only check done on mainnet RPC on 2026-11-12 (`guard.py --network mainnet v
 
 So registering the guard costs exactly 0.00125 NEAR per token (0.0025 NEAR for both).
 
-## Mainnet: PREPARED, NOT RUN
+## Mainnet: live
+
+| | |
+|---|---|
+| Contract | `hermit-guard.near` |
+| Deployed | 2026-11-12 |
+| Wasm | 255,757 bytes, sha256 `dd0ea418dfedf4ab9afde4d804202d06abd1d7459f6eb35131148e6eab4b1b64` (code hash on chain `Fsv3tUSAn4TQtgw4mJQ5cQcdjQmPbk9meGzNLEQ2Ljdm`, the same bytes) |
+| Tokens | `near`, USDC `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, USDT `usdt.tether-token.near`; the contract is registered with both |
+| Upgrade key | Still on the contract account, so a bug can be fixed. The app warns about it until it is deleted |
+
+| Step | Transaction |
+|---|---|
+| Create `hermit-guard.near` with 2.6 NEAR | https://nearblocks.io/txns/FTjxz8njkmZeDXHKnStrzHGnkv6SnieE5V3LvzGcscUB |
+| Top up 0.08 NEAR for storage (mainnet gas cost more than the testnet run) | https://nearblocks.io/txns/8kK9ZkRttCweQwUQD7eLNQRbg6YmVNfQyRZUxs3k3yw8 |
+| Deploy and `new` | https://nearblocks.io/txns/5Q9MS41Kgc1Nw9sx4uDtR26ZtqAKwSJTxwe5iRKVpqDE |
+| Register with USDC | https://nearblocks.io/txns/4yDCUvAm4oB39Zs1JywCyk9DtvDMSYrERvm5mtQjR5P8 |
+| Register with USDT | https://nearblocks.io/txns/ArW8tiihoRarmniD3Qra4UquSs1Sus2dMyN2EUxbBpUS |
+
+Check it yourself, no key needed: `.venv/bin/python near/guard.py --network mainnet view info` prints the version, the tokens and
+the code sha256 on chain.
+
+The contract account needed 2.68 NEAR in all: 256,104 bytes of storage at 1 NEAR per 100 KB, plus gas. A first deploy attempt
+with 2.6 NEAR was refused by the protocol for lack of storage balance and changed nothing
+(https://nearblocks.io/txns/Zod9GzzM8aec6iqufJdBwuoxoMjsBHQQKx6e2qMsAyT).
+
+## Mainnet: the procedure we followed
+
 
 Prerequisites: a deployer account `D.near` with a full-access key file `D.json` and about 2.65 NEAR; `dist/guard.wasm` built by
 `build.sh` with sha256 `dd0ea418dfedf4ab9afde4d804202d06abd1d7459f6eb35131148e6eab4b1b64`; the python venv from `near/requirements.txt`. Mainnet needs `--network mainnet`
