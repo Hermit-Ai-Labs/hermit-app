@@ -67,14 +67,6 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
   sending NEAR and NEAR tokens, and [staking NEAR](docs/NEAR.md#staking-near) with a validator from Earn or by asking
   "stake 5 NEAR".
 
-## How it fits the tracks
-
-| Track | What the track asks for | What Hermit does | Where |
-| --- | --- | --- | --- |
-| Privacy & Private AI | AI that protects sensitive data: private AI, TEE, NEAR AI Cloud | The model runs on your device. Bigger questions go to NEAR AI Cloud only after the device has checked the enclave itself: the Intel TDX quote, NVIDIA's GPU verdict, a fresh nonce, the TLS key, then the model's signature on the answer. It also checks the enclave booted an OS image NEAR publishes, and the script checks that NEAR's containers were built from NEAR's public repositories | `HermitCloud/`, `near/verify-attestation.py`, `HermitCloudTests` |
-| AI Security & Defense | Spending limits, policy engines, sandboxed wallets: give AI money without the keys | The assistant never holds a key, so there's no key to scope or steal: the keys stay sealed by the Secure Enclave, and it can only prepare a move for your review. A policy caps what it can prepare, a guard in code stops injected text from starting a send, and TEE attestation covers the cloud model. `python3 near/attack-demo.py` replays the attacks on any machine and prints the log | `HermitWallet/SpendPolicy.swift`, `HermitCore/AgentTools.swift`, [near/attack-demo.py](near/attack-demo.py) ([log](docs/logs/attack-demo-2026-11-12.txt)), [SECURITY-DEMO.md](docs/SECURITY-DEMO.md) |
-| Unstoppable DeFi | Trading that settles across chains through NEAR Intents, no custodian | Ask for a swap or a bridge and NEAR Intents quotes and settles it, from your own keys. One sentence funds a Hyperliquid account from any chain, and the next opens a perp with take profit and stop loss | `HermitWallet/NearIntents.swift`, `IntentsSwap.swift`, `near/intents-quote.py` |
-
 ## Check it yourself
 
 On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, a couple of minutes. These scripts are written
