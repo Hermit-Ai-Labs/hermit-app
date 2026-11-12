@@ -9,13 +9,19 @@ Tracks: Privacy & Private AI, AI Security & Defense, Unstoppable DeFi, Agent Eco
 
 ## Try it
 
-- Mac: https://hermit.my/dmg (notarized, Apple silicon, macOS 26)
-- Mac TestFlight: https://testflight.apple.com/join/P66H5DF8
-- iPhone TestFlight: https://testflight.apple.com/join/ed9vUh7d (iOS 26)
-- Demo video: TODO
-- Screenshots and diagrams: https://hermit.my/gallery
+Hermit is a native app for Apple silicon Macs and iPhones, so the app itself won't run on Linux or Windows. Pick
+whichever path fits your machine:
 
-The model downloads on first launch (about 2.8 GB, 1.4 GB on smaller iPhones). It's mainnet: real swaps move real money.
+| You have | Do this | You'll see |
+| --- | --- | --- |
+| A Mac (Apple silicon, macOS 26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
+| A Mac or an iPhone (iOS 26), via TestFlight | Mac: https://testflight.apple.com/join/P66H5DF8, iPhone: https://testflight.apple.com/join/ed9vUh7d | The same app, installed through Apple's TestFlight |
+| A Mac with Xcode 26 | Build it from source, see [docs/BUILD.md](docs/BUILD.md), and run the tests with `bash scripts/core-tests.sh` | `Executed 247 tests, with 13 tests skipped and 0 failures` |
+| Any machine, Linux included | Run the three Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live |
+| Nothing to install | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
+
+On first launch, the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it runs with Wi-Fi
+off. It's mainnet, so real swaps move real money, and nothing moves without your approval.
 
 ## Things you can ask it
 
@@ -38,7 +44,8 @@ There's also spot on Solana through Jupiter, Aave deposits, and a browser where 
 
 ## Check it yourself
 
-On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, about a minute:
+On any Mac or Linux machine with Python 3.10 or later. No keys, no funds, about a minute. These scripts are written
+apart from the app and make the same checks it does, so you can see the NEAR side working without a Mac:
 
 ```sh
 git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
