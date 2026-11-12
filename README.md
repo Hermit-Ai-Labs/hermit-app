@@ -111,20 +111,22 @@ you should see.
 
 ## Where each claim lives
 
-| Claim | Code | Test |
-| --- | --- | --- |
-| A 1Click quote whose signature fails is refused | `HermitWallet/NearIntents.swift`, `IntentsSwap.swift` | `NearIntentsTests.testSignatureNonDryAndTampering`, `testUnsignedQuotesAreRefused` |
-| The assistant can prepare up to $100 per move | `HermitWallet/SpendPolicy.swift` | `NearIntentsTests.testSpendPolicy`, `testSpendPolicyAgentTrade` |
-| A send only goes to an address you typed | `HermitCore/AgentTools.swift` (`ToolGuard`) | `ToolLoopTests.testSendToTypedAddressIsPrepared`, `testGuardMatching` |
-| A prompt injection in a tool result can't start a send | `HermitCore/ToolLoop.swift`, `ToolCalls.swift` | `ToolLoopTests.testPromptInjectionInToolResultCannotPrepareSend` |
-| Keys are sealed by the Secure Enclave and open only for a signature | `HermitWallet/KeyVault.swift` | `TableAndVaultTests.testSealOpenRemoveRoundTrip` (needs a Mac with a Secure Enclave) |
-| Private Cloud checks the TDX quote, NVIDIA evidence and TLS key before the prompt | `HermitCloud/Attestation.swift`, `TDXQuote.swift`, `TLSBinding.swift` | `HermitCloudTests.testRealReportsPassEveryCheck` and the tamper tests after it |
-| The enclave booted an OS image NEAR publishes, and NEAR's containers come from NEAR's repositories | `HermitCloud/Attestation.swift` (`knownOSImage`), `near/verify-attestation.py` | `HermitCloudTests.testGuestOSIsOneNEARPublishes`, [the script's log](docs/logs/verify-attestation-no-key-2026-11-12.txt) |
-| An answer's review buttons need the attested model's signature | `HermitCloud/ResponseSignature.swift`, `NearCloudAgent.swift` | `HermitCloudTests.testSignatureVerifies` |
-| Every wallet has a NEAR account, derived on the device | `HermitWallet/Near.swift` | `NearTests.testDerivation`, `testTransferMatchesNearApiJs` |
-| The model is ours and pinned by hash | `HermitModel/ModelCatalog.swift`, `ModelPins.swift` | `ModelUpgradeTests.testShippedCatalog` |
+<table>
+<tr><th width="34%" align="left">Claim</th><th width="33%" align="left">Code</th><th width="33%" align="left">Test</th></tr>
+<tr><td valign="top">A swap quote with a bad signature is refused</td><td valign="top"><code>HermitWallet/NearIntents.swift</code><br><code>HermitWallet/IntentsSwap.swift</code></td><td valign="top"><code>testSignatureNonDryAndTampering</code><br><code>testUnsignedQuotesAreRefused</code></td></tr>
+<tr><td valign="top">The assistant can prepare up to $100 per move</td><td valign="top"><code>HermitWallet/SpendPolicy.swift</code></td><td valign="top"><code>testSpendPolicy</code><br><code>testSpendPolicyAgentTrade</code></td></tr>
+<tr><td valign="top">A send only goes to an address you typed</td><td valign="top"><code>HermitCore/AgentTools.swift</code></td><td valign="top"><code>testSendToTypedAddressIsPrepared</code><br><code>testGuardMatching</code></td></tr>
+<tr><td valign="top">Injected text in a tool result can't start a send</td><td valign="top"><code>HermitCore/ToolLoop.swift</code><br><code>HermitCore/ToolCalls.swift</code></td><td valign="top"><code>testPromptInjectionInToolResultCannotPrepareSend</code></td></tr>
+<tr><td valign="top">Keys are sealed by the Secure Enclave</td><td valign="top"><code>HermitWallet/KeyVault.swift</code></td><td valign="top"><code>testSealOpenRemoveRoundTrip</code></td></tr>
+<tr><td valign="top">Private Cloud checks the enclave before the prompt</td><td valign="top"><code>HermitCloud/Attestation.swift</code><br><code>HermitCloud/TDXQuote.swift</code><br><code>HermitCloud/TLSBinding.swift</code></td><td valign="top"><code>testRealReportsPassEveryCheck</code><br>and the tamper tests after it</td></tr>
+<tr><td valign="top">The enclave runs an OS image NEAR publishes</td><td valign="top"><code>HermitCloud/Attestation.swift</code><br><code>near/verify-attestation.py</code></td><td valign="top"><code>testGuestOSIsOneNEARPublishes</code><br><a href="docs/logs/verify-attestation-no-key-2026-11-12.txt">the script's log</a></td></tr>
+<tr><td valign="top">Review buttons need the model's signature</td><td valign="top"><code>HermitCloud/ResponseSignature.swift</code><br><code>HermitCloud/NearCloudAgent.swift</code></td><td valign="top"><code>testSignatureVerifies</code></td></tr>
+<tr><td valign="top">Every wallet has a NEAR account, made on the device</td><td valign="top"><code>HermitWallet/Near.swift</code></td><td valign="top"><code>testDerivation</code><br><code>testTransferMatchesNearApiJs</code></td></tr>
+<tr><td valign="top">You can stake NEAR and always get it back</td><td valign="top"><code>HermitWallet/NearStaking.swift</code></td><td valign="top"><code>testStakingCallsMatchNearApiJs</code><br><code>testUnstakeAndWithdrawReviews</code></td></tr>
+<tr><td valign="top">The model is ours and pinned by hash</td><td valign="top"><code>HermitModel/ModelCatalog.swift</code><br><code>HermitModel/ModelPins.swift</code></td><td valign="top"><code>testShippedCatalog</code></td></tr>
+</table>
 
-Code is under `Packages/HermitKit/Sources/`, tests under `Packages/HermitKit/Tests/`.
+Code is under `Packages/HermitKit/Sources/`, tests under `Packages/HermitKit/Tests/`. Search a test's name to open it.
 
 ## How it works
 
