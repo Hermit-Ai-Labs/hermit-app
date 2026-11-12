@@ -423,9 +423,10 @@ public struct HermitToolbox: AgentToolbox {
             fixes.append("Stop loss moved to \(money(sl!)), 2% \(isBuy ? "below" : "above") the price: \(money(l)) was on the wrong side and would have closed the order at once.")
         }
         let price = limitIn.map { Hyperliquid.roundPrice($0, szDecimals: asset.szDecimals) } ?? Hyperliquid.marketPrice(mid: mark, isBuy: isBuy, asset: asset)
-        // Hyperliquid checks the $10 minimum against the order's own price, which for a market short sits 5% under the
-        // mark. Size against the lower of the two, and round up a step rather than down when that drops under $10.
-        let floorPx = min(px, price)
+        // Hyperliquid checks the $10 minimum against each order's own price: a market short sits 5% under the mark, and a
+        // stop sits under it too. Size against the lowest, and round up a step rather than down when that drops under $10.
+        // The stop and take-profit go in as their own orders at their own prices, so they must clear $10 too.
+        let floorPx = [px, price, sl, tp].compactMap { $0 }.filter { $0 > 0 }.min() ?? px
         var qty = Hyperliquid.roundSize(size / px, szDecimals: asset.szDecimals)
         if qty * floorPx < minUSD {
             let step = pow(10, -Double(asset.szDecimals))
