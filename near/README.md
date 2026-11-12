@@ -1,7 +1,7 @@
 # The NEAR scripts
 
 Hermit is an iPhone and Mac app, so we wrote these scripts to let you check its NEAR code without it. Each one does
-what the app does, step by step, against the live services. They need Python 3.10 or later on a Mac (3.12 for
+what the app does, step by step, against the live services. They need Python 3.10 or later on a Mac or Linux machine (3.12 for
 `--sdk`), and no keys or funds.
 
 | Script | What it does | A clean run ends with |

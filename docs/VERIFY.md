@@ -5,7 +5,7 @@ download. Prices, amounts and balances move, so your numbers will differ from ou
 
 ## The NEAR code, with Python
 
-On a Mac with Python 3.10 or later (3.12 for steps 7 and 8). Check `python3 --version` first. If it's older, run
+On a Mac or Linux machine with Python 3.10 or later (3.12 for steps 7 and 8). Check `python3 --version` first. If it's older, run
 `brew install python@3.12` and type `python3.12` where it says `python3` below. Steps 1 to 7 need no keys and no funds.
 We ran them in a fresh clone on 2026-11-11 and got what the See column says.
 
@@ -16,7 +16,7 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 
 | # | Do | See |
 | --- | --- | --- |
-| 1 | `.venv/bin/python near/intents-quote.py` | A live dry 1Click quote for 10 USDC on Base to wNEAR: amount out, minimum out, `1Click fee 20 bps`, a time estimate (35 s for us), `deposit address none (dry quote: nothing can be sent)` and `[PASS] 1Click signature by ed25519:reYaWhvw...`. Exit code 0. |
+| 1 | `.venv/bin/python near/intents-quote.py` | A live dry 1Click quote for 10 USDC on Base to wNEAR: amount out, minimum out, `1Click fee 20 bps`, a time estimate, `deposit address none (dry quote: nothing can be sent)` and `[PASS] 1Click signature by ed25519:reYaWhvw...`. Exit code 0. If solvers aren't quoting that route at the moment, the script says so and quotes NEAR to USDC on Base instead, then USDC from Base to Arbitrum; the last line is the same `[PASS]`. |
 | 2 | `.venv/bin/python near/intents-quote.py --selftest` | Eight `[PASS]` lines, then `8 passed, 0 failed`. The signature code gets the same hashes as the Swift tests and rejects a quote whose deposit address was swapped. |
 | 3 | `.venv/bin/python near/intents-quote.py --from ETH:arbitrum --to BTC:bitcoin --amount 0.01` | `[FAIL] 1Click signature`, a note, and exit code 1. Quotes that pay out on Bitcoin don't verify with the official SDK's algorithm either, so the app only lets you approve those yourself, after a warning ([why](NEAR.md#what-hermit-checks-for-you)). |
 | 4 | `.venv/bin/python near/near-account.py` | From the public test phrase (`abandon` eleven times, then `about`): path `m/44'/397'/0'`, public key `ed25519:6j4b6zUa...`, implicit account `5510e2b4...ee412` and three `[PASS]` lines against the Swift test vector. Then that account's NEAR, USDC, USDT and wNEAR balances from mainnet RPC, read-only. |
@@ -80,6 +80,6 @@ Install it from the links in the [README](../README.md#try-it). On a Mac, read T
    chat.
 8. Switch back to On-device, turn on Airplane mode (or turn off Wi-Fi on a Mac) and ask something. It still answers.
 
-Private Cloud chat needs a NEAR AI Cloud key, in Settings, Private Cloud. TestFlight builds may carry our shared key,
-good for 30 messages per device per day. Without a key the enclave check in step 4 still runs, but your message isn't
-sent, and the reply says why.
+The Mac download and the TestFlight builds come with 30 free Private Cloud messages a day. After that, or in a build
+you compile yourself, add your own NEAR AI Cloud key in Settings, Private Cloud. Without a key the enclave check in
+step 4 still runs, but your message isn't sent, and the reply says why.

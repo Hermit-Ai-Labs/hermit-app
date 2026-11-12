@@ -184,9 +184,9 @@ def fmt_usd(s):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--from", dest="src", default="USDC:base", help="SYMBOL:chain to sell (default USDC:base)")
-    ap.add_argument("--to", dest="dst", default="NEAR:near", help="SYMBOL:chain to buy (default NEAR:near)")
-    ap.add_argument("--amount", default="10", help="amount of --from, in whole units (default 10)")
+    ap.add_argument("--from", dest="src", help="SYMBOL:chain to sell (default USDC:base)")
+    ap.add_argument("--to", dest="dst", help="SYMBOL:chain to buy (default NEAR:near)")
+    ap.add_argument("--amount", help="amount of --from, in whole units (default 10)")
     ap.add_argument("--recipient", help="where the output goes (default: the test phrase's address on that chain)")
     ap.add_argument("--refund-to", help="refund address on the origin chain (default: the test phrase's address)")
     ap.add_argument("--slippage-bps", type=int, default=100)
@@ -198,6 +198,31 @@ def main():
         return selftest()
 
     tokens = requests.get(f"{BASE}/v0/tokens", headers=headers(), timeout=30).json()
+    if a.src or a.dst or a.amount:
+        a.src, a.dst, a.amount = a.src or "USDC:base", a.dst or "NEAR:near", a.amount or "10"
+        try:
+            return quote(a, tokens)
+        except RouteUnavailable as e:
+            sys.exit(f"1Click isn't quoting this route right now ({e}). Try another pair, or run it with no arguments.")
+    # No pair given: the default, then two more routes. Solvers sometimes stop quoting one route for a while, and the
+    # signature check is the same on any of them.
+    for i, (a.src, a.dst, a.amount) in enumerate(DEFAULT_ROUTES):
+        try:
+            return quote(a, tokens)
+        except RouteUnavailable as e:
+            last = i == len(DEFAULT_ROUTES) - 1
+            print(f"  1Click isn't quoting this route right now ({e})." + ("" if last else " Trying another route.\n"))
+    sys.exit(1)
+
+
+class RouteUnavailable(Exception):
+    pass
+
+
+DEFAULT_ROUTES = [("USDC:base", "NEAR:near", "10"), ("NEAR:near", "USDC:base", "5"), ("USDC:base", "USDC:arbitrum", "10")]
+
+
+def quote(a, tokens):
     (fs, fc), (ts, tc) = parse_place(a.src), parse_place(a.dst)
     src, dst = resolve(tokens, fs, fc), resolve(tokens, ts, tc)
     amount = int(Decimal(a.amount) * (10 ** src["decimals"]))
@@ -217,6 +242,8 @@ def main():
     print(f"  recipient          {recipient}")
     r = requests.post(f"{BASE}/v0/quote", json=body, headers=headers(), timeout=60)
     resp = r.json()
+    if r.status_code == 400 and "not available" in str(resp.get("message", "")):
+        raise RouteUnavailable(resp["message"])
     if r.status_code >= 300:
         sys.exit(f"1Click answered HTTP {r.status_code}: {resp.get('message', resp)}")
     q, qr = resp["quote"], resp["quoteRequest"]

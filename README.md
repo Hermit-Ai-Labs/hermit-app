@@ -11,7 +11,7 @@ bridge, trade or pay. It prepares the move, and nothing leaves your wallet until
 ID. We didn't want our balances and plans on somebody's server, so the model lives on your device. When a question
 needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it sends a word.
 
-Tracks: Privacy & Private AI, AI Security & Defense, Unstoppable DeFi, Agent Economy.
+Tracks: Privacy & Private AI, AI Security & Defense, Unstoppable DeFi.
 
 <p align="center">
 <img src="docs/img/screens/offline.jpg" width="190" alt="Hermit's home screen on iPhone: your own AI, works offline.">
@@ -53,14 +53,23 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
 
 ## How Hermit uses NEAR
 
-- **[NEAR Intents](docs/NEAR.md#near-intents-1click)** does every swap and bridge: between EVM chains, Solana and NEAR,
-  and out to Bitcoin and Hyperliquid. It also funds the wallet from any chain. The device checks each quote's 1Click
-  signature and refuses a quote that fails.
+- **[NEAR Intents](docs/NEAR.md#near-intents-1click)** quotes every cross-chain swap and bridge: between EVM chains,
+  Solana and NEAR, and out to Bitcoin and Hyperliquid. It also funds the wallet from any chain. The device checks each
+  quote's 1Click signature and refuses a quote that fails. Between EVM chains Hermit asks Relay too, takes whichever
+  pays out more, and the review names the route.
 - **[NEAR AI Cloud](docs/NEAR.md#private-cloud-on-near-ai-cloud)** answers the bigger questions in Private Cloud mode.
   The device checks the enclave's Intel TDX and NVIDIA proof before it sends the prompt, and the model's signature on
   every answer.
 - **[A NEAR account](docs/NEAR.md#a-near-account-in-every-wallet)** is in every wallet, derived on the device from the
   same recovery phrase as the EVM and Solana accounts.
+
+## How it fits the tracks
+
+| Track | What the track asks for | What Hermit does | Where |
+| --- | --- | --- | --- |
+| Privacy & Private AI | AI that protects sensitive data: private AI, TEE, NEAR AI Cloud | The model runs on your device. Bigger questions go to NEAR AI Cloud only after the device has checked the enclave itself: the Intel TDX quote, NVIDIA's GPU verdict, a fresh nonce, the TLS key, then the model's signature on the answer | `HermitCloud/`, `near/verify-attestation.py`, `HermitCloudTests` |
+| AI Security & Defense | Spending limits, policy engines, sandboxed wallets: give AI money without the keys | The assistant never holds a key, so there's no key to scope or steal: the keys stay sealed by the Secure Enclave, and it can only prepare a move for your review. A policy caps what it can prepare, a guard in code stops injected text from starting a send, and TEE attestation covers the cloud model | `HermitWallet/SpendPolicy.swift`, `HermitCore/AgentTools.swift`, [SECURITY-DEMO.md](docs/SECURITY-DEMO.md) |
+| Unstoppable DeFi | Trading that settles across chains through NEAR Intents, no custodian | Ask for a swap or a bridge and NEAR Intents quotes and settles it, from your own keys. One sentence funds a Hyperliquid account from any chain, and the next opens a perp with take profit and stop loss | `HermitWallet/NearIntents.swift`, `IntentsSwap.swift`, `near/intents-quote.py` |
 
 ## Check it yourself
 
@@ -123,7 +132,7 @@ Tap any figure to open it full size.
 
 We train our own. [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) is our fine-tune of
 Qwen3-4B, and [Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit) brings the same skills to
-smaller iPhones on Qwen3-1.7B. They learned from 21,000 examples of real Hermit work: all 30 tools, multi-step requests
+smaller iPhones on Qwen3-1.7B. They learned from 21,000 examples of Hermit tasks, written and checked against the app's own tools: all 30 tools, multi-step requests
 like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a quote fails, and saying no to anything
 unsafe. Two LoRA passes each, Hermit 1.3 on a rented NVIDIA L40S and Lite on an A6000. Both run on your device with
 MLX, and the app checks every byte it downloads against hashes built into it.
@@ -142,7 +151,8 @@ On held-out test conversations, run in a real tool loop:
 | Exact arguments on the new tools | | | 78 to 87% | 81 to 95% |
 | Leaves the tools alone when it should just answer | 154 of 160 | 159 of 160 | 88.2% | 91.5% |
 
-Every test, both models side by side: [docs/MODEL-RESULTS.md](docs/MODEL-RESULTS.md).
+Hermit 1.3's numbers are from its first training pass; the weights in the app have a second pass on top. Every test,
+both models side by side: [docs/MODEL-RESULTS.md](docs/MODEL-RESULTS.md).
 
 ## Questions we get
 
@@ -174,8 +184,9 @@ to a list of NEAR releases. [NEAR.md](docs/NEAR.md#what-hermit-checks-for-you) l
 
 **What leaves my device in on-device mode?** Your chats don't. There's no account, no sign-up and no analytics.
 
-**Do I need a NEAR AI account for Private Cloud?** No. You get 30 free Private Cloud messages a day. After that, you can
-paste your own NEAR AI Cloud key in Settings, Private Cloud.
+**Do I need a NEAR AI account for Private Cloud?** No. The Mac download and the TestFlight builds come with 30 free
+Private Cloud messages a day. After that, or in a build you compile yourself, paste your own NEAR AI Cloud key in
+Settings, Private Cloud.
 
 **Who holds the keys?** You do. One 12-word recovery phrase, sealed with a key inside the Secure Enclave on your
 device. Nothing syncs to iCloud and nothing reaches our servers. Write the phrase down and you can restore the wallet
@@ -219,7 +230,9 @@ policy. [This diff](https://github.com/Hermit-Ai-Labs/hermit-app/compare/8fe7b71
 the NEAR work and what we built alongside it.
 
 The app uses swift-secp256k1, CryptoSwift, mlx-swift, mlx-swift-lm and swift-transformers, and the scripts use
-requests, cryptography, eth-account and dcap-qvl. No templates.
+requests, cryptography, eth-account and dcap-qvl. No templates. Two things of ours live outside this repository,
+both made in the same window: the web prototype above, and the lab where we generate training data and train and test
+the models.
 
 ## Team
 

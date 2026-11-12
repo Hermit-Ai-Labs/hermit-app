@@ -1,0 +1,39 @@
+# The NEAR checks from the README, on Linux: what a reviewer without a Mac can run. No keys, no funds.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  near:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m venv .venv && .venv/bin/pip install -r near/requirements.txt
+
+      # Offline: the same vectors and recorded reports the Swift tests use.
+      - name: 1Click signature code against the Swift fixtures
+        run: .venv/bin/python near/intents-quote.py --selftest
+      - name: Recorded NEAR AI Cloud report, checked offline
+        run: |
+          F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures
+          .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline
+
+      # Live: these talk to 1Click, NEAR RPC and NEAR AI Cloud, so a service hiccup must not fail the run.
+      - name: Live dry quote from NEAR Intents
+        continue-on-error: true
+        run: .venv/bin/python near/intents-quote.py
+      - name: The NEAR account from the public test phrase
+        continue-on-error: true
+        run: .venv/bin/python near/near-account.py
+      - name: NEAR AI Cloud's enclave, live
+        continue-on-error: true
+        run: .venv/bin/python near/verify-attestation.py

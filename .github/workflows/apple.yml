@@ -7,6 +7,8 @@ name: tests
 on:
   push:
     branches: [main]
+    # Docs and the Python checks don't change the apps: they run in checks.yml.
+    paths-ignore: ['**.md', 'docs/**', 'near/**', '.github/workflows/checks.yml']
   pull_request:
   workflow_dispatch:
 
