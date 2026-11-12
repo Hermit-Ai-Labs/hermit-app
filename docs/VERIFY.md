@@ -39,7 +39,8 @@ bash scripts/core-tests.sh
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-On our Mac on 2026-11-11 the first one ended with `Executed 182 tests, with 13 tests skipped and 0 failures`. The
+On our Mac on 2026-11-12 the first one ended with `Executed 247 tests, with 13 tests skipped and 0 failures`
+([log](logs/core-tests-2026-11-12.txt)). The
 skipped tests need the network (`HERMIT_LIVE=1`, `HERMIT_LIVE_DAPP=1` or `ONECLICK_LIVE=1`) or a Secure Enclave. The
 second runs the 29 tests behind the prompt-injection demo and the spending policy; they all passed in that run. The
 walkthrough is [SECURITY-DEMO.md](SECURITY-DEMO.md).

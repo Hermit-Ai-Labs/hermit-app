@@ -15,13 +15,9 @@ On a Mac with Xcode 26. It builds only the non-UI code, so it takes a few minute
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-The filter picks 29 tests, and the run should end in `0 failures`. They all passed in our full run on 2026-11-11, which
-ended with `Executed 182 tests, with 13 tests skipped and 0 failures`. TODO: save that run as
-`docs/logs/core-tests-2026-11-11.txt`.
-
-The saved log is from 2026-11-08, on a MacBook Air M3, from an earlier tree with fewer tests:
-[logs/core-tests-2026-11-08.txt](logs/core-tests-2026-11-08.txt). Its last line is
-`Executed 105 tests, with 8 tests skipped and 0 failures`. The Swift tests need a Mac; without one, read the tests and
+The filter picks 29 tests, and the run should end in `0 failures`. Our full run on 2026-11-12, on a MacBook Air M3,
+ended with `Executed 247 tests, with 13 tests skipped and 0 failures`:
+[logs/core-tests-2026-11-12.txt](logs/core-tests-2026-11-12.txt). The Swift tests need a Mac; without one, read the tests and
 that log.
 
 ## The attack
@@ -66,20 +62,21 @@ the limits in the wallet's Security tab.
 
 ## The model and its tools
 
-Hermit 1.2 is Qwen3-4B-Instruct-2507 (Apache-2.0), fine-tuned by us on Hermit's tools (LoRA, on one rented NVIDIA
-A6000) and converted to MLX 4-bit. It's about 2.3 GB, published as
-[aiquantgod/Hermit-1.2-4B-MLX-4bit](https://huggingface.co/aiquantgod/Hermit-1.2-4B-MLX-4bit) and pinned to a commit in
-`HermitModel/ModelCatalog.swift`. iPhones with less memory get Hermit 1.1 Lite. That one is plain Qwen3-1.7B
-(mlx-community's 4-bit weights, not fine-tuned), about 1 GB. The download comes from models.hermit.my or Hugging Face,
-and every file and 128 MiB piece has to match a SHA-256 hash pinned in the app (`HermitModel/ModelSources.swift`,
-`ModelPins.swift`).
+Hermit 1.3 is Qwen3-4B-Instruct-2507 (Apache-2.0), fine-tuned by us in two passes on 21,000 examples of Hermit's
+tools (LoRA, on rented NVIDIA L40S and A6000 GPUs) and converted to MLX 5-bit. It's about 2.8 GB, published as
+[aiquantgod/Hermit-1.3-4B-MLX-5bit](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) and pinned to a commit in
+`HermitModel/ModelCatalog.swift`. iPhones with less memory get
+[Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit), the same training on Qwen3-1.7B at
+6-bit, about 1.4 GB. The download comes from models.hermit.my or Hugging Face, and every file and 128 MiB piece has to
+match a SHA-256 hash pinned in the app (`HermitModel/ModelSources.swift`, `ModelPins.swift`).
 
-On the device, Hermit 1.2 has 15 tools: `calculator`, `get_price`, `get_balances`, `hyperliquid_account`, `position_math`,
-`search_markets`, `get_yields`, `get_quote`, `prepare_trade`, `prepare_swap`, `prepare_send`, `prepare_multisend`,
-`prepare_deposit`, `prepare_withdraw` and `open_add_funds`. They're OpenAI-format function schemas. Private Cloud gets
-all 30 (`HermitCloud/Resources/hermit_tools_v3.json`), adding selling Solana tokens, token search, positions, your whole
-portfolio, cancelling orders, take-profit and stop-loss, automations, scheduled payments and contacts. `testAppToolsAreTheTrainedOnesPlusQuote` pins the
-list and its order. The tool loop parses tool calls, cleans tool results and guards the money tools
+Both know 30 tools, as OpenAI-format function schemas (`HermitCloud/Resources/hermit_tools_v3.json`). Thirty tool
+descriptions are too long for every chat on a phone, so each chat gets 12 core tools (`calculator`, `get_price`,
+`get_balances`, `get_portfolio`, `get_address`, `get_activity`, `prepare_send`, `prepare_swap`, `get_quote`,
+`open_page`, `open_app`, `open_add_funds`) plus the packs its first message asks for: trade (Hyperliquid perps, TP/SL),
+solana (token search, buy, sell), earn (Aave) and pay (batch payments, contacts, scheduled payments, automations).
+The router is `HermitCore/ToolPacks.swift`, checked against the training data's fixture by the tests. Private Cloud
+gets all 30. The tool loop parses tool calls, cleans tool results and guards the money tools
 (`HermitCore/ToolLoop.swift`, `ToolCalls.swift`, `AgentTools.swift`).
 
 ## Keys and approvals

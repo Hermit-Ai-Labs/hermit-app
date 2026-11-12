@@ -119,7 +119,7 @@ const cx = LOOP.x + LOOP.w / 2 + 6, r = 180;
 
 // device label and the Private Cloud note
 el('On your iPhone or Mac', 88, 258, null, null, 'zlDev', 'zl');
-const pcn = el('Private Cloud mode: 30 tools, same guard and cleaner', 0, 258, null, null, 'pcn', 'note');
+const pcn = el('Private Cloud mode: same tools, guard and cleaner', 0, 258, null, null, 'pcn', 'note');
 pcn.style.left = (DEV.x + DEV.w - 24 - pcn.offsetWidth) + 'px'; R.pcn.x = DEV.x + DEV.w - 24 - pcn.offsetWidth;
 
 // your input
@@ -136,9 +136,9 @@ const LZ = { y: IZB + 24 };
 el('The loop', LOOP.x + 24, LZ.y + 16, null, null, 'zlLoop', 'zl');
 const mTop = LZ.y + 52, cy = mTop + PH / 2 + r;
 const MW = 290, GW = 190, CW = 216, TW = 250;
-plot('model', cx - MW / 2, cy - r - PH / 2, MW, PH, 'Hermit 1.2 model', 'Qwen3-4B fine-tune, 2.3 GB', 'model');
+plot('model', cx - MW / 2, cy - r - PH / 2, MW, PH, 'Hermit 1.3 model', 'Qwen3-4B fine-tune, 2.8 GB', 'model');
 plot('guard', cx + r - GW / 2, cy - PH / 2, GW, PH, 'Tool guard', 'Checks every call', 'ring');
-plot('tools', cx - TW / 2, cy + r - PH / 2, TW, PH, 'Toolbox', '15 tools on device');
+plot('tools', cx - TW / 2, cy + r - PH / 2, TW, PH, 'Toolbox', '30 tools on device');
 plot('clean', cx - r - CW / 2, cy - PH / 2, CW, PH, 'Result cleaner', 'Hides order-like text', 'ring');
 const mid = el(`<span class="zl">up to</span><b>5</b><span class="zl">rounds</span>`, cx, cy, null, null, 'mid', 'mid');
 const LZB = R.tools.y + PH + 28;
