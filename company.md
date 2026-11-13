@@ -26,10 +26,18 @@ Nothing moves until you approve with Face ID.
 ## Progress
 
 - **39 TestFlight builds in two weeks** (24 iPhone, 15 Mac).
-- Real swaps, staking, Black Box records and an insurance purchase on mainnet, from the app ([README](README.md)).
+- 3 contracts live on NEAR mainnet; 4 models trained and published, hashes on chain.
 - 298 app tests passing ([log](docs/logs/core-tests-2026-11-13.txt)). Open source, MIT, training data public
   ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
-- Revenue: none yet. User numbers: not published yet.
+
+## Traction
+
+Early, real numbers as of 2026-11-13:
+
+- 6 waitlist sign-ups and 6 public TestFlight testers (4 iPhone, 2 Mac).
+- On mainnet from the app: real swaps and staking, 2 Black Box records, 1 insurance member. These are our own first
+  moves ([README](README.md)).
+- Revenue: none yet.
 
 Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.apple.com/join/ed9vUh7d) ·
 [Mac TestFlight](https://testflight.apple.com/join/P66H5DF8)
@@ -47,7 +55,16 @@ Institutional, Infura, Phantom Connect; Privy and Dynamic charge per active wall
 
 ## Team
 
-[Ryan Chi](https://x.com/MrRyanChi) · [Daksh Joshi](https://x.com/dakshbigshit)
+**[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/))
+- Co-founded [insiders.bot](https://insiders.bot), a Solana and prediction-market trading bot: peak US$360K ARR and
+  $1M+ monthly volume.
+- Co-president of 0xU Club, Hong Kong's largest Web3 student association.
+- UPenn (FranklinDAO) and CUHK.
+
+**[Daksh Joshi](https://x.com/dakshbigshit)** ([LinkedIn](https://www.linkedin.com/in/joshidaksh/))
+- Co-founded insiders.bot with Ryan, and Sigmaboy.ai.
+- Technical BD at Astralane (low-latency trading infrastructure); previously CPO at PublicAI.
+- Guest lecturer at CUHK Business School, teaching Solidity and DeFi in a master's course. CUHK finance and maths.
 
 ## Ask us
 
