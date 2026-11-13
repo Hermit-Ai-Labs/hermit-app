@@ -29,12 +29,12 @@ whichever path fits your machine:
 
 | You&nbsp;have | Do this | You'll see |
 | --- | --- | --- |
-| A&nbsp;Mac&nbsp;(Apple&nbsp;silicon,&nbsp;macOS&nbsp;26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
-| An&nbsp;iPhone&nbsp;(iOS&nbsp;26) | Join the iPhone beta on TestFlight: https://testflight.apple.com/join/ed9vUh7d | Hermit on your iPhone, installed through Apple's TestFlight |
-| A&nbsp;Mac,&nbsp;through&nbsp;TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
-| A&nbsp;Mac&nbsp;with&nbsp;Xcode&nbsp;26 | Build and run it yourself: `brew install xcodegen && xcodegen generate`, open `Hermit.xcodeproj`, pick the Hermit scheme and press Run ([docs/BUILD.md](docs/BUILD.md)) | The app, built from this repository on your own Mac. `bash scripts/core-tests.sh` runs its tests too |
-| Any&nbsp;machine,&nbsp;Linux&nbsp;included | Run the Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live, and the attacks on the assistant, blocked |
-| No&nbsp;Mac&nbsp;or&nbsp;iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
+| A&nbsp;Mac (Apple&nbsp;silicon, macOS&nbsp;26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
+| An&nbsp;iPhone (iOS&nbsp;26) | Join the iPhone beta on TestFlight: https://testflight.apple.com/join/ed9vUh7d | Hermit on your iPhone, installed through Apple's TestFlight |
+| A&nbsp;Mac, through&nbsp;TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
+| A&nbsp;Mac with&nbsp;Xcode 26 | Build and run it yourself: `brew install xcodegen && xcodegen generate`, open `Hermit.xcodeproj`, pick the Hermit scheme and press Run ([docs/BUILD.md](docs/BUILD.md)) | The app, built from this repository on your own Mac. `bash scripts/core-tests.sh` runs its tests too |
+| Any&nbsp;machine, Linux&nbsp;included | Run the Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live, and the attacks on the assistant, blocked |
+| No&nbsp;Mac or&nbsp;iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
 
 On first launch the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it answers with Wi-Fi
 off. It's mainnet, so real swaps move real money, and nothing moves without your approval.
