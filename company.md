@@ -44,9 +44,8 @@ trade or pay; it prepares the move, and nothing leaves the wallet until you appr
 
 Facts, as of 2026-11-13:
 
-- **Stage:** alpha test version. Public builds: a notarized Mac download ([hermit.my/dmg](https://hermit.my/dmg)),
-  iPhone and Mac on TestFlight. Not yet on the App Store.
-- **Age:** the repository started on 2026-10-29. Two weeks of work, built for the NEAR hackathon.
+- **Try it:** [Mac download](https://hermit.my/dmg) (notarized by Apple),
+  [iPhone on TestFlight](https://testflight.apple.com/join/ed9vUh7d), [Mac on TestFlight](https://testflight.apple.com/join/P66H5DF8).
 - **Shipping pace:** 39 builds uploaded to TestFlight in two weeks, 24 for iPhone and 15 for Mac, each one
   through Apple's processing.
 - **Mainnet use:** real swaps, staking, a Black Box record and an insurance purchase made from the app, each with a
@@ -63,11 +62,34 @@ Facts, as of 2026-11-13:
 
 ## How we'd make money
 
-Not switched on yet. The options the product already supports:
+None of this is switched on yet. Wallets earn two ways: fees from their own users, and selling what they built to
+other businesses.
 
-1. A small fee on swaps and bridges through our NEAR Intents partner key.
+**What the big wallets do.** Swap fees are still most of the money: MetaMask's swap fee has been its main earner, and
+Phantom earns mostly from in-app swaps. Both also sell to businesses. Consensys licenses MetaMask Institutional and sells
+Infura subscriptions to developers. Phantom bought Bitski for its embedded wallets and offers Phantom Connect to apps,
+free for now with plans to charge apps that use it. Embedded-wallet companies like Privy, Dynamic and Turnkey charge apps
+per monthly active wallet or per signature, with custom enterprise plans on top.
+
+**For users (B2C).**
+
+1. A small fee on swaps and bridges, through our NEAR Intents partner key.
 2. Paid Private Cloud use beyond the free daily messages.
-3. Underwriting margin on AI insurance once the pool is large enough to price.
+
+**For businesses (B2B), our bigger bet.** The hard parts of Hermit are pieces other companies need as they put AI next
+to money:
+
+1. **Hermit SDK, white-label.** The on-device model, the 30 money tools and the review-and-approve flow, inside an
+   exchange's, fintech's or wallet's own app. Priced per monthly active user, the way embedded wallets are sold.
+2. **Private deployment.** We fine-tune a model on a company's own tools and data and run it on their users' devices or
+   in their NEAR AI Cloud enclave, so nothing reaches a third-party AI. A setup fee plus a yearly license. Our training
+   pipeline is already public in [hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
+3. **Black Box for any AI agent.** Other agent companies record each AI money move on `hermit-blackbox.near` and publish
+   their model hashes, so they can prove what their AI did. Priced per record or per seat.
+4. **AI insurance for agent platforms.** Cover for the AI preparing the wrong move, sold to platforms for their users,
+   with claims checked against Black Box records. Underwriting margin once the pool is large enough to price.
+5. **Agent budgets for teams.** `hermit-guard.near` gives a company's agents and treasury bots a budget with on-chain
+   caps no key can pass. A monthly plan per business.
 
 ## Model results
 
