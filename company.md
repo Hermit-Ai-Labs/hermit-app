@@ -1,6 +1,4 @@
-# Hermit: company.md
-
-Hermit in one file, for your AI to read. Every claim links to proof.
+# Hermit
 
 ## What
 
@@ -15,7 +13,7 @@ to NEAR"); it prepares the move; nothing moves until you approve with Face ID.
 
 ## Built
 
-- **Our own models**, trained by us, on device, work offline: [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit).
+- **Our own models**, on device, offline: [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit).
   0 false "done" claims in 1,801 tests, never asks for a key in 60 of 60 attacks ([results](docs/MODEL-RESULTS.md)).
 - **30 money tools** on EVM, Solana, NEAR, Bitcoin and Hyperliquid, routed by NEAR Intents.
 - **Private Cloud** on NEAR AI Cloud, used only after the device checks the enclave's proof.
@@ -41,7 +39,7 @@ Wallets earn from swap fees (MetaMask's and Phantom's main income) and from sell
 Institutional, Infura, Phantom Connect; Privy and Dynamic charge per active wallet).
 
 - **B2C:** a small swap fee via our NEAR Intents partner key; paid Private Cloud past the free tier.
-- **B2B, the bigger bet:**
+- **B2B:**
   1. **Hermit SDK:** our AI, tools and approve flow inside an exchange's or fintech's app, per monthly active user.
   2. **Private deployment:** a model trained on a company's own tools, run on device or in an enclave. Setup fee plus license.
   3. **Black Box, insurance and budgets for other AI agents:** proof of what their AI did, cover for mistakes, on-chain caps.
