@@ -22,7 +22,7 @@ to NEAR"); it prepares the move; nothing moves until you approve with Face ID.
   (1 USDC buys 30 days of cover against AI mistakes), [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near)
   (on-chain budgets for agents).
 
-## Traction
+## Progress
 
 - **39 TestFlight builds in two weeks** (24 iPhone, 15 Mac).
 - Real swaps, staking, Black Box records and an insurance purchase on mainnet, from the app ([README](README.md)).
