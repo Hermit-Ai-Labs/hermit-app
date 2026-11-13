@@ -1,6 +1,6 @@
 # Hermit Black Box
 
-Our second contract on NEAR mainnet: [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near).
+Our contract on NEAR mainnet: [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near).
 Two public records that nobody, us included, can quietly rewrite.
 
 ## 1. Model registry

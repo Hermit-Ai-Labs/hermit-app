@@ -135,7 +135,7 @@ published: its id, the SHA-256 of `model.safetensors` and a digest of every pinn
 `path<TAB>size<TAB>sha256<LF>` line per file, sorted by path). It's a second, public source for the hashes the app
 already enforces on download. If NEAR can't be reached the row says so; the download check still stands.
 
-**Flight recorder.** Off by default. Settings > Safety > Black box makes an ed25519 key on the device and adds it to your
+**Flight recorder.** Off by default. Wallets > Security (or Settings > Safety) > Black box makes an ed25519 key on the device and adds it to your
 NEAR account as a function-call key that can only call `record` on `hermit-blackbox.near`, with a 0.05 NEAR gas
 allowance (one Face ID). The key is kept in the Keychain, this device only. After that, each move the assistant
 prepared and you approved is hashed: SHA-256 over sorted JSON of the review (title, lines, checks, warnings), the result,
@@ -149,9 +149,9 @@ kinds the contract accepts), `contracts/blackbox/src/tests.rs`, `contracts/black
 
 ## AI insurance (hermit-insurance.near)
 
-The app side of `contracts/insurance/`. Settings > Safety > AI insurance buys 30 days of cover for 1 USDC on NEAR: one
-`ft_transfer_call` from your NEAR account to the USDC contract with `msg: "cover"`, approved with Face ID. It then turns
-on the Black Box recorder too, since a claim needs its records. While covered, File a claim lists your Black Box
+The app side of `contracts/insurance/`. Wallets > Security (or Settings > Safety) > AI insurance buys 30 days of cover for 1 USDC on NEAR: one
+`ft_transfer_call` from your NEAR account to the USDC contract with `msg: "cover"`, approved with Face ID. It only unlocks once the Black Box recorder is on, since a claim needs its records; until
+then the button is locked and says so. While covered, File a claim lists your Black Box
 records; you pick the move, say what it cost and what went wrong, and the app calls `file_claim` with the record's
 fingerprint and the exact text behind it (the contract checks the hash) and 0.05 NEAR for storage. The contract's owner
 sees a Claims list in the same place, with the AI reviewer's verdict, and approves or rejects with a reason; approving

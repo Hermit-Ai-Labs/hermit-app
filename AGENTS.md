@@ -5,8 +5,8 @@ Intents (1Click) for swaps and bridges, NEAR AI Cloud for private bigger questio
 (with staking), and three contracts of ours on NEAR mainnet: `hermit-blackbox.near`, a public registry of our models'
 hashes and a flight recorder of the AI's money moves; `hermit-insurance.near`, opt-in AI insurance (1 USDC for 30 days)
 that pays approved claims from a public pool, with each claim's evidence checked against its Black Box fingerprint; and
-`hermit-guard.near`, for budgets an agent can spend from. The README is the source of truth (its "NEAR at a
-glance" table has one row per job); this file is the short path through it.
+`hermit-guard.near`, for budgets an agent can spend from. The README is the source of truth (its "How Hermit uses NEAR" section has one bullet per job); this file is the short
+path through it.
 
 ## On a Mac: run the app
 
@@ -51,7 +51,7 @@ One skipped check needs `NEARAI_API_KEY`; the other three list the container ima
 `verify-attestation.py` makes five anonymous GitHub API calls; if the address is over GitHub's hourly limit, its
 build-provenance lines read `[SKIP]` and say so (set `GITHUB_TOKEN`). `attack-demo.py` needs no installs and no
 network: it is a Python mirror of the Swift guard and spending policy, and the Swift tests are the source of truth.
-Saved outputs of all four are in `docs/logs/`. The account in
+Saved outputs of the first four are in `docs/logs/`. The account in
 `near-account.py` comes from a public test phrase, so never send anything to it.
 
 ## On Linux

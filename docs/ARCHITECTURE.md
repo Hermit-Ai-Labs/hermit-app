@@ -185,7 +185,7 @@ Code: `contracts/guard/src/lib.rs`, app side `HermitWallet/NearGuard.swift`. Tes
 
 ![Hermit Black Box](img/black_box.png)
 
-Our second contract on NEAR mainnet, [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near).
+Our contract on NEAR mainnet, [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near).
 
 ```mermaid
 flowchart LR

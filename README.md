@@ -68,11 +68,11 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
 - **[Hermit Black Box](#black-box-a-record-of-what-the-ai-did)** is our own contract on NEAR mainnet,
   [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near). It publishes every Hermit model's hashes
   and test scores, which the app checks, and it keeps a tamper-proof fingerprint of each money move the AI prepared and
-  you approved. Only a hash goes on chain, never the chat. In the app it's Settings, Safety, Black box.
+  you approved. Only a hash goes on chain, never the chat. In the app it's Wallets, Security (or Settings, Safety), Black box.
 - **[Hermit AI insurance](#ai-insurance-when-the-ai-gets-it-wrong)** is our contract for opt-in cover,
   [`hermit-insurance.near`](https://nearblocks.io/address/hermit-insurance.near). Opt in for 1 USDC a month. If the AI's
   mistake cost you money, you claim with the Black Box fingerprint of that move, and an approved claim is paid from a
-  public pool on NEAR. In the app it's Settings, Safety, AI insurance.
+  public pool on NEAR. In the app it's Wallets, Security (or Settings, Safety), AI insurance.
 - **[Hermit Guard](#hermit-guard-an-on-chain-budget-for-ai-agents)** is our contract for agent budgets,
   [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near). It holds a small budget with on-chain rules
   for standing orders and for agents you give a key to. In the app it's Wallets, Security, Budgets.
@@ -101,7 +101,7 @@ rewrite, us included.
 Entries are append-only: a published hash can never change, and a bad release can only be marked revoked. Settings,
 Models shows whether the model you run matches it. All four of our models are published.
 
-**The flight recorder.** Turn it on in Settings, Safety, Black box. Every move the AI prepares and you approve gets a
+**The flight recorder.** Turn it on in Wallets, Security or Settings, Safety. Every move the AI prepares and you approve gets a
 salted SHA-256 fingerprint on NEAR: what the review showed, what happened, the model and a salt from your device. The
 chat, amounts and addresses never leave the device. The text behind each fingerprint stays there, so you can later
 prove exactly what the AI did. Records are written by a key that can only call `record`, for about 0.0002 NEAR of gas
@@ -134,7 +134,7 @@ the one thing a wallet with an AI adds: the AI preparing the wrong move.
 
 - **Cover.** Pay 1 USDC on NEAR for 30 days. All of it goes into a public pool on the contract. Anyone can add to the
   pool too.
-- **Proof.** Turning insurance on also turns on the Black Box recorder. A claim carries the move's Black Box
+- **Proof.** Insurance unlocks once the Black Box recorder is on. A claim carries the move's Black Box
   fingerprint and the text behind it, and the contract checks that `sha256(evidence)` equals the fingerprint. So the
   evidence is exactly what was recorded when you approved, and one move can only be claimed once.
 - **Review.** An AI reviewer account writes its verdict and its reason on chain. Then the owner decides, also with a
