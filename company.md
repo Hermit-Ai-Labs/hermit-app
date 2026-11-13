@@ -2,8 +2,9 @@
 
 ## What
 
-A crypto wallet for iPhone and Mac with an AI that runs on the device. You ask in plain words ("swap 20 USDC on Base
-to NEAR"); it prepares the move; nothing moves until you approve with Face ID.
+An agentic wallet for iPhone and Mac, run by a local AI on your device, that makes advanced crypto strategies
+anyone's: say "bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and it prepares every step.
+Nothing moves until you approve with Face ID.
 
 ## Why
 
