@@ -1,22 +1,18 @@
-<h1 align="center">Hermit</h1>
+# Hermit
 
-<p align="center"><b>Hermit is a local AI that manages your onchain assets.</b><br>
-It runs on your iPhone or Mac. Say what you want in plain words, Hermit prepares it,<br>
-and nothing is signed until you approve with Face ID or Touch ID.</p>
+[![checks](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml/badge.svg)](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml)
+[![Download for Mac](https://img.shields.io/badge/download-Mac-4E1F96?logo=apple&logoColor=white)](https://hermit.my/dmg)
+[![iPhone on TestFlight](https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white)](https://testflight.apple.com/join/ed9vUh7d)
+[![Built on NEAR](https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111)](docs/NEAR.md)
+[![Our contracts on NEAR mainnet: hermit-blackbox.near, hermit-insurance.near, hermit-guard.near](https://img.shields.io/badge/NEAR%20mainnet-blackbox%20%C2%B7%20insurance%20%C2%B7%20guard-00EC97?labelColor=111111)](#what-runs-on-near)
+[![Hermit 1.3 on Hugging Face](https://img.shields.io/badge/model-Hermit%201.3-FFD21E?logo=huggingface&logoColor=black&labelColor=111111)](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4E1F96.svg)](LICENSE)
 
-<p align="center">
-<a href="https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml"><img src="https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml/badge.svg" alt="checks"></a>
-<a href="https://hermit.my/dmg"><img src="https://img.shields.io/badge/download-Mac-4E1F96?logo=apple&logoColor=white" alt="Download for Mac"></a>
-<a href="https://testflight.apple.com/join/ed9vUh7d"><img src="https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white" alt="iPhone on TestFlight"></a>
-<a href="docs/NEAR.md"><img src="https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111" alt="Built on NEAR"></a>
-<a href="#near-at-a-glance"><img src="https://img.shields.io/badge/NEAR%20mainnet-blackbox%20%C2%B7%20insurance%20%C2%B7%20guard-00EC97?labelColor=111111" alt="Our contracts on NEAR mainnet: hermit-blackbox.near, hermit-insurance.near, hermit-guard.near"></a>
-<a href="https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit"><img src="https://img.shields.io/badge/model-Hermit%201.3-FFD21E?logo=huggingface&logoColor=black&labelColor=111111" alt="Hermit 1.3 on Hugging Face"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4E1F96.svg" alt="License: MIT"></a>
-</p>
-
-Swap, bridge, trade, stake or pay. The model is our own fine-tune, Hermit 1.3 (2.8 GB), and it works offline, so your
-balances and plans stay on your device. When a question needs a bigger model, Hermit checks a NEAR AI Cloud enclave's
-proof before it sends a word.
+Hermit is a local AI that manages your onchain assets. It runs on your iPhone or Mac: you ask in plain words to swap,
+bridge, trade, stake or pay, it prepares the move, and nothing leaves your wallet until you approve it with Face ID or
+Touch ID. We didn't want our balances and plans on somebody's server, so the model, our own Hermit 1.3, lives on your
+device and works offline. When a question needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before
+it sends a word.
 
 **Tracks:** Privacy & Private AI, AI Security & Defense, Unstoppable DeFi.
 
@@ -26,22 +22,6 @@ proof before it sends a word.
 <img src="docs/img/screens/approve.jpg" width="190" alt="The approval sheet: every check listed, and nothing moves until you approve with Face ID.">
 <img src="docs/img/screens/proof.jpg" width="190" alt="The Private Cloud proof sheet: the NEAR AI Cloud enclave and the reply's signature, each checked on the phone.">
 </p>
-
-## Judge it in 60 seconds
-
-1. **See it.** The four screens above: on-device AI, a NEAR Intents swap review, the Face ID approval, the enclave proof.
-2. **Scan what NEAR does.** [NEAR at a glance](#near-at-a-glance) has one row per job, each with a link you can check.
-3. **Run it on any machine, Linux included.** No keys, no funds:
-
-```sh
-git clone https://github.com/Hermit-Ai-Labs/hermit-app && cd hermit-app
-python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
-.venv/bin/python near/intents-quote.py     # a live 1Click quote, its signature checked: [PASS]
-.venv/bin/python near/blackbox.py check    # our four models match hermit-blackbox.near: four [PASS]
-python3 near/attack-demo.py                # prompt injection vs the guard: 8 attacks blocked, 3 legitimate actions allowed
-```
-
-4. **Open the app.** On a Mac, [download it](https://hermit.my/dmg). On an iPhone, [join TestFlight](https://testflight.apple.com/join/ed9vUh7d).
 
 ## Try it
 
@@ -60,7 +40,7 @@ whichever path fits your machine:
 On first launch the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it answers with Wi-Fi
 off. It's mainnet, so real swaps move real money, and nothing moves without your approval.
 
-## NEAR at a glance
+## What runs on NEAR
 
 NEAR does six jobs in Hermit. All of them run on mainnet.
 
@@ -101,11 +81,11 @@ There's also spot trading on Solana through Jupiter, Aave deposits, and a browse
   same recovery phrase as the EVM and Solana accounts. Hermit builds and signs its NEAR transactions on the device:
   sending NEAR and NEAR tokens, and [staking NEAR](docs/NEAR.md#staking-near) with a validator from Earn or by asking
   "stake 5 NEAR". We staked and unstaked with real NEAR.
-- **[Hermit Black Box](#hermit-black-box-a-flight-recorder-for-the-ai)** is our own contract on NEAR mainnet,
+- **[Hermit Black Box](#black-box-a-record-of-what-the-ai-did)** is our own contract on NEAR mainnet,
   [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near). It publishes every Hermit model's hashes
   and test scores, which the app checks, and it keeps a tamper-proof fingerprint of each money move the AI prepared and
   you approved. Only a hash goes on chain, never the chat.
-- **[Hermit AI insurance](#hermit-ai-insurance-paid-back-when-the-ai-gets-it-wrong)** is our contract for opt-in cover,
+- **[Hermit AI insurance](#ai-insurance-when-the-ai-gets-it-wrong)** is our contract for opt-in cover,
   [`hermit-insurance.near`](https://nearblocks.io/address/hermit-insurance.near). Opt in for 1 USDC a month. If the AI's
   mistake cost you money, you claim with the Black Box fingerprint of that move, and an approved claim is paid from a
   public pool on NEAR.
@@ -125,7 +105,7 @@ flowchart LR
   guard["hermit-guard.near<br/>agent budgets"] --> chains
 ```
 
-## Hermit Black Box: a flight recorder for the AI
+## Black Box: a record of what the AI did
 
 <p align="center"><a href="docs/img/black_box.png"><img src="docs/img/black_box.png" alt="Hermit Black Box: on your device the app checks its pinned model hashes against the append-only registry on hermit-blackbox.near, and each AI move you approve is hashed with a salt; only that fingerprint is sent, by a key that can only call record. The text stays on the device." width="620"></a></p>
 
@@ -163,7 +143,7 @@ each.
 
 More in [contracts/blackbox/README.md](contracts/blackbox/README.md) and [DEPLOYMENTS.md](contracts/blackbox/DEPLOYMENTS.md).
 
-## Hermit AI insurance: paid back when the AI gets it wrong
+## AI insurance: when the AI gets it wrong
 
 <p align="center"><a href="docs/img/ai_insurance.png"><img src="docs/img/ai_insurance.png" alt="Hermit AI insurance: 1 USDC buys 30 days of cover into a public pool on hermit-insurance.near that anyone can fund. A claim carries your Black Box record; the contract checks the evidence hashes to the fingerprint, an AI reviewer writes its verdict on chain, the owner decides in the app, and the payout is USDC from the pool. Only an approved claim can take money out." width="620"></a></p>
 
@@ -351,7 +331,7 @@ smaller iPhones on Qwen3-1.7B. They learned from 21,000 examples of Hermit tasks
 own tools: all 30 tools, multi-step requests like "bridge 20 USDC to Arbitrum, then put it in Aave", recovering when a
 quote fails, and saying no to anything unsafe. Two LoRA passes each, Hermit 1.3 on a rented NVIDIA L40S and Lite on an
 A6000. Both run on your device with MLX, and the app checks every byte it downloads against hashes built into it. The
-same hashes are published on [`hermit-blackbox.near`](#hermit-black-box-a-flight-recorder-for-the-ai).
+same hashes are published on [`hermit-blackbox.near`](#black-box-a-record-of-what-the-ai-did).
 
 <details>
 <summary><b>Scores on held-out test conversations, run in a real tool loop</b></summary>
@@ -427,7 +407,7 @@ your own keys, so you can always send what you like from the Send and Swap scree
 <details>
 <summary><b>What if the AI gets it wrong and I lose money?</b></summary>
 
-Turn on [AI insurance](#hermit-ai-insurance-paid-back-when-the-ai-gets-it-wrong)
+Turn on [AI insurance](#ai-insurance-when-the-ai-gets-it-wrong)
 for 1 USDC a month. You claim with the Black Box fingerprint of the move, the contract checks the evidence against it,
 and an approved claim is paid from the public pool on NEAR.
 
