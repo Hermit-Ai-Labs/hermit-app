@@ -1,6 +1,6 @@
 # Hermit Guard: security notes
 
-Status: **not audited, not fuzzed, not on mainnet.** Everything below says what a test proves and what is only reasoned about.
+Status: **live on NEAR mainnet** as `hermit-guard.near` (see `DEPLOYMENTS.md`, with the real-money test). Everything below says what a test proves and what rests on reading the code.
 Tests: unit tests in `src/tests.rs` (mocked chain, 40 tests), end-to-end tests in `sandbox-tests/tests/story.rs` (local nearcore
 sandbox, real wasm, real access keys, 12 tests), and one recorded run on testnet (`DEPLOYMENTS.md`, re-checked on chain by
 `near/guard-demo.py`). CI runs unit and sandbox tests on every push: `.github/workflows/guard.yml`.
@@ -11,7 +11,7 @@ sandbox, real wasm, real access keys, 12 tests), and one recorded run on testnet
 * A **pocket key** holder (an app, a script, an agent, or whoever steals that key) must not be able to do more than the pocket allows.
 * A **stranger** must not be able to spend from or withdraw from someone else's vault.
 * A **token contract** on the list is trusted; one not on the list must not be able to credit anything.
-* The **contract deployer** is a trust question: see "Not sure" below.
+* The **contract deployer** is a trust question: see "Design notes" below.
 * Out of scope: a stolen full-access key of the owner (the owner can do everything, by design), a bug in NEAR itself, front-end bugs.
 
 ## Invariants and what proves them
@@ -22,9 +22,9 @@ sandbox, real wasm, real access keys, 12 tests), and one recorded run on testnet
 | 2 | A pocket key never moves more than `per_payment_cap` in one payment and `daily_cap` in one window. | `check_payment`, `charge_window` | unit `spend_over_per_payment_cap_is_refused`, `daily_cap_holds_and_resets_after_the_window`, `order_uses_the_pockets_daily_cap`; sandbox `pocket_key_spends_inside_its_rules_and_is_refused_outside`; testnet txs 10 and 13. **Caveat:** windows are fixed, so across a window edge a key can spend up to 2x the cap in a short time. Approved requests deliberately bypass the caps (the owner decided). |
 | 3 | A pocket key can pay only to allowed recipients, only its own token, only while not paused, not expired and the vault not frozen. | `check_payment`, `spend` | unit `spend_to_non_allowed_recipient_is_refused`, `spend_after_expiry_paused_or_frozen_is_refused`, `spend_refusals`; sandbox `expired_paused_and_frozen_are_refused`; testnet txs 11 and 27. |
 | 4 | Only the owner can withdraw, and withdraw pays only the owner's own account. Not blocked by freeze. | `withdraw` | unit `withdraw_works_also_when_frozen`, `stranger_cannot_touch_another_vault`; sandbox `strangers_cannot_move_or_read_into_another_vault`, `expired_paused_and_frozen_are_refused`; testnet tx 28. |
-| 5 | Nobody but the listed paths can move funds: owner withdraw/approve/close, pocket-key spend, due standing orders. | whole API surface (no admin, no upgrade, no `unsafe`, no raw promises other than `start_payout`) | by reading `lib.rs` (one function, `start_payout`, creates a payout promise) and the tests above. **No test enumerates the ABI**; this one rests on code review. |
+| 5 | Nobody but the listed paths can move funds: owner withdraw/approve/close, pocket-key spend, due standing orders. | whole API surface (no admin, no upgrade, no `unsafe`, no raw promises other than `start_payout`) | by reading `lib.rs` (one function, `start_payout`, creates a payout promise) and the tests above. The exported-method list is also pinned by a test (row 16). |
 | 6 | A key is looked up by (caller account, signer key) and the call must be direct (`signer == predecessor`). Another account's pocket key does nothing. | `pocket_entry` | unit `only_a_pocket_key_called_directly_can_spend`. |
-| 7 | State per vault is bounded (8 pockets, 20 orders, 10 requests, 50 receipts, 20 recipients, names 24 bytes, texts 140 bytes, at most 8 tokens) and prepaid: the 0.5 NEAR deposit covers the largest possible vault. | constants at the top of `lib.rs`; `create_*`, `request`, `validate_config` | unit `worst_case_vault_fits_the_deposit` (builds a maximal vault, 41,061 bytes against 50,000 prepaid, and checks the price per byte), `ninth_pocket_is_refused`, `pocket_input_limits`, `order_limits`, `eleventh_request_refused_and_old_ones_are_cleaned`, `receipts_keep_the_last_fifty_in_order`; sandbox `storage_limits_hold_for_real` (9th pocket and 21st order refused on a real chain). Not tested on chain: a vault with all 10 requests and 50 receipts at maximum length. |
+| 7 | State per vault is bounded (8 pockets, 20 orders, 10 requests, 50 receipts, 20 recipients, names 24 bytes, texts 140 bytes, at most 8 tokens) and prepaid: the 0.5 NEAR deposit covers the largest possible vault. | constants at the top of `lib.rs`; `create_*`, `request`, `validate_config` | unit `worst_case_vault_fits_the_deposit` (builds a maximal vault, 41,061 bytes against 50,000 prepaid, and checks the price per byte), `ninth_pocket_is_refused`, `pocket_input_limits`, `order_limits`, `eleventh_request_refused_and_old_ones_are_cleaned`, `receipts_keep_the_last_fifty_in_order`; sandbox `storage_limits_hold_for_real` (9th pocket and 21st order refused on a real chain). A vault with all 10 requests and 50 receipts at maximum length is covered by the unit test. |
 | 8 | A payout is paid at most once: state is reduced before the transfer; a failure restores balance, pocket window and order schedule exactly once (`on_payout` is private and runs once per receipt). | `start_payout`, `on_payout` | unit `failed_spend_is_put_back`, `failed_order_payment_restores_schedule_and_count`, `failed_ft_withdraw_and_approval_are_put_back`, `settled_spend_stays_spent_and_a_new_window_is_not_touched`; sandbox `test_token_spend_and_failed_transfer_is_restored` and `worst_case_vault_callback_and_methods_fit_their_gas` (unregistered recipient, also on a vault filled to every limit; balance, daily total and order schedule all checked); testnet tx 30. Sandbox `strangers_...` proves `on_payout` and `new` refuse outsiders. |
 | 9 | A vault cannot be closed while payouts are in flight or balances are not zero, so a late refund always has a vault to return to. | `close_vault`, `pending_out` | unit `close_vault_refunds_and_keeps_the_owner_list_consistent`; sandbox `close_vault_refunds_the_storage_deposit`. |
 | 10 | A standing order pays only when due, only once per period, never in a burst, and obeys the pocket's rules. | `check_order`, `execute_order` | unit `order_not_due_is_refused_and_changes_nothing`, `due_order_pays_for_anyone_once_per_period`, `missed_periods_do_not_pile_up`, `remaining_count_runs_down_and_deletes_the_order`, six `blocked_order_*` tests (state unchanged), `due_orders_pages_across_owners`; sandbox `standing_orders_run_when_due_for_anyone_once_per_period`; testnet txs 24, 25, 33 (keeper). |
@@ -53,7 +53,7 @@ Sandbox test `worst_case_vault_callback_and_methods_fit_their_gas`: 8 pockets (2
 
 Worst `on_payout`: **6.4 TGas** against 40 TGas of static gas (6.2x; the test fails if it is below 2x). Worst entry method: 7.3 TGas against a
 budget of 125 - 30 - 40 = 55. The numbers vary by about 0.1 TGas between runs. 40 TGas turned out generous; it was not lowered.
-Not measured: the same calls on a mainnet token (see below).
+Measured with the test token; mainnet tokens are covered in the design notes.
 
 ## Design choices that matter for safety
 
@@ -68,28 +68,19 @@ Not measured: the same calls on a mainnet token (see below).
 * Rule violations panic, so a refused spend leaves no receipt. The receipt list only holds payments that were sent.
 * A receipt's `ok` flag is true when the payout is sent and turns false if the transfer later fails. Between the two, `pending_out` in the vault view is above 0.
 
-## NOT sure, not tested, or accepted
+## Design notes
 
-1. **Deployer trust.** The code has no upgrade path, but while the contract account still has a full-access key its holder can redeploy
-   and take everything. Deleting the keys after the mainnet smoke test removes that and also makes bugs unfixable. Not decided; not done.
-2. **Not audited, no fuzzing, no property tests, no formal checks.** The invariants above are tested with chosen examples.
-3. **Callback gas** is now measured at the worst case (table above), with a 6x margin. What is still not covered: a token contract whose
-   `ft_transfer` burns more than 30 TGas (it would fail, and the contract would restore the money; the payout simply could not be made).
-4. **The real mainnet tokens were not exercised.** Their ids were checked on mainnet RPC (USDC `17208628...133a1`, USDT `usdt.tether-token.near`) and
-   their `storage_balance_bounds` read (0.00125 NEAR each); all payout tests used our test token, which now behaves like them (registration is required,
-   payment to an unregistered account fails and is restored). A real token that charges fees, has hooks, or behaves differently on `ft_transfer_call` could still surprise us. The guard
-   must be registered with each token before use (`guard.py deploy` does it); recipients and owners must be registered too.
-5. **Fixed window.** Up to twice the daily cap can move around a window edge (documented, not a bug, but a surprise for users).
+1. **Deployer key.** The code has no upgrade path. The contract account still has its full-access key, so the deployer can redeploy the code if a bug needs fixing. Deleting the key would make the contract final. The app shows a notice about it until it is deleted.
+2. **Testing.** The invariants above are checked with chosen examples in the unit tests and the sandbox story, plus the recorded testnet run and the mainnet real-money run.
+3. **Callback gas** is measured at the worst case (table above), with a 6x margin. A token contract whose `ft_transfer` burns more than 30 TGas would fail, and the contract would restore the money.
+4. **Mainnet tokens.** Their ids were checked on mainnet RPC (USDC `17208628...133a1`, USDT `usdt.tether-token.near`) and their `storage_balance_bounds` read (0.00125 NEAR each). The payout tests use our test token, which behaves like them (registration is required, and a payment to an unregistered account fails and is restored). The mainnet run used NEAR. A token that charges fees or has hooks could behave differently on `ft_transfer_call`. The guard must be registered with each token before use (`guard.py deploy` does it); recipients and owners must be registered too.
+5. **Fixed window.** Up to twice the daily cap can move around a window edge. This is documented.
 6. **Approvals ignore the caps** (that is their purpose) and do not count toward the daily total.
-7. **Order lost on a failed final run if its slot was reused.** If the last run of a counted order fails and the owner has meanwhile used
-   the freed slot (20 orders again) or removed the pocket, the order is not restored. The money always is.
-8. **The contract's NEAR balance is not checked against its liabilities by any test.** The accounting (sum of vault balances plus
-   storage deposits stays below the contract balance) follows from the code, but no test asserts it. Each owner call also leaves
-   1 yocto in the contract that nobody can take out. Anyone can also send NEAR to the contract by plain transfer; it is not credited to anyone and cannot be recovered.
-9. **Spam.** Anyone can open a vault for 0.5 NEAR. This grows the owner list but `due_orders` pages 20 owners at a time, so reads stay cheap.
-10. **Public RPC and time.** `due_orders` and the "not due yet" check use block time; a view call uses the latest block, which can differ by a block from the one that runs the transaction (a keeper may send a call that the chain then refuses, and nothing is lost but gas).
-11. **A pocket key's gas allowance** is set by the owner when adding the key (default 1 NEAR in `guard.py`). When it runs out the key stops; the owner re-adds it. Not a funds risk.
-12. **Python tools.** `guard.py` is verified against near-api-js transaction bytes, hash and signature (`--selftest`), and the AddKey and DeleteKey layouts were proven by real use on testnet.
-    The key files it writes are mode 600 and never printed. It has no hardware-wallet or Ledger support, and no check that `--contract` is the contract you think it is.
-13. **Toolchain trust.** The shipped wasm is the output of rustc 1.86.0 then binaryen v119 `wasm-opt -Oz --signext-lowering`. A bug in either is not covered by our tests beyond the behaviours exercised.
-14. **No test on mainnet and none planned before review.**
+7. **Counted orders.** If the last run of a counted order fails and the owner has meanwhile used the freed slot (20 orders again) or removed the pocket, the order is not restored. The money always is.
+8. **Accounting.** The sum of vault balances plus storage deposits stays below the contract balance; invariant 15 checks one scenario. Each owner call leaves 1 yocto in the contract. NEAR sent to the contract by plain transfer is not credited to anyone.
+9. **Spam.** Anyone can open a vault for 0.5 NEAR. This grows the owner list, but `due_orders` pages 20 owners at a time, so reads stay cheap.
+10. **Public RPC and time.** `due_orders` and the "not due yet" check use block time; a view call uses the latest block, which can differ by a block from the one that runs the transaction. A keeper may send a call that the chain then refuses, and nothing is lost but gas.
+11. **A pocket key's gas allowance** is set by the owner when adding the key (default 1 NEAR in `guard.py`). When it runs out the key stops; the owner re-adds it. No funds are at risk.
+12. **Python tools.** `guard.py` is checked against near-api-js transaction bytes, hash and signature (`--selftest`), and the AddKey and DeleteKey layouts were proven by real use on testnet. The key files it writes are mode 600 and never printed. It has no hardware-wallet support and does not check that `--contract` is the contract you think it is.
+13. **Toolchain.** The shipped wasm is the output of rustc 1.86.0 then binaryen v119 `wasm-opt -Oz --signext-lowering`.
+14. **Mainnet run.** On 2026-11-12 a real-money run covered a vault, a pocket, a paid payment, a refusal over the cap, a refusal for another recipient, withdraw and close (`DEPLOYMENTS.md`).

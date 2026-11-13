@@ -5,7 +5,8 @@ that pays you back when the AI made a mistake that cost you money.
 
 ## How it works
 
-1. **Cover.** Send 1 USDC on NEAR with `ft_transfer_call(msg: "cover")` and you're covered for 30 days. Every cent goes
+1. **Cover.** In the app it unlocks once the Black Box is on, because a claim needs its records. Send 1 USDC on NEAR with
+   `ft_transfer_call(msg: "cover")` and you're covered for 30 days. Every cent goes
    into the pool. Anyone can add to the pool with `msg: "fund"`.
 2. **Claim.** While covered, file a claim with the [Black Box](../blackbox) fingerprint of the move and the text behind
    it, plus a 0.05 NEAR deposit for storage. The contract checks `sha256(evidence) == fingerprint`, so the evidence is

@@ -80,8 +80,7 @@ Hermit 1.3 then took this from 12 tools to all 30.
 | Recovers well after a tool error | 78.3% | 79.7% |
 | Older multi-turn conversations, all turns clean | | 42 of 50 |
 
-A blank cell is a suite that wasn't part of that model's run. The next training round goes after the longer
-conversations: multi-step requests and follow-ups.
+A blank cell is a suite that wasn't part of that model's run.
 
 ## Where to find more
 

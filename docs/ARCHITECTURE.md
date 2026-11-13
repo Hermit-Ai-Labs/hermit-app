@@ -1,14 +1,13 @@
 # Architecture, as text
 
-The five figures in the README, written out so a person or a model can read them without opening an image, plus Hermit
-Guard and Hermit Black Box. GitHub draws each `mermaid` block as a diagram. The images are in [img/](img/); the code paths are under
+The README's figures, written out so a person or a model can read them without opening an image, plus Hermit Guard. GitHub draws each `mermaid` block as a diagram. The images are in [img/](img/); the code paths are under
 `Packages/HermitKit/Sources/`.
 
 ## 1. System overview
 
 ![System overview](img/system_overview.png)
 
-Everything above the line runs on your iPhone or Mac. Only the boxes below it are outside.
+Everything inside "On your iPhone or Mac" runs on the device. Only the boxes outside it are not.
 
 ```mermaid
 flowchart TB
@@ -29,6 +28,7 @@ flowchart TB
     intents["NEAR Intents 1Click<br/>signed quotes, solvers fill"]
     guard["hermit-guard.near<br/>budgets with on-chain rules"]
     bbox["hermit-blackbox.near<br/>model registry, flight recorder"]
+    ins["hermit-insurance.near<br/>AI insurance, public pool"]
   end
   enclave -. "attestation, then prompt" .-> cloud
   loop -- quotes --> intents
@@ -38,10 +38,11 @@ flowchart TB
   model -. "pinned SHA-256, once" .-> dl["Model download"]
   review -. "fingerprint of each approved AI move" .-> bbox
   model -. "hashes checked" .-> bbox
+  bbox -. "fingerprint is the claim's evidence" .-> ins
 ```
 
 Code: `HermitCore/` (assistant, tool loop, guard), `HermitModel/` (on-device model), `HermitCloud/` (NEAR AI Cloud and its
-proofs), `HermitWallet/` (keys, chains, NEAR Intents, spending policy), `contracts/guard/` (Hermit Guard).
+proofs), `HermitWallet/` (keys, chains, NEAR Intents, spending policy), `contracts/` (Black Box, AI insurance, Hermit Guard).
 
 ## 2. One swap, end to end
 
@@ -154,34 +155,7 @@ flowchart LR
 Code: `HermitWallet/KeyVault.swift`, `Near.swift`, `Addresses.swift`. Tests: `TableAndVaultTests.testSealOpenRemoveRoundTrip`,
 `NearTests.testDerivation`.
 
-## 6. Hermit Guard: a budget with on-chain rules
-
-Not in the figures. Our contract on NEAR mainnet, [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near).
-
-```mermaid
-flowchart TB
-  owner["You (owner key, Face ID)"] -- "open, deposit, set rules,<br/>approve, freeze, withdraw" --> vault
-  subgraph contract["hermit-guard.near"]
-    vault["Your vault<br/>NEAR, USDC, USDT"] --> pockets["Pockets<br/>cap per payment, cap per day,<br/>allowed recipients, expiry"]
-    pockets --> orders["Standing orders"]
-    pockets --> requests["Requests over the caps<br/>wait for you"]
-    vault --> receipts["Receipts, each with a reason"]
-  end
-  agent["Agent or app<br/>function-call key: spend, request only"] -- "spend" --> pockets
-  keeper["Keeper (anyone)"] -- "execute_order when due" --> orders
-  pockets -- "inside the rules" --> pay["Payment"]
-  pockets -- "outside the rules" --> refused["Refused on chain"]
-```
-
-The function-call key can't attach a deposit, so it can never reach the owner's methods. Tested with real money on
-mainnet: [paid inside the rules](https://nearblocks.io/txns/7L4ny5A2jAJGnALcYh484rLy6gTLzJnBAY4pvHvjAGKS), [refused over the
-cap](https://nearblocks.io/txns/8JVeNtxz4U4NcQQJumdU2k9VyhSDofi1B2abNd4TGqUA), [refused a
-stranger](https://nearblocks.io/txns/4Am1L4p2A9TnWFjLuHhevdgLhLPGCCFMh3MjNrmGh3k8).
-
-Code: `contracts/guard/src/lib.rs`, app side `HermitWallet/NearGuard.swift`. Tests: `contracts/guard/src/tests.rs`,
-`contracts/guard/sandbox-tests/tests/story.rs`.
-
-## 7. Hermit Black Box: model registry and flight recorder
+## 6. Hermit Black Box: model registry and flight recorder
 
 ![Hermit Black Box](img/black_box.png)
 
@@ -209,7 +183,7 @@ Only the fingerprint leaves the device. Anyone holding the text behind a fingerp
 Code: `contracts/blackbox/src/lib.rs`, `HermitWallet/BlackBox.swift`. Tests: `contracts/blackbox/src/tests.rs`,
 `contracts/blackbox/sandbox-tests/tests/story.rs`, `BlackBoxTests.swift`. Mainnet run: `contracts/blackbox/DEPLOYMENTS.md`.
 
-## 8. Hermit AI insurance
+## 7. Hermit AI insurance
 
 ![Hermit AI insurance](img/ai_insurance.png)
 
@@ -226,3 +200,30 @@ flowchart LR
 
 Only an approved claim can take money out of the pool; there's no admin withdraw. Code: `contracts/insurance/src/lib.rs`,
 `HermitWallet/AIInsurance.swift`. Tests: `contracts/insurance/src/tests.rs`, `contracts/insurance/sandbox-tests`.
+
+## 8. Hermit Guard: a budget with on-chain rules
+
+Not in the figures. Our contract on NEAR mainnet, [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near).
+
+```mermaid
+flowchart TB
+  owner["You (owner key, Face ID)"] -- "open, deposit, set rules,<br/>approve, freeze, withdraw" --> vault
+  subgraph contract["hermit-guard.near"]
+    vault["Your vault<br/>NEAR, USDC, USDT"] --> pockets["Pockets<br/>cap per payment, cap per day,<br/>allowed recipients, expiry"]
+    pockets --> orders["Standing orders"]
+    pockets --> requests["Requests over the caps<br/>wait for you"]
+    vault --> receipts["Receipts, each with a reason"]
+  end
+  agent["Agent or app<br/>function-call key: spend, request only"] -- "spend" --> pockets
+  keeper["Keeper (anyone)"] -- "execute_order when due" --> orders
+  pockets -- "inside the rules" --> pay["Payment"]
+  pockets -- "outside the rules" --> refused["Refused on chain"]
+```
+
+The function-call key can't attach a deposit, so it can never reach the owner's methods. Tested with real money on
+mainnet: [paid inside the rules](https://nearblocks.io/txns/7L4ny5A2jAJGnALcYh484rLy6gTLzJnBAY4pvHvjAGKS), [refused over the
+cap](https://nearblocks.io/txns/8JVeNtxz4U4NcQQJumdU2k9VyhSDofi1B2abNd4TGqUA), [refused a
+stranger](https://nearblocks.io/txns/4Am1L4p2A9TnWFjLuHhevdgLhLPGCCFMh3MjNrmGh3k8).
+
+Code: `contracts/guard/src/lib.rs`, app side `HermitWallet/NearGuard.swift`. Tests: `contracts/guard/src/tests.rs`,
+`contracts/guard/sandbox-tests/tests/story.rs`.

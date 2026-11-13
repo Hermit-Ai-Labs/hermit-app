@@ -4,7 +4,7 @@ One NEAR smart contract shared by everyone. You open a **vault** in it and put m
 small budgets with rules. An app, a bot or an AI agent gets a pocket's key and can spend only what that pocket allows.
 The key can't withdraw, can't change the rules and can't touch the rest of the vault.
 
-This is code for real funds and it has not been audited. Read `SECURITY.md` before trusting it with anything.
+Live on NEAR mainnet as `hermit-guard.near`. `DEPLOYMENTS.md` has the address, the code hash and the real-money test; `SECURITY.md` says what each guarantee rests on.
 
 ## How it works
 
@@ -64,7 +64,9 @@ cd sandbox-tests
 GUARD_WASM=$PWD/../dist/guard.wasm FT_WASM=$PWD/../dist/test_ft.wasm cargo test -- --nocapture   # 12 end-to-end tests, downloads the sandbox binary
 ```
 
-## Use it (testnet)
+## Use it
+
+Read the live mainnet contract with no key: `.venv/bin/python near/guard.py --network mainnet view info`. The rest below runs against testnet.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt

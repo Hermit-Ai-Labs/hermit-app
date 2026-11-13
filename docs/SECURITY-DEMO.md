@@ -1,8 +1,8 @@
 # Security and the attack demo
 
-The security track asks for "a script where a prompt-injected agent tries to pay a known-bad address and gets
-stopped." Ours is a set of unit tests. They run the app's real tool loop, guard and spending policy. Only the model is
-scripted, and it obeys the attacker completely, which is the worst a real model could do. [Without a Mac](#without-a-mac),
+This page shows a prompt-injected agent trying to pay a known-bad address and getting stopped. The demo is a set of
+unit tests that run the app's real tool loop, guard and spending policy. Only the model is scripted, and it obeys the
+attacker completely, which is the worst a real model could do. [Without a Mac](#without-a-mac),
 a Python script replays the same attacks and prints the log.
 
 After the demo this page covers the model, the keys, the browser wallet and what leaves the device. Short code paths
@@ -16,9 +16,9 @@ On a Mac with Xcode 26. It builds only the non-UI code, so it takes a few minute
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-The filter picks 29 tests, and the run should end in `0 failures`. Our full run on 2026-11-12, on a MacBook Air M3,
-ended with `Executed 260 tests, with 13 tests skipped and 0 failures`:
-[logs/core-tests-2026-11-12.txt](logs/core-tests-2026-11-12.txt).
+The filter picks 29 tests, and the run should end in `0 failures`. Our full run on 2026-11-13, on a MacBook Air M3,
+ended with `Executed 298 tests, with 14 tests skipped and 0 failures`:
+[logs/core-tests-2026-11-13.txt](logs/core-tests-2026-11-13.txt).
 
 ## Without a Mac
 

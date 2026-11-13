@@ -6,7 +6,7 @@ _Last updated November 13, 2026_
 
 ## 1. Agreeing to these terms
 
-These terms are between you and Hermit ("Hermit", "we", "us"). They cover the Hermit apps for iPhone and Mac, hermit.my, docs.hermit.my, the Hermit models and the Hermit Guard contract (together, "Hermit"). By downloading or using Hermit you agree to these terms and to our [Privacy Policy](https://hermit.my/privacy). If you don't agree, don't use Hermit. If you got Hermit from the App Store or TestFlight, Apple's terms also apply to that download.
+These terms are between you and Hermit ("Hermit", "we", "us"). They cover the Hermit apps for iPhone and Mac, hermit.my, docs.hermit.my, the Hermit models and the Hermit Black Box, Hermit AI insurance and Hermit Guard contracts (together, "Hermit"). By downloading or using Hermit you agree to these terms and to our [Privacy Policy](https://hermit.my/privacy). If you don't agree, don't use Hermit. If you got Hermit from the App Store or TestFlight, Apple's terms also apply to that download.
 
 ## 2. What Hermit is
 
@@ -49,6 +49,8 @@ To do what you ask, Hermit connects to services run by others, including blockch
 
 - **Swaps and bridges.** NEAR Intents and Relay quotes are filled by third parties. Hermit checks a quote's signature and shows it to you, but delivery depends on those services. If a swap fails, refunds go to the refund address in the quote, under those services' rules.
 - **Staking.** Staked NEAR is delegated to a validator's staking pool you choose. Rewards aren't guaranteed and can change. Unstaked NEAR is locked for about four epochs (roughly 28 hours) before you can withdraw it. Validators can perform badly or go offline.
+- **Hermit Black Box.** Hermit Black Box is a smart contract on NEAR mainnet ([hermit-blackbox.near](https://nearblocks.io/address/hermit-blackbox.near)). It is optional and off until you turn it on. When it's on, each AI move you approve leaves a fingerprint on the blockchain: a salted hash and a short kind, never your chat, amounts or addresses. You keep the text behind each fingerprint on your device. Records on the blockchain can't be edited or removed.
+- **Hermit AI insurance.** Hermit AI insurance is a smart contract on NEAR mainnet ([hermit-insurance.near](https://nearblocks.io/address/hermit-insurance.near)). It is optional, and it unlocks once the Black Box is on, because a claim needs its records. 1 USDC buys 30 days of cover, and all of it goes into a public pool. If the AI prepared something that cost you money, you can file a claim with its Black Box record. An AI reviewer writes a verdict, and Hermit decides each claim at its discretion. An approved claim is paid in USDC from the pool, as far as the pool allows. Cover is not a guarantee of payment. The evidence text you file with a claim is public on the blockchain. Smart contracts can have bugs, and you use them at your own risk.
 - **Hermit Guard.** Hermit Guard is a smart contract on NEAR mainnet ([hermit-guard.near](https://nearblocks.io/address/hermit-guard.near)). Funds you put in a Guard vault are held by the contract under the rules you set, not by us. You can withdraw them with your own key. Anyone can trigger a standing order once it's due, and it pays only what your rules allow. Smart contracts can have bugs, and blockchain upgrades or network problems can affect them. The contract's code is public in our repository, and you use it at your own risk.
 
 ## 9. Trading, perps and yield
@@ -64,7 +66,7 @@ Private Cloud is optional. When you use it, your message goes to NEAR AI Cloud, 
 
 ## 11. Fees
 
-Hermit doesn't charge you a fee. You pay network fees, and any fees the services you use charge, such as swap spreads, venue trading fees or validator commission. They are shown in the review when they're known.
+Hermit doesn't charge you a fee. AI insurance is optional and separate: what you pay for cover goes into the claims pool. You pay network fees, and any fees the services you use charge, such as swap spreads, venue trading fees or validator commission. They are shown in the review when they're known.
 
 ## 12. No advice
 

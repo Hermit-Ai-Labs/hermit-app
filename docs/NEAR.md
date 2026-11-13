@@ -47,119 +47,6 @@ but the quote JSON, `near/intents-quote.py` and the explorer say wNEAR. Hermit d
 Tests: `Tests/HermitWalletTests/NearIntentsTests.swift`, with real dry quotes and the token list recorded on
 2026-11-08 in `Fixtures/`. Script: `near/intents-quote.py`.
 
-## A NEAR account in every wallet
-
-Each wallet derives a NEAR implicit account from its recovery phrase: SLIP-10 ed25519 at `m/44'/397'/0'`, the path
-near-seed-phrase and MyNearWallet use. A wallet made before we added NEAR gets its account after one Face ID check.
-
-Balances (NEAR, plus USDC, USDT and wNEAR as NEP-141 tokens) come from public RPC (FastNEAR), and the available
-balance leaves out the storage reserve. Sends are Borsh-serialized transactions signed with CryptoKit's ed25519:
-`Transfer` for NEAR and `ft_transfer` with 1 yocto attached for tokens, with `storage_deposit` first when the receiver
-isn't registered with the token. Hermit checks its own signature before sending, submits with `send_tx`
-(`EXECUTED_OPTIMISTIC`) and reports a failed receipt as a failure. NEAR can also be the sending side of an Intents
-swap, and payees in Payments can be NEAR accounts.
-
-Code: `HermitWallet/Near.swift`, `WalletService+Near.swift`, `KeyVault.swift` (`nearPath`),
-`HermitUI/Pages/Wallets/NearViews.swift`. Tests: `NearTests` in `NearIntentsTests.swift` check the bytes against
-near-api-js 4 and the keys against near-seed-phrase 0.2.1. Script: `near/near-account.py`.
-
-## Staking NEAR
-
-Every NEAR account can stake with a validator from Earn, or from the Stake button on the wallet's NEAR card. Hermit
-calls the validator's staking pool contract directly: `deposit_and_stake` with the NEAR attached, `unstake` or
-`unstake_all`, then `withdraw_all`. Each one is a function call with 100 Tgas, built like our other NEAR
-transactions and approved with Face ID on the same review sheet.
-
-The list of validators is read from the chain when you open it. Hermit asks the RPC for the current validator set and
-keeps pools that are validating this epoch and the next, were online at least 95% of this epoch and were made by the
-`poolv1.near` factory. It then reads each pool's fee from the pool itself and shows the six biggest that keep 10% of
-rewards or less. The rate on each row is an estimate and says so: what validators were paid last epoch over what is
-staked, scaled to a year, less the pool's fee. When that can't be worked out, no rate is shown.
-
-Before a stake reaches the review, Hermit checks the pool again: it is still an active validator, staking isn't paused,
-its code hash is the factory's and the pool account has no access keys, so nobody can swap the contract. The review
-shows the fee, and 0.05 NEAR always stays in your account on top of the fee, so you can pay to unstake later. Unstaked
-NEAR waits four epochs before it can be withdrawn. Hermit measures how long an epoch takes from block timestamps and
-shows the wait in hours (about 28 on 2026-11-12). Unstaking again restarts that wait for everything already
-unstaking, and the review warns you when that would happen.
-
-Your deposits in Earn shows what is staked, unstaking and ready to withdraw, read from each pool's `get_account`.
-Hermit finds your pools from the ones this device staked into and from FastNEAR's index, so a restored wallet shows
-its stakes too.
-
-In chat there is no separate staking tool, because the on-device models know a fixed tool list. `prepare_deposit`
-with NEAR as the asset prepares a stake, `prepare_withdraw` with NEAR withdraws what is ready or starts an unstake, and
-`get_positions` and `get_portfolio` include staked NEAR. A stake the assistant prepares runs the spending policy as the
-assistant, with the $100 per-move cap and the daily limit, and can only go to a validator on Hermit's list or one you
-already stake with.
-
-Code: `HermitWallet/NearStaking.swift`, `HermitUI/Pages/Earn/EarnStaking.swift`,
-`HermitUI/Cloud/HermitToolbox+Staking.swift`. Tests: `NearStakingTests.swift` checks the four calls byte for byte
-against near-api-js 4.0.4, parses a real `get_account` answer and a real validator set recorded on 2026-11-12, and
-covers the reserve, the assistant's cap and the tool routing.
-
-## Budgets (Hermit Guard)
-
-This is the app side of `contracts/guard/`, a separate NEAR contract with its own README and security notes. The app
-shows Budgets only when a Guard contract is set in `GuardConfig` (`contractID` is nil until the mainnet one is
-deployed, and debug builds can point at the testnet one with the `hermit.guard.contract` launch argument). In Wallets >
-Security, under the spending policy, a Budgets card opens a screen for a vault held in that contract: balances with Add
-and Withdraw, a Freeze button, pockets, standing orders, requests waiting for approval and the last payments.
-
-A pocket is a budget with a limit per payment, a limit per day, a list of recipients and an expiry. A pocket made with a
-key gets a new ed25519 key made on the device, added to your NEAR account as a function-call key that can only call
-`spend` and `request` on the contract (0.25 NEAR of gas budget), and shown once so you can hand it to an app or an
-agent. Hermit doesn't keep it. That is two transactions signed in one Face ID check: AddKey first, then `create_pocket`.
-If `create_pocket` is refused, a DeleteKey signed in the same unlock goes out at once, so no key is left behind.
-Removing a pocket runs `remove_pocket`, then deletes its key, and only a key Hermit made is ever deleted (a function-call
-key for this contract limited to those two methods), never a full-access key. The assistant doesn't get a pocket and
-nothing in chat changes.
-
-Every owner call attaches exactly 1 yoctoNEAR, which a function-call key can't attach, and carries 150 Tgas (200 for a
-token deposit, which goes through the token's `ft_transfer_call`). Before a review opens, Hermit reads the vault, checks
-the contract id is the configured one and, for money or authority going in, that its code hash is the one it checked.
-It also says in plain words what a pocket can pay without asking you, checks the token is registered on both sides before
-a token deposit, and looks at the vault afterwards to be sure the tokens weren't handed back.
-
-Code: `HermitWallet/NearGuard.swift` (actions, reviews), `NearGuardService.swift` (reads, signing and sending),
-`HermitUI/Pages/Wallets/GuardViews.swift`. Tests: `NearGuardTests.swift` checks AddKey, DeleteKey and every call byte for
-byte against near-api-js 4.0.4, checks each call's arguments against `contracts/guard/src/lib.rs`, decodes real testnet
-answers recorded on 2026-11-12, and covers the key ordering, the reviews and the hidden-until-configured switch.
-
-## Black Box (hermit-blackbox.near)
-
-The app side of `contracts/blackbox/`, live on mainnet as `hermit-blackbox.near`.
-
-**Model registry.** Settings > Models asks the contract's `check_model` whether the model you run is the one we
-published: its id, the SHA-256 of `model.safetensors` and a digest of every pinned file (SHA-256 over one
-`path<TAB>size<TAB>sha256<LF>` line per file, sorted by path). It's a second, public source for the hashes the app
-already enforces on download. If NEAR can't be reached the row says so; the download check still stands.
-
-**Flight recorder.** Off by default. Wallets > Security (or Settings > Safety) > Black box makes an ed25519 key on the device and adds it to your
-NEAR account as a function-call key that can only call `record` on `hermit-blackbox.near`, with a 0.05 NEAR gas
-allowance (one Face ID). The key is kept in the Keychain, this device only. After that, each move the assistant
-prepared and you approved is hashed: SHA-256 over sorted JSON of the review (title, lines, checks, warnings), the result,
-the transaction hash, the model, the time and a 16-byte random salt. Only that hash, a short kind (`swap`, `perp_order`)
-and the model id go on chain, as an event log; the text behind it stays on the device, up to the last 500. A record
-reserves 3 Tgas and burns about 2. Turning it off deletes the key from your NEAR account and from the device.
-
-Code: `HermitWallet/BlackBox.swift`, `HermitUI/Pages/Settings/BlackBoxSettings.swift`, the hook in
-`AppModel.approved`. Tests: `BlackBoxTests.swift` (the Swift digest equals `near/blackbox.py`'s, salted fingerprints,
-kinds the contract accepts), `contracts/blackbox/src/tests.rs`, `contracts/blackbox/sandbox-tests`.
-
-## AI insurance (hermit-insurance.near)
-
-The app side of `contracts/insurance/`. Wallets > Security (or Settings > Safety) > AI insurance buys 30 days of cover for 1 USDC on NEAR: one
-`ft_transfer_call` from your NEAR account to the USDC contract with `msg: "cover"`, approved with Face ID. It only unlocks once the Black Box recorder is on, since a claim needs its records; until
-then the button is locked and says so. While covered, File a claim lists your Black Box
-records; you pick the move, say what it cost and what went wrong, and the app calls `file_claim` with the record's
-fingerprint and the exact text behind it (the contract checks the hash) and 0.05 NEAR for storage. The contract's owner
-sees a Claims list in the same place, with the AI reviewer's verdict, and approves or rejects with a reason; approving
-pays the claimant in USDC from the pool.
-
-Code: `HermitWallet/AIInsurance.swift`, `HermitUI/Pages/Settings/InsuranceSettings.swift`. Contract tests:
-`contracts/insurance/src/tests.rs` (20), `contracts/insurance/sandbox-tests`. Reviewer tools: `near/insurance.py`.
-
 ## Private Cloud on NEAR AI Cloud
 
 The chat box has a mode menu: On-device (the default) or Private Cloud. Private Cloud talks to NEAR AI Cloud's
@@ -188,7 +75,7 @@ sheet with every check, who did it and what wasn't checked. Tools still run on t
 policy as on-device mode.
 
 Private Cloud comes with 30 free messages per device per day. After that, you can paste your own NEAR AI Cloud key in
-Settings, Private Cloud. Your key lives in the Keychain on the device and isn't sent until the checks pass.
+Settings, Cloud. Your key lives in the Keychain on the device and isn't sent until the checks pass.
 
 Code: `HermitCloud/TDXQuote.swift`, `X509Lite.swift`, `Attestation.swift`, `TLSBinding.swift`,
 `ResponseSignature.swift`, `NearAICloud.swift`, `NearCloudAgent.swift`, and `HermitUI/Cloud/`. Tests:
@@ -246,3 +133,116 @@ What still isn't checked, by the app or the script:
 So the proof now says: a genuine, non-debug TDX machine with genuine NVIDIA GPUs holds the connection's key, booted an
 OS image NEAR publishes, and runs the gateway, compose manager and inference proxy that NEAR's public repositories
 built. It says which code that is, not that the code is good.
+
+## A NEAR account in every wallet
+
+Each wallet derives a NEAR implicit account from its recovery phrase: SLIP-10 ed25519 at `m/44'/397'/0'`, the path
+near-seed-phrase and MyNearWallet use. A wallet made before we added NEAR gets its account after one Face ID check.
+
+Balances (NEAR, plus USDC, USDT and wNEAR as NEP-141 tokens) come from public RPC (FastNEAR), and the available
+balance leaves out the storage reserve. Sends are Borsh-serialized transactions signed with CryptoKit's ed25519:
+`Transfer` for NEAR and `ft_transfer` with 1 yocto attached for tokens, with `storage_deposit` first when the receiver
+isn't registered with the token. Hermit checks its own signature before sending, submits with `send_tx`
+(`EXECUTED_OPTIMISTIC`) and reports a failed receipt as a failure. NEAR can also be the sending side of an Intents
+swap, and payees in Payments can be NEAR accounts.
+
+Code: `HermitWallet/Near.swift`, `WalletService+Near.swift`, `KeyVault.swift` (`nearPath`),
+`HermitUI/Pages/Wallets/NearViews.swift`. Tests: `NearTests` in `NearIntentsTests.swift` check the bytes against
+near-api-js 4 and the keys against near-seed-phrase 0.2.1. Script: `near/near-account.py`.
+
+## Staking NEAR
+
+Every NEAR account can stake with a validator from Earn, or from the Stake button on the wallet's NEAR card. Hermit
+calls the validator's staking pool contract directly: `deposit_and_stake` with the NEAR attached, `unstake` or
+`unstake_all`, then `withdraw_all`. Each one is a function call with 100 Tgas, built like our other NEAR
+transactions and approved with Face ID on the same review sheet.
+
+The list of validators is read from the chain when you open it. Hermit asks the RPC for the current validator set and
+keeps pools that are validating this epoch and the next, were online at least 95% of this epoch and were made by the
+`poolv1.near` factory. It then reads each pool's fee from the pool itself and shows the six biggest that keep 10% of
+rewards or less. The rate on each row is an estimate and says so: what validators were paid last epoch over what is
+staked, scaled to a year, less the pool's fee. When that can't be worked out, no rate is shown.
+
+Before a stake reaches the review, Hermit checks the pool again: it is still an active validator, staking isn't paused,
+its code hash is the factory's and the pool account has no access keys, so nobody can swap the contract. The review
+shows the fee, and 0.05 NEAR always stays in your account on top of the fee, so you can pay to unstake later. Unstaked
+NEAR waits four epochs before it can be withdrawn. Hermit measures how long an epoch takes from block timestamps and
+shows the wait in hours (about 28 on 2026-11-12). Unstaking again restarts that wait for everything already
+unstaking, and the review warns you when that would happen.
+
+Your deposits in Earn shows what is staked, unstaking and ready to withdraw, read from each pool's `get_account`.
+Hermit finds your pools from the ones this device staked into and from FastNEAR's index, so a restored wallet shows
+its stakes too.
+
+In chat there is no separate staking tool, because the on-device models know a fixed tool list. `prepare_deposit`
+with NEAR as the asset prepares a stake, `prepare_withdraw` with NEAR withdraws what is ready or starts an unstake, and
+`get_positions` and `get_portfolio` include staked NEAR. A stake the assistant prepares runs the spending policy as the
+assistant, with the $100 per-move cap and the daily limit, and can only go to a validator on Hermit's list or one you
+already stake with.
+
+Code: `HermitWallet/NearStaking.swift`, `HermitUI/Pages/Earn/EarnStaking.swift`,
+`HermitUI/Cloud/HermitToolbox+Staking.swift`. Tests: `NearStakingTests.swift` checks the four calls byte for byte
+against near-api-js 4.0.4, parses a real `get_account` answer and a real validator set recorded on 2026-11-12, and
+covers the reserve, the assistant's cap and the tool routing.
+
+## Black Box (hermit-blackbox.near)
+
+The app side of `contracts/blackbox/`, live on mainnet as `hermit-blackbox.near`.
+
+**Model registry.** Settings > Models asks the contract's `check_model` whether the model you run is the one we
+published: its id, the SHA-256 of `model.safetensors` and a digest of every pinned file (SHA-256 over one
+`path<TAB>size<TAB>sha256<LF>` line per file, sorted by path). It's a second, public source for the hashes the app
+already enforces on download. If NEAR can't be reached the row says so; the download check still stands.
+
+**Flight recorder.** Off by default. Wallets > Security (or Settings > Safety) > Black box makes an ed25519 key on the device and adds it to your
+NEAR account as a function-call key that can only call `record` on `hermit-blackbox.near`, with a 0.05 NEAR gas
+allowance (one Face ID). The key is kept in the Keychain, this device only. After that, each move the assistant
+prepared and you approved is hashed: SHA-256 over sorted JSON of the review (title, lines, checks, warnings), the result,
+the transaction hash, the model, the time and a 16-byte random salt. Only that hash, a short kind (`swap`, `perp_order`)
+and the model id go on chain, as an event log; the text behind it stays on the device, up to the last 500. A record
+reserves 3 Tgas and burns about 2. Turning it off deletes the key from your NEAR account and from the device.
+
+Code: `HermitWallet/BlackBox.swift`, `HermitUI/Pages/Settings/BlackBoxSettings.swift`, the hook in
+`AppModel.approved`. Tests: `BlackBoxTests.swift` (the Swift digest equals `near/blackbox.py`'s, salted fingerprints,
+kinds the contract accepts), `contracts/blackbox/src/tests.rs`, `contracts/blackbox/sandbox-tests`.
+
+## AI insurance (hermit-insurance.near)
+
+The app side of `contracts/insurance/`. Wallets > Security (or Settings > Safety) > AI insurance buys 30 days of cover for 1 USDC on NEAR: one
+`ft_transfer_call` from your NEAR account to the USDC contract with `msg: "cover"`, approved with Face ID. It only unlocks once the Black Box recorder is on, since a claim needs its records; until
+then the button is locked and says so. While covered, File a claim lists your Black Box
+records; you pick the move, say what it cost and what went wrong, and the app calls `file_claim` with the record's
+fingerprint and the exact text behind it (the contract checks the hash) and 0.05 NEAR for storage. The contract's owner
+sees a Claims list in the same place, with the AI reviewer's verdict, and approves or rejects with a reason; approving
+pays the claimant in USDC from the pool.
+
+Code: `HermitWallet/AIInsurance.swift`, `HermitUI/Pages/Settings/InsuranceSettings.swift`. Contract tests:
+`contracts/insurance/src/tests.rs` (20), `contracts/insurance/sandbox-tests`. Reviewer tools: `near/insurance.py`.
+
+## Budgets (Hermit Guard)
+
+This is the app side of `contracts/guard/`, a separate NEAR contract with its own README and security notes. The app
+points at `hermit-guard.near` on mainnet (debug builds can point it at the testnet one with the
+`hermit.guard.contract` launch argument). In Wallets >
+Security, under the spending policy, a Budgets card opens a screen for a vault held in that contract: balances with Add
+and Withdraw, a Freeze button, pockets, standing orders, requests waiting for approval and the last payments.
+
+A pocket is a budget with a limit per payment, a limit per day, a list of recipients and an expiry. A pocket made with a
+key gets a new ed25519 key made on the device, added to your NEAR account as a function-call key that can only call
+`spend` and `request` on the contract (0.25 NEAR of gas budget), and shown once so you can hand it to an app or an
+agent. Hermit doesn't keep it. That is two transactions signed in one Face ID check: AddKey first, then `create_pocket`.
+If `create_pocket` is refused, a DeleteKey signed in the same unlock goes out at once, so no key is left behind.
+Removing a pocket runs `remove_pocket`, then deletes its key, and only a key Hermit made is ever deleted (a function-call
+key for this contract limited to those two methods), never a full-access key. The assistant doesn't get a pocket and
+nothing in chat changes.
+
+Every owner call attaches exactly 1 yoctoNEAR, which a function-call key can't attach, and carries 150 Tgas (200 for a
+token deposit, which goes through the token's `ft_transfer_call`). Before a review opens, Hermit reads the vault, checks
+the contract id is the configured one and, for money or authority going in, that its code hash is the one it checked.
+It also says in plain words what a pocket can pay without asking you, checks the token is registered on both sides before
+a token deposit, and looks at the vault afterwards to be sure the tokens weren't handed back.
+
+Code: `HermitWallet/NearGuard.swift` (actions, reviews), `NearGuardService.swift` (reads, signing and sending),
+`HermitUI/Pages/Wallets/GuardViews.swift`. Tests: `NearGuardTests.swift` checks AddKey, DeleteKey and every call byte for
+byte against near-api-js 4.0.4, checks each call's arguments against `contracts/guard/src/lib.rs`, decodes real testnet
+answers recorded on 2026-11-12, and covers the key ordering, the reviews and the hidden-until-configured switch.

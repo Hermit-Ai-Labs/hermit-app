@@ -6,7 +6,7 @@ download. Prices, amounts and balances move, so your numbers will differ from ou
 ## The NEAR code, with Python
 
 On a Mac or Linux machine with Python 3.10 or later (3.12 for steps 7 and 8). Check `python3 --version` first. If it's older, run
-`brew install python@3.12` and type `python3.12` where it says `python3` below. Steps 1 to 7 and 9 need no keys and no
+`brew install python@3.12` and type `python3.12` where it says `python3` below. Steps 1 to 7 and 9 to 12 need no keys and no
 funds. We ran steps 1 to 4 in a fresh clone on 2026-11-11 and steps 5, 6, 7 and 9 on 2026-11-12, on Linux with Python
 3.12, and got what the See column says.
 
@@ -25,7 +25,10 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 | 6 | `F=Packages/HermitKit/Tests/HermitCloudTests/Fixtures; .venv/bin/python near/verify-attestation.py --report $F/qwen-report.json --nonce "$(cat $F/qwen-report.nonce)" --offline` | The recorded report our Swift tests use, checked offline: `31 passed, 0 failed, 12 skipped` ([log](logs/verify-attestation-offline-2026-11-12.txt)). Offline, the OS measurements are compared with the values pinned in the script, the same ones the app pins, and everything that needs the network is skipped. |
 | 7 | `.venv/bin/pip install -r near/requirements-sdk.txt`, then `.venv/bin/python near/verify-attestation.py --sdk` | The same checks plus NEAR's own `nearai-inference-sdk` running `verify(model)` and its image-provenance helper on the gateway's containers: `47 passed, 0 failed, 4 skipped` ([log](logs/verify-attestation-sdk-no-key-2026-11-12.txt)). |
 | 8 | `NEARAI_API_KEY=... .venv/bin/python near/verify-attestation.py --sdk` | Also one short completion on the attested connection, and the enclave's signature over it. Our run on 2026-11-08 ended `29 passed, 0 failed, 0 skipped` ([log](logs/verify-attestation-with-key-2026-11-08.txt)). That was before the checks added on 2026-11-12, and we haven't re-run it with a key since: expect step 7's lines with four completion lines in place of the signature skip. A key comes from https://cloud.near.ai, or $10 of credit from https://nearbuilders.org/dashboard. |
-| 9 | `python3 near/attack-demo.py` | No installs and no network. A step-by-step log of ten attacks and controls against a Python mirror of the app's guard and spending policy: an injected tool result and an attached file that try to send funds to `0x...dEaD` are `[BLOCKED]`, an address you typed is `[ALLOWED]` to review, and the $100 cap, own-address rule, 10% loss cap and daily limit each block a swap. The last line is `8 attacks blocked, 3 legitimate actions allowed` ([log](logs/attack-demo-2026-11-12.txt)). The Swift tests below are the source of truth ([why](SECURITY-DEMO.md#without-a-mac)). |
+| 9 | `python3 near/attack-demo.py` | No installs and no network. A step-by-step log of eleven attacks and controls against a Python mirror of the app's guard and spending policy: an injected tool result and an attached file that try to send funds to `0x...dEaD` are `[BLOCKED]`, an address you typed is `[ALLOWED]` to review, and the $100 cap, own-address rule, 10% loss cap and daily limit each block a swap. The last line is `8 attacks blocked, 3 legitimate actions allowed` ([log](logs/attack-demo-2026-11-12.txt)). The Swift tests below are the source of truth ([why](SECURITY-DEMO.md#without-a-mac)). |
+| 10 | `.venv/bin/python near/blackbox.py check` | Recomputes the digest of each model the app pins and asks `hermit-blackbox.near`: four `[PASS]` lines, one per published model. `blackbox.py info` prints the owner, the models and the record count. |
+| 11 | `.venv/bin/python near/insurance.py info` | The live pool on `hermit-insurance.near`: price (1 USDC for 30 days), paid in and out, members and claims. `insurance.py claims` lists every claim with the AI verdict and the decision, and `insurance.py check <id>` shows that one claim's evidence hashes to its Black Box fingerprint. |
+| 12 | `.venv/bin/python near/guard.py --network mainnet view info` | The live `hermit-guard.near` contract: version, tokens and the code hash on chain. `.venv/bin/python near/guard-demo.py` replays the testnet run against the chain and ends with `33 checks matched, 0 mismatched`. |
 
 More pairs to try: `--from ETH:arbitrum --to USDC:solana --amount 0.01` and `--from NEAR:near --to USDC:hyperliquid
 --amount 5` both end in `[PASS]`. `near-account.py --account near` reads any account. The test phrase is public, so
@@ -41,8 +44,8 @@ bash scripts/core-tests.sh
 bash scripts/core-tests.sh --filter 'ToolLoopTests|testSpendPolicy|testNeutralize'
 ```
 
-On our Mac on 2026-11-12 the first one ended with `Executed 260 tests, with 13 tests skipped and 0 failures`
-([log](logs/core-tests-2026-11-12.txt)). The
+On our Mac on 2026-11-13 the first one ended with `Executed 298 tests, with 14 tests skipped and 0 failures`
+([log](logs/core-tests-2026-11-13.txt)). The
 skipped tests need the network (`HERMIT_LIVE=1`, `HERMIT_LIVE_DAPP=1` or `ONECLICK_LIVE=1`) or a Secure Enclave. The
 second runs the 29 tests behind the prompt-injection demo and the spending policy; they all passed in that run. The
 walkthrough is [SECURITY-DEMO.md](SECURITY-DEMO.md).
@@ -80,8 +83,10 @@ Install it from the links in the [README](../README.md#try-it). On a Mac, read T
 7. Open Automations, tap "Every minute, tell me the BTC price and my wallet total" and save it. Within about a minute a
    toast says it ran, and a notification comes too (Hermit asks for permission the first time). Each run is its own
    chat.
-8. Switch back to On-device, turn on Airplane mode (or turn off Wi-Fi on a Mac) and ask something. It still answers.
+8. In Wallets, Security (or Settings, Safety), turn on Black box with one Face ID check. AI insurance is locked until the
+   Black box is on; then it buys 30 days of cover for 1 USDC. Budgets is on the same Security tab.
+9. Switch back to On-device, turn on Airplane mode (or turn off Wi-Fi on a Mac) and ask something. It still answers.
 
 The Mac download and the TestFlight builds come with 30 free Private Cloud messages a day. After that, or in a build
-you compile yourself, add your own NEAR AI Cloud key in Settings, Private Cloud. Without a key the enclave check in
+you compile yourself, add your own NEAR AI Cloud key in Settings, Cloud. Without a key the enclave check in
 step 4 still runs, but your message isn't sent, and the reply says why.

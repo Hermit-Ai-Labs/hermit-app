@@ -27,7 +27,7 @@ review showed, what happened, the model, the time and a random salt from the dev
   approved, and anyone can check it against the chain.
 - **No storage, gas only.** Each record is an event log (`EVENT_JSON`, standard `hermit-blackbox`), not stored data; the
   contract keeps only a counter. A record burns about 2 Tgas, roughly 0.0002 NEAR.
-- **Off by default.** Settings > Safety > Black box adds one function-call key to your NEAR account that can only call
+- **Off by default.** Wallets > Security (or Settings > Safety) > Black box adds one function-call key to your NEAR account that can only call
   `record` on this contract, with a 0.05 NEAR gas allowance (about 270 records). One approval to turn it on; after that,
   records need none. It can't move money: owner methods need a 1-yoctoNEAR deposit, which a function-call key can't attach.
 

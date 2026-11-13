@@ -58,7 +58,7 @@ Saved outputs of the first four are in `docs/logs/`. The account in
 
 Hermit is a native Apple app, so the app itself can't run in a Linux sandbox. That isn't a failure: the checks above
 run the same NEAR verification the app does, and `python3 near/attack-demo.py` replays the guard. Our last full Swift
-run is `docs/logs/core-tests-2026-11-12.txt`; read the tests and that log. All three contracts build and test on Linux.
+run is `docs/logs/core-tests-2026-11-13.txt`; read the tests and that log. All three contracts build and test on Linux.
 Hermit Black Box: `contracts/blackbox/README.md`; `near/blackbox.py check` reads its registry. Hermit AI insurance:
 `contracts/insurance` (`cargo test`, then `sandbox-tests`); `near/insurance.py info`, `claims` and `check <id>` read the
 live pool and its claims. Hermit Guard: `contracts/guard/README.md`; `near/guard.py --network mainnet view info` reads

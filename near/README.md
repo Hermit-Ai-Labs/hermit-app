@@ -10,6 +10,9 @@ what the app does, step by step, against the live services. They need Python 3.1
 | `near-account.py` | Derives the NEAR account from a public test phrase at `m/44'/397'/0'`, as `KeyVault.swift` does, compares it with the Swift test vector, and reads its balances. `--account <id>` reads any account. | Three `[PASS]` lines, then the balances |
 | `verify-attestation.py` | Fetches NEAR AI Cloud's attestation with a fresh nonce and checks it as `HermitCloud/` does, plus Intel's TCB status with `dcap-qvl`. Then it checks the enclave runs what NEAR publishes: the guest OS measurements rebuilt from NEAR's image, NEAR's containers against their GitHub build attestations, and the model's compose files against NEAR's public repo ([details](../docs/NEAR.md#is-it-nears-software)). With `NEARAI_API_KEY` it also sends one completion and checks the enclave's signature. | `44 passed, 0 failed, 4 skipped` |
 | `attack-demo.py` | Replays prompt-injection and overspending attacks against a Python mirror of the app's guard and spending policy, with the Swift tests' vectors. No installs, no network. | `8 attacks blocked, 3 legitimate actions allowed` |
+| `blackbox.py` | `check` recomputes each model digest the app pins and asks `hermit-blackbox.near`; `info` shows the owner, models and records. | Four `[PASS]` lines with `check` |
+| `insurance.py` | `info` reads the pool on `hermit-insurance.near`; `claims` lists every claim; `check <id>` shows one claim's evidence hashes to its Black Box fingerprint. | The pool: price, paid in and out, members, claims |
+| `guard.py` and `guard-demo.py` | `guard.py --network mainnet view info` reads the live `hermit-guard.near`; `guard-demo.py` replays the testnet run and checks every step against the chain. | `33 checks matched, 0 mismatched` with `guard-demo.py` |
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
@@ -17,6 +20,9 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 .venv/bin/python near/near-account.py
 .venv/bin/python near/verify-attestation.py
 python3 near/attack-demo.py
+.venv/bin/python near/blackbox.py check
+.venv/bin/python near/insurance.py info
+.venv/bin/python near/guard.py --network mainnet view info
 ```
 
 Run them from the repository root. Every option, with what you should see, is in
