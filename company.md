@@ -56,7 +56,7 @@ Institutional, Infura, Phantom Connect; Privy and Dynamic charge per active wall
 ## Team
 
 **[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/))
-- Co-founded [insiders.bot](https://insiders.bot), a Solana and prediction-market trading bot: peak US$360K ARR and
+- Co-founded [insiders.bot](https://x.com/insidersdotbot), a Solana and prediction-market trading bot: peak US$360K ARR and
   $1M+ monthly volume.
 - Co-president of 0xU Club, Hong Kong's largest Web3 student association.
 - UPenn (FranklinDAO) and CUHK.
