@@ -5,6 +5,7 @@
 [![iPhone on TestFlight](https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white)](https://testflight.apple.com/join/ed9vUh7d)
 [![Built on NEAR](https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111)](docs/NEAR.md)
 [![Our contracts on NEAR mainnet](https://img.shields.io/badge/NEAR%20mainnet-blackbox%20%C2%B7%20insurance%20%C2%B7%20guard-00EC97?labelColor=111111)](#how-hermit-uses-near)
+[![Demo video on X](https://img.shields.io/badge/demo-video%20on%20X-111111?logo=x&logoColor=white)](https://x.com/MrRyanChi/status/2121186366537244978)
 [![Hermit 1.3 on Hugging Face](https://img.shields.io/badge/model-Hermit%201.3-FFD21E?logo=huggingface&logoColor=black&labelColor=111111)](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4E1F96.svg)](LICENSE)
 
@@ -32,7 +33,7 @@ whichever path fits your machine:
 | A&nbsp;Mac, through&nbsp;TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
 | A&nbsp;Mac with&nbsp;Xcode 26 | Build and run it yourself: `brew install xcodegen && xcodegen generate`, open `Hermit.xcodeproj`, pick the Hermit scheme and press Run ([docs/BUILD.md](docs/BUILD.md)) | The app, built from this repository on your own Mac. `bash scripts/core-tests.sh` runs its tests too |
 | Any&nbsp;machine, Linux&nbsp;included | Run the Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live, and the attacks on the assistant, blocked |
-| No&nbsp;Mac or&nbsp;iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
+| No&nbsp;Mac or&nbsp;iPhone | Watch the [demo video](https://x.com/MrRyanChi/status/2121186366537244978) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
 
 On first launch the model downloads once: about 2.8 GB, or 1.4 GB on smaller iPhones. After that it answers with Wi-Fi
 off. It's mainnet, so real swaps move real money, and nothing moves without your approval.
