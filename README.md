@@ -259,7 +259,7 @@ and we review all of it ourselves.
   `HermitUI` (the screens).
 - `near/`: the Python checks above, written apart from the app so you can compare the two.
 - `docs/`: [NEAR.md](docs/NEAR.md) (how we use NEAR), [SECURITY-DEMO.md](docs/SECURITY-DEMO.md),
-  [VERIFY.md](docs/VERIFY.md), [BUILD.md](docs/BUILD.md), [MODEL-RESULTS.md](docs/MODEL-RESULTS.md) and saved run logs in [docs/logs](docs/logs).
+  [VERIFY.md](docs/VERIFY.md), [BUILD.md](docs/BUILD.md), [MODEL-RESULTS.md](docs/MODEL-RESULTS.md), [TERMS.md](docs/TERMS.md), [PRIVACY.md](docs/PRIVACY.md) and saved run logs in [docs/logs](docs/logs).
 - [AGENTS.md](AGENTS.md): the short path for AI reviewers.
 
 ## Built at NEAR HACKATHON
@@ -284,4 +284,4 @@ both made in the same window: the web prototype above, and the model training wo
 - Ryan Chi: [X](https://x.com/MrRyanChi), [LinkedIn](https://www.linkedin.com/in/mrryanchi/), [ryanchi.com](https://www.ryanchi.com/)
 - Daksh Joshi: [X](https://x.com/dakshbigshit), [LinkedIn](https://www.linkedin.com/in/joshidaksh/)
 
-MIT, see [LICENSE](LICENSE). Contact: contact@hermit.my.
+MIT, see [LICENSE](LICENSE). [Terms](https://hermit.my/terms) · [Privacy](https://hermit.my/privacy). Contact: contact@hermit.my.

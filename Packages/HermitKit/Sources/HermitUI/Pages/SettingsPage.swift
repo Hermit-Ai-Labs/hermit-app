@@ -117,6 +117,7 @@ struct SettingsPage: View {
 /// What Hermit calls you. There is no account: the name lives on this device.
 struct ProfileSettings: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     @State private var draft = ""
     @FocusState private var focused: Bool
 
@@ -144,6 +145,13 @@ struct ProfileSettings: View {
             Hairline()
             SettingRow(title: "Welcome screen", sub: "See the first screen again. Only your name is asked again; wallets and chats stay") {
                 Button("Show") { withAnimation(.smooth(duration: 0.5)) { model.user = "" } }.buttonStyle(BlackButton())
+            }
+            Hairline()
+            SettingRow(title: "Terms and privacy", sub: "Your keys, your approvals. Hermit charges no fees and collects nothing from the app") {
+                HStack(spacing: 8) {
+                    Button("Terms") { openURL(URL(string: "https://hermit.my/terms")!) }.buttonStyle(BlackButton())
+                    Button("Privacy") { openURL(URL(string: "https://hermit.my/privacy")!) }.buttonStyle(BlackButton())
+                }
             }
         }
         .onAppear { draft = model.user }
