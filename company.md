@@ -40,13 +40,6 @@ trade or pay; it prepares the move, and nothing leaves the wallet until you appr
 - **[`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near):** an on-chain budget for agents and
   standing orders, with caps a key can't exceed.
 
-## Why NEAR
-
-NEAR Intents gives one signed quote for swaps across EVM, Solana, NEAR, Bitcoin and Hyperliquid, which is what an
-assistant needs to turn "swap 20 USDC on Base to NEAR" into one reviewable move. NEAR AI Cloud gives verifiable private
-inference for the questions too big for a phone. Function-call keys let us hand the app a key that can only write a
-record, never move money. Details: [docs/NEAR.md](docs/NEAR.md).
-
 ## Where we are
 
 Facts, as of 2026-11-13:
@@ -54,6 +47,8 @@ Facts, as of 2026-11-13:
 - **Stage:** alpha test version. Public builds: a notarized Mac download ([hermit.my/dmg](https://hermit.my/dmg)),
   iPhone and Mac on TestFlight. Not yet on the App Store.
 - **Age:** the repository started on 2026-10-29. Two weeks of work, built for the NEAR hackathon.
+- **Shipping pace:** 39 builds uploaded to TestFlight in two weeks, 24 for iPhone and 15 for Mac, each one
+  through Apple's processing.
 - **Mainnet use:** real swaps, staking, a Black Box record and an insurance purchase made from the app, each with a
   transaction link in the [README](README.md) and the contracts' DEPLOYMENTS.md files.
 - **Revenue:** none yet. The app charges no fee of its own today. Insurance premiums go into the claims pool, not to
