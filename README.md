@@ -307,8 +307,8 @@ On held-out test conversations, run in a real tool loop:
 Hermit 1.3's numbers are from its first training pass; the weights in the app have a second pass on top. Every test,
 both models side by side: [docs/MODEL-RESULTS.md](docs/MODEL-RESULTS.md).
 
-The training data, the generators, the test suites with every result and the recipe are public:
-[Hermit-Ai-Labs/hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).
+**The training data, the generators, the test suites with every result and the recipe are public:
+[Hermit-Ai-Labs/hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training).**
 
 ## Questions we get
 
