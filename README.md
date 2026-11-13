@@ -405,4 +405,6 @@ both made in the same window: the web prototype above, and the model training wo
 - Ryan Chi: [X](https://x.com/MrRyanChi), [LinkedIn](https://www.linkedin.com/in/mrryanchi/), [ryanchi.com](https://www.ryanchi.com/)
 - Daksh Joshi: [X](https://x.com/dakshbigshit), [LinkedIn](https://www.linkedin.com/in/joshidaksh/)
 
+Investors: [company.md](company.md) is Hermit in one file, written for your AI to read.
+
 MIT, see [LICENSE](LICENSE). [Terms](https://hermit.my/terms) · [Privacy](https://hermit.my/privacy). Contact: contact@hermit.my.
