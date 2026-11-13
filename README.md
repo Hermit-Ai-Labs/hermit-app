@@ -1,24 +1,19 @@
-<h1 align="center">Hermit</h1>
+# Hermit
 
-<p align="center"><b>Hermit is a local AI that manages your onchain assets.</b><br>
-It runs on your iPhone or Mac. Say what you want in plain words, Hermit prepares it,<br>
-and nothing is signed until you approve with Face ID or Touch ID.</p>
+[![checks](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml/badge.svg)](https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml)
+[![Download for Mac](https://img.shields.io/badge/download-Mac-4E1F96?logo=apple&logoColor=white)](https://hermit.my/dmg)
+[![iPhone on TestFlight](https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white)](https://testflight.apple.com/join/ed9vUh7d)
+[![Built on NEAR](https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111)](docs/NEAR.md)
+[![Our contracts on NEAR mainnet](https://img.shields.io/badge/NEAR%20mainnet-blackbox%20%C2%B7%20insurance%20%C2%B7%20guard-00EC97?labelColor=111111)](#how-hermit-uses-near)
+[![Hermit 1.3 on Hugging Face](https://img.shields.io/badge/model-Hermit%201.3-FFD21E?logo=huggingface&logoColor=black&labelColor=111111)](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4E1F96.svg)](LICENSE)
 
-<p align="center">
-<a href="https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml"><img src="https://github.com/Hermit-Ai-Labs/hermit-app/actions/workflows/checks.yml/badge.svg" alt="checks"></a>
-<a href="https://hermit.my/dmg"><img src="https://img.shields.io/badge/download-Mac-4E1F96?logo=apple&logoColor=white" alt="Download for Mac"></a>
-<a href="https://testflight.apple.com/join/ed9vUh7d"><img src="https://img.shields.io/badge/TestFlight-iPhone-4E1F96?logo=apple&logoColor=white" alt="iPhone on TestFlight"></a>
-<a href="docs/NEAR.md"><img src="https://img.shields.io/badge/built%20on-NEAR%20Intents%20%2B%20NEAR%20AI%20Cloud-00EC97?labelColor=111111" alt="Built on NEAR"></a>
-<a href="#how-hermit-uses-near"><img src="https://img.shields.io/badge/NEAR%20mainnet-blackbox%20%C2%B7%20insurance%20%C2%B7%20guard-00EC97?labelColor=111111" alt="Our contracts on NEAR mainnet: hermit-blackbox.near, hermit-insurance.near, hermit-guard.near"></a>
-<a href="https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit"><img src="https://img.shields.io/badge/model-Hermit%201.3-FFD21E?logo=huggingface&logoColor=black&labelColor=111111" alt="Hermit 1.3 on Hugging Face"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4E1F96.svg" alt="License: MIT"></a>
-</p>
+Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. You ask it in plain words to swap,
+bridge, trade or pay. It prepares the move, and nothing leaves your wallet until you approve it with Face ID or Touch
+ID. We didn't want our balances and plans on somebody's server, so the model lives on your device. When a question
+needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it sends a word.
 
-Swap, bridge, trade, stake or pay. The model is our own fine-tune, Hermit 1.3 (2.8 GB), and it works offline, so your
-balances and plans stay on your device. When a question needs a bigger model, Hermit checks a NEAR AI Cloud enclave's
-proof before it sends a word.
-
-**Tracks:** Privacy & Private AI, AI Security & Defense, Unstoppable DeFi.
+Tracks: Privacy & Private AI, AI Security & Defense, Unstoppable DeFi.
 
 <p align="center">
 <img src="docs/img/screens/offline.jpg" width="190" alt="Hermit's home screen on iPhone: your own AI, works offline.">
