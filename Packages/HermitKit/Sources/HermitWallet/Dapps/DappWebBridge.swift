@@ -3,8 +3,9 @@ import Foundation
 import WebKit
 
 /// Connects a WKWebView to a `DappProvider`: injects `window.ethereum` (EIP-1193) and announces it as "Hermit"
-/// (EIP-6963), registers "Hermit" as a Wallet Standard wallet for Solana (plus window.solana / window.hermit), in the
-/// main frame of https pages only, and answers their requests.
+/// (EIP-6963), registers "Hermit" as a Wallet Standard wallet for Solana (plus window.solana / window.hermit) and as a
+/// NEAR injected wallet (HOT near-connect's "near-wallet-injected", plus NEP-408's window.near.hermit), in the main
+/// frame of https pages only, and answers their requests.
 ///
 /// The origin of every request is the one WebKit reports for the frame that sent it (`WKFrameInfo.securityOrigin`),
 /// never anything the page says. Requests from embedded frames, from http pages, or sent while the page is navigating
@@ -26,6 +27,7 @@ import WebKit
         let ucc = config.userContentController
         ucc.addUserScript(WKUserScript(source: Self.providerScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         ucc.addUserScript(WKUserScript(source: Self.solanaScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        ucc.addUserScript(WKUserScript(source: Self.nearScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         ucc.addScriptMessageHandler(self, contentWorld: .page, name: Self.handlerName)
     }
 
@@ -80,7 +82,7 @@ import WebKit
         guard let wv = webView, let url = wv.url, DappOrigin(url: url) == origin,
               let p = try? JSONEncoder().encode(payload), let ps = String(data: p, encoding: .utf8),
               let lit = try? JSONEncoder().encode([name, ps]), let args = String(data: lit, encoding: .utf8) else { return }
-        let fn = name.hasPrefix("solana:") ? "__hermitSolanaEvent" : "__hermitEthereumEvent"
+        let fn = name.hasPrefix("solana:") ? "__hermitSolanaEvent" : name.hasPrefix("near:") ? "__hermitNearEvent" : "__hermitEthereumEvent"
         wv.evaluateJavaScript("window.\(fn) && window.\(fn).apply(null, \(args))", in: nil, in: .page) { _ in }
     }
 
@@ -333,6 +335,225 @@ import WebKit
       try { window.dispatchEvent(new RegisterWalletEvent(callback)); } catch (e) { console.error('Hermit wallet-standard register failed', e); }
       try { window.addEventListener('wallet-standard:app-ready', function (e) { callback(e.detail); }); } catch (e) {}
       call('sol_accounts').then(function (a) { if (a) setAccounts([a]); }, function () {});
+    })();
+    """#
+
+    /// The NEAR wallet's icon: the Hermit mark on purple, as an SVG data URI (base64, so it is safe inside an <img src>).
+    static let nearIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiI+PHJlY3Qgd2lkdGg9Ijk2IiBoZWlnaHQ9Ijk2IiByeD0iMjIiIGZpbGw9IiM0RDFEOTUiLz48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNCAyNi41KSBzY2FsZSguNCkiPjxwYXRoIGQ9Ik01IDVoMTYxLjh2MTAwSDV6TTEwNSA1djEwME0xMDUgNjYuOGg2MS44TTEyOC42IDY2LjhWMTA1TTEwNSA4MS40aDIzLjZNMTE5LjYgNjYuOHYxNC42TTUgMTA1QTEwMCAxMDAgMCAwIDEgMTA1IDVhNjEuOCA2MS44IDAgMCAxIDYxLjggNjEuOCAzOC4yIDM4LjIgMCAwIDEtMzguMiAzOC4yIDIzLjYgMjMuNiAwIDAgMS0yMy42LTIzLjYgMTQuNiAxNC42IDAgMCAxIDE0LjYtMTQuNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRURFNEZGIiBzdHJva2Utd2lkdGg9IjEzIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L2c+PC9zdmc+"
+
+    /// The NEAR wallet. One wallet object, two ways in:
+    /// - HOT near-connect (`@hot-labs/near-connect`, used by NEAR apps such as nearhunt.xyz): announced with
+    ///   CustomEvent("near-wallet-injected", {detail: wallet}) at load and on every "near-selector-ready".
+    /// - NEP-408 (Injected Wallet API): window.near.hermit. window.near is created when missing; other wallets' entries
+    ///   are never touched.
+    /// Both call the same near_* methods. Actions are passed on in near-connect's {type, params} shape; bigints become
+    /// strings, bytes become {"$hermitBytes": base64}, and JSON args the exact text the page serialized ({"$hermitJSON"}).
+    /// Main frame of https pages only.
+    public static let nearScript = #"""
+    (function () {
+      'use strict';
+      if (window.top !== window || location.protocol !== 'https:') return;
+      if (window.__hermitNearEvent) return;
+      var mh = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.hermitEthereum;
+      if (!mh) return;
+      var post = mh.postMessage.bind(mh);
+      function fail(code, message) {
+        var e = new Error(code === 4001 && /^User rejected/.test(message) ? 'User rejected' : message); e.code = code; return e;
+      }
+      function call(method, params) {
+        var json;
+        try { json = JSON.stringify([params || {}]); } catch (e) { return Promise.reject(new Error('Hermit: the request is not JSON (' + e.message + ')')); }
+        return post({ method: method, params: json }).then(function (raw) {
+          var r = JSON.parse(raw);
+          if (r.error) throw fail(r.error.code, r.error.message);
+          return r.result;
+        });
+      }
+      function b64(u8) { var s = ''; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s); }
+      function isBytes(v) { return v instanceof ArrayBuffer || ArrayBuffer.isView(v); }
+      function toU8(v) { return v instanceof ArrayBuffer ? new Uint8Array(v) : new Uint8Array(v.buffer, v.byteOffset, v.byteLength); }
+      var B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+      function unb58(s) {
+        var bytes = [];
+        for (var i = 0; i < s.length; i++) {
+          var c = B58.indexOf(s[i]); if (c < 0) return new Uint8Array(0);
+          for (var j = 0; j < bytes.length; j++) { c += bytes[j] * 58; bytes[j] = c & 255; c >>= 8; }
+          while (c > 0) { bytes.push(c & 255); c >>= 8; }
+        }
+        for (var k = 0; k < s.length && s[k] === '1'; k++) bytes.push(0);
+        return new Uint8Array(bytes.reverse());
+      }
+      // Plain JSON for the native side: bigints and BN/PublicKey objects print themselves, bytes are tagged.
+      function norm(v, d) {
+        d = d || 0; if (d > 32) throw new Error('Hermit: the request is nested too deeply');
+        if (v === null || v === undefined) return null;
+        var t = typeof v;
+        if (t === 'bigint') return v.toString();
+        if (t === 'string' || t === 'boolean') return v;
+        if (t === 'number') return isFinite(v) ? v : null;
+        if (t !== 'object') return null;
+        if (isBytes(v)) return { $hermitBytes: b64(toU8(v)) };
+        if (Array.isArray(v)) return v.map(function (x) { return norm(x, d + 1); });
+        var proto = Object.getPrototypeOf(v);
+        if (proto !== Object.prototype && proto !== null && typeof v.toString === 'function' && v.toString !== Object.prototype.toString) {
+          var s = v.toString(); if (typeof s === 'string') return s;
+        }
+        var out = {};
+        Object.keys(v).forEach(function (k) { if (v[k] !== undefined && typeof v[k] !== 'function') out[k] = norm(v[k], d + 1); });
+        return out;
+      }
+      function normArgs(a) {
+        if (a === null || a === undefined) return null;
+        if (isBytes(a)) return { $hermitBytes: b64(toU8(a)) };
+        if (typeof a === 'string') return a;
+        if (Array.isArray(a) && a.every(function (n) { return typeof n === 'number'; })) return a;
+        return { $hermitJSON: JSON.stringify(a) };
+      }
+      function fc(methodName, args, gas, deposit) {
+        return { type: 'FunctionCall', params: { methodName: methodName, args: normArgs(args), gas: norm(gas), deposit: norm(deposit) } };
+      }
+      function normAction(a) {
+        if (!a || typeof a !== 'object') throw new Error('Hermit: each action must be an object');
+        if (typeof a.type === 'string') {
+          var p = a.params || {};
+          if (a.type === 'FunctionCall') return fc(p.methodName, p.args, p.gas, p.deposit);
+          return norm({ type: a.type, params: a.params });
+        }
+        // near-api-js Action objects (NEP-408 pages build these).
+        if (a.functionCall) return fc(a.functionCall.methodName, a.functionCall.args, a.functionCall.gas, a.functionCall.deposit);
+        if (a.transfer) return { type: 'Transfer', params: { deposit: norm(a.transfer.deposit) } };
+        if (a.addKey) {
+          var ak = a.addKey, perm = (ak.accessKey && ak.accessKey.permission) || {}, f = perm.functionCall;
+          return { type: 'AddKey', params: { publicKey: norm(ak.publicKey), accessKey: { permission: f
+            ? { receiverId: f.receiverId, allowance: norm(f.allowance), methodNames: norm(f.methodNames) } : 'FullAccess' } } };
+        }
+        if (a.deleteKey) return { type: 'DeleteKey', params: { publicKey: norm(a.deleteKey.publicKey) } };
+        var name = a.enum || Object.keys(a).filter(function (k) { return a[k] !== undefined; })[0] || 'unknown';
+        return { type: String(name) };
+      }
+      var accounts = [];
+      var listeners = {};
+      function emit(name, payload) {
+        (listeners[name] || []).slice().forEach(function (fn) { try { fn(payload); } catch (e) { setTimeout(function () { throw e; }); } });
+      }
+      function key408(s) {
+        var str = String(s);
+        return { keyType: 0, data: unb58(str.replace(/^ed25519:/, '')), toString: function () { return str; }, toJSON: function () { return str; } };
+      }
+      function accounts408() { return accounts.map(function (a) { return { accountId: a.accountId, publicKey: key408(a.publicKey) }; }); }
+      function setAccounts(list) {
+        list = Array.isArray(list) ? list : [];
+        var before = accounts.map(function (a) { return a.accountId; }).join(','), after = list.map(function (a) { return a.accountId; }).join(',');
+        accounts = list.map(function (a) { return { accountId: a.accountId, publicKey: a.publicKey }; });
+        if (before !== after) emit('accountsChanged', { accounts: accounts408() });
+      }
+      function copy() { return accounts.map(function (a) { return { accountId: a.accountId, publicKey: a.publicKey }; }); }
+      function signIn(p) {
+        return Promise.resolve().then(function () {
+          return call('near_signIn', { network: p.network, accountId: p.accountId,
+                                       addFunctionCallKey: p.addFunctionCallKey ? norm(p.addFunctionCallKey) : null });
+        }).then(function (a) { setAccounts(a); return copy(); });
+      }
+      function sendTxs(network, list) {
+        return Promise.resolve().then(function () {
+          if (!Array.isArray(list) || !list.length) throw new Error('Hermit: no transactions to send');
+          var txs = list.map(function (t) {
+            if (!t || typeof t !== 'object') throw new Error('Hermit: each transaction must be an object');
+            return { signerId: t.signerId, receiverId: t.receiverId, actions: (t.actions || []).map(normAction) };
+          });
+          return call('near_signAndSendTransactions', { network: network, transactions: txs });
+        });
+      }
+      function signMessage(p) {
+        return Promise.resolve().then(function () {
+          if (!p || typeof p.message !== 'string') throw new Error('Hermit: signMessage needs { message, recipient, nonce }');
+          var n = p.nonce;
+          return call('near_signMessage', { network: p.network, message: p.message, recipient: p.recipient,
+                                            nonce: isBytes(n) ? { $hermitBytes: b64(toU8(n)) } : norm(n), callbackUrl: p.callbackUrl || null });
+        }).then(function (r) { if (p.state !== undefined) r.state = p.state; return r; });
+      }
+      function no(what) { return function () { return Promise.reject(new Error("Hermit doesn't support " + what + ' yet.')); }; }
+
+      // HOT near-connect injected wallet.
+      var manifest = Object.freeze({
+        id: 'hermit-wallet', name: 'Hermit', icon: '\#(nearIcon)',
+        description: 'Private on-device AI with a self-custody wallet. Every transaction asks you first.',
+        website: 'https://hermit.my', version: '1.0.0', executor: '', type: 'injected',
+        platform: Object.freeze({}), permissions: Object.freeze({}),
+        features: Object.freeze({ signMessage: true, signInWithoutAddKey: true, signInWithFunctionCallKey: true,
+                                  signAndSendTransaction: true, signAndSendTransactions: true,
+                                  signInAndSignMessage: false, signDelegateActions: false, testnet: false })
+      });
+      var connectWallet = Object.freeze({
+        manifest: manifest,
+        signIn: function (p) { p = p || {}; return signIn({ network: p.network, addFunctionCallKey: p.addFunctionCallKey }); },
+        signInAndSignMessage: no('signInAndSignMessage (sign in, then sign the message)'),
+        signOut: function (p) { return call('near_signOut', { network: p && p.network }).then(function () { setAccounts([]); }); },
+        getAccounts: function (p) { return call('near_accounts', { network: p && p.network }).then(function (a) { setAccounts(a); return copy(); }); },
+        signAndSendTransaction: function (p) { p = p || {}; return sendTxs(p.network, [p]).then(function (r) { return r[0]; }); },
+        signAndSendTransactions: function (p) { p = p || {}; return sendTxs(p.network, p.transactions); },
+        signMessage: signMessage,
+        signDelegateActions: no('signDelegateActions')
+      });
+      function announce() { try { window.dispatchEvent(new CustomEvent('near-wallet-injected', { detail: connectWallet })); } catch (e) {} }
+      window.addEventListener('near-selector-ready', announce);
+
+      // NEP-408 injected wallet at window.near.hermit.
+      var nep408 = Object.freeze({
+        id: 'hermit',
+        name: 'Hermit',
+        icon: '\#(nearIcon)',
+        get connected() { return accounts.length > 0; },
+        get network() { return { networkId: 'mainnet', nodeUrl: '\#(Chain.near.rpc.absoluteString)' }; },
+        get accounts() { return accounts408(); },
+        supportsNetwork: function (id) { return Promise.resolve(id === 'mainnet'); },
+        connect: function (p) { return signIn({ network: p && p.networkId }).then(accounts408); },
+        signIn: function (p) {
+          p = p || {};
+          var perm = p.permission || {}, acct = p.account || {}, names = norm(perm.methodNames) || [];
+          return signIn({ accountId: acct.accountId, addFunctionCallKey: { contractId: perm.receiverId, publicKey: norm(acct.publicKey),
+            allowMethods: { anyMethod: names.length === 0, methodNames: names },
+            gasAllowance: perm.allowance != null ? { kind: 'limited', amount: norm(perm.allowance) } : undefined } }).then(function () {});
+        },
+        signInMulti: no('signInMulti'),
+        // NEP-408 signOut removes the site's function-call keys: a transaction, reviewed like any other.
+        signOut: function (p) {
+          var list = ((p && p.accounts) || []).filter(function (a) { return a && a.publicKey; });
+          if (!list.length) return Promise.resolve();
+          return sendTxs(undefined, [{ receiverId: list[0].accountId, actions: list.map(function (a) {
+            return { type: 'DeleteKey', params: { publicKey: norm(a.publicKey) } }; }) }]).then(function () {});
+        },
+        disconnect: function () { return call('near_signOut', {}).then(function () { setAccounts([]); }); },
+        getAccounts: function () { return call('near_accounts', {}).then(function (a) { setAccounts(a); return accounts408(); }); },
+        signTransaction: no('signTransaction (Hermit signs and sends in one step: use signAndSendTransaction)'),
+        signTransactions: no('signTransactions (Hermit signs and sends in one step: use signAndSendTransactions)'),
+        signAndSendTransaction: function (p) { p = p || {}; return sendTxs(undefined, [p.transaction || p]).then(function (r) { return r[0]; }); },
+        signAndSendTransactions: function (p) { return sendTxs(undefined, p && p.transactions); },
+        signMessage: signMessage,
+        on: function (n, fn) {
+          (listeners[n] = listeners[n] || []).push(fn);
+          return function () { nep408.off(n, fn); };
+        },
+        off: function (n, fn) {
+          if (!fn) { delete listeners[n]; return; }
+          var l = listeners[n]; if (l) { var i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); }
+        }
+      });
+      try {
+        if (!window.near || typeof window.near !== 'object') {
+          Object.defineProperty(window, 'near', { value: {}, writable: true, configurable: true, enumerable: true });
+        }
+        if (!Object.prototype.hasOwnProperty.call(window.near, 'hermit')) {
+          Object.defineProperty(window.near, 'hermit', { value: nep408, writable: false, configurable: false, enumerable: true });
+        }
+      } catch (e) {}
+
+      Object.defineProperty(window, '__hermitNearEvent', {
+        value: function (name, raw) { if (name === 'near:accounts') setAccounts(JSON.parse(raw)); },
+        writable: false, configurable: false, enumerable: false
+      });
+      announce();
+      call('near_accounts', {}).then(setAccounts, function () {});
     })();
     """#
 }

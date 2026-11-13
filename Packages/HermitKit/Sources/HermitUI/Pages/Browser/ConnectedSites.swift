@@ -43,6 +43,7 @@ struct ConnectedSitesSettings: View {
         var parts: [String] = []
         if !s.address.isEmpty { parts.append("\(DappDecoder.short(s.address)) on \(Chain.with(chainId: s.chainID)?.name ?? "chain \(s.chainID)")") }
         if let sol = s.solana { parts.append("\(SolanaDecoder.short(sol)) on Solana") }
+        if let near = s.near { parts.append("\(NearDapp.shortAccount(near)) on NEAR") }
         return "\(wallet), \(parts.joined(separator: " and ")). Last used \(s.lastUsed.formatted(.relative(presentation: .named)))"
     }
 }

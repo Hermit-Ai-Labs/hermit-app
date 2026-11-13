@@ -37,6 +37,8 @@ public final class DappPermissions {
         public var chainID: UInt64
         /// The connected Solana address (base58), if the site connected one.
         public var solana: String?
+        /// The connected NEAR account, if the site connected one. Decodes as nil from lists saved before NEAR.
+        public var near: String? = nil
         public let connected: Date
         public var lastUsed: Date
     }
@@ -55,7 +57,7 @@ public final class DappPermissions {
     public func connect(_ origin: DappOrigin, walletID: UUID, address: String, chainID: UInt64) {
         let now = Date()
         if let i = sites.firstIndex(where: { $0.origin == origin.description }) {
-            if sites[i].walletID != walletID { sites[i].solana = nil }
+            if sites[i].walletID != walletID { sites[i].solana = nil; sites[i].near = nil }
             sites[i].walletID = walletID; sites[i].address = address; sites[i].chainID = chainID; sites[i].lastUsed = now
         } else {
             sites.insert(Site(origin: origin.description, walletID: walletID, address: address, chainID: chainID, solana: nil,
@@ -68,7 +70,7 @@ public final class DappPermissions {
     public func connectSolana(_ origin: DappOrigin, walletID: UUID, address: String) {
         let now = Date()
         if let i = sites.firstIndex(where: { $0.origin == origin.description }) {
-            if sites[i].walletID != walletID { sites[i].address = ""; sites[i].walletID = walletID }
+            if sites[i].walletID != walletID { sites[i].address = ""; sites[i].near = nil; sites[i].walletID = walletID }
             sites[i].solana = address; sites[i].lastUsed = now
         } else {
             sites.insert(Site(origin: origin.description, walletID: walletID, address: "", chainID: 1, solana: address,
@@ -77,10 +79,32 @@ public final class DappPermissions {
         save()
     }
 
+    /// Connects the wallet's NEAR account. Keeps the site's EVM and Solana connections when they are the same wallet's.
+    public func connectNear(_ origin: DappOrigin, walletID: UUID, account: String) {
+        let now = Date()
+        if let i = sites.firstIndex(where: { $0.origin == origin.description }) {
+            if sites[i].walletID != walletID { sites[i].address = ""; sites[i].solana = nil; sites[i].walletID = walletID }
+            sites[i].near = account; sites[i].lastUsed = now
+        } else {
+            sites.insert(Site(origin: origin.description, walletID: walletID, address: "", chainID: 1, solana: nil, near: account,
+                              connected: now, lastUsed: now), at: 0)
+        }
+        save()
+    }
+
     /// standard:disconnect from the page: drops the Solana connection only.
     public func disconnectSolana(_ origin: DappOrigin) {
         guard let i = sites.firstIndex(where: { $0.origin == origin.description }) else { return }
-        if sites[i].address.isEmpty { sites.remove(at: i) } else { sites[i].solana = nil }
+        sites[i].solana = nil
+        if sites[i].address.isEmpty, sites[i].near == nil { sites.remove(at: i) }
+        save()
+    }
+
+    /// The NEAR wallet's signOut from the page: drops the NEAR connection only.
+    public func disconnectNear(_ origin: DappOrigin) {
+        guard let i = sites.firstIndex(where: { $0.origin == origin.description }) else { return }
+        sites[i].near = nil
+        if sites[i].address.isEmpty, sites[i].solana == nil { sites.remove(at: i) }
         save()
     }
 

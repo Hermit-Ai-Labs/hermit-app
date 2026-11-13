@@ -100,6 +100,7 @@ public struct DappSentTransaction: Sendable, Equatable {
         guard let o = URL(string: origin).flatMap(DappOrigin.init(url:)) else { return }
         emit?(o, "accountsChanged", .array([]))
         emit?(o, "solana:accounts", .array([]))
+        emit?(o, "near:accounts", .array([]))
     }
 
     static func hex(_ v: UInt64) -> String { "0x" + String(v, radix: 16) }
@@ -131,6 +132,7 @@ public struct DappSentTransaction: Sendable, Equatable {
 
     private func route(_ method: String, _ p: [JSON], _ origin: DappOrigin) async throws -> JSON {
         if method.hasPrefix("sol_") { return try await solana(method, p.first ?? .object([:]), origin) }
+        if method.hasPrefix("near_") { return try await near(method, p.first ?? .object([:]), origin) }
         let c = chain(for: origin)
         switch method {
         case "eth_chainId": return .string(Self.hex(c.chainId!))

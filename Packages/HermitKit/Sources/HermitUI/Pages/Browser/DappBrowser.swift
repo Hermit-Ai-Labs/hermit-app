@@ -213,13 +213,15 @@ final class DappBrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     var listed: Bool { !host.isEmpty && DappSiteCheck.isListed(host, known: DappBrowser.knownHosts) }
     /// The wallet connected to this page's origin, if any (reads the shared list, so Settings changes show at once).
     var connected: DappPermissions.Site? {
-        guard let o = origin, provider.account(for: o) != nil || provider.solanaAccount(for: o) != nil else { return nil }
+        guard let o = origin, provider.account(for: o) != nil || provider.solanaAccount(for: o) != nil || provider.nearAccount(for: o) != nil else { return nil }
         return DappPermissions.shared.site(o)
     }
-    /// The EVM network, when an EVM wallet is connected; Solana when only Solana is.
+    /// The EVM network, when an EVM wallet is connected; else Solana or NEAR, whichever is.
     var chain: Chain? {
         guard let o = origin else { return nil }
-        return provider.account(for: o) != nil ? provider.chain(for: o) : provider.solanaAccount(for: o) != nil ? .solana : nil
+        if provider.account(for: o) != nil { return provider.chain(for: o) }
+        if provider.solanaAccount(for: o) != nil { return .solana }
+        return provider.nearAccount(for: o) != nil ? .near : nil
     }
     var evmConnected: Bool { origin.map { provider.account(for: $0) != nil } ?? false }
 

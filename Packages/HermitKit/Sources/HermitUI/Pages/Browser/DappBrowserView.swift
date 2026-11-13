@@ -128,7 +128,7 @@ struct DappBrowserView: View {
     private var menu: some View {
         Menu {
             if let s = session.connected {
-                Section("Connected: \(s.address.isEmpty ? SolanaDecoder.short(s.solana ?? "") : DappDecoder.short(s.address))") {
+                Section("Connected: \(!s.address.isEmpty ? DappDecoder.short(s.address) : s.solana.map(SolanaDecoder.short) ?? NearDapp.shortAccount(s.near ?? ""))") {
                     if session.evmConnected { Menu("Network") {
                         ForEach(DappProvider.evmChains.filter { !$0.isTestnet || WalletsViewModel.shared.service.showTestnets }) { c in
                             Button { session.switchChain(c) } label: {

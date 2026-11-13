@@ -38,9 +38,10 @@ public struct Borsh {
 public enum NearAction: Equatable, Sendable {
     case transfer(deposit: UInt128)
     case functionCall(method: String, args: [UInt8], gas: UInt64, deposit: UInt128)
-    /// Adds an ed25519 access key that can only call `methods` on `receiver`, never attach NEAR, and pays its own gas
-    /// from `allowance`. There is deliberately no full-access variant: Hermit never adds one.
-    case addFunctionCallKey(publicKey: [UInt8], allowance: UInt128, receiver: String, methods: [String])
+    /// Adds an ed25519 access key that can only call `methods` on `receiver` (any method when empty), never attach NEAR,
+    /// and pays its own gas from `allowance` (nil: no allowance cap, which only a site's sign-in can ask for).
+    /// There is deliberately no full-access variant: Hermit never adds one.
+    case addFunctionCallKey(publicKey: [UInt8], allowance: UInt128?, receiver: String, methods: [String])
     /// Removes an access key from the signer's account.
     case deleteKey(publicKey: [UInt8])
 
@@ -66,10 +67,12 @@ public enum NearAction: Equatable, Sendable {
         case .transfer(let d): w.u8(3); w.u128(d)
         case .functionCall(let m, let a, let g, let d): w.u8(2); w.string(m); w.vec(a); w.u64(g); w.u128(d)
         case .addFunctionCallKey(let key, let allowance, let receiver, let methods):
-            // AddKey { public_key, access_key { nonce: 0, permission: FunctionCall { allowance: Some(u128), receiver_id, method_names } } }
+            // AddKey { public_key, access_key { nonce: 0, permission: FunctionCall { allowance: Option<u128>, receiver_id, method_names } } }
             w.u8(5); w.u8(0); w.fixed(key)
             w.u64(0)
-            w.u8(0); w.u8(1); w.u128(allowance); w.string(receiver)
+            w.u8(0)
+            if let allowance { w.u8(1); w.u128(allowance) } else { w.u8(0) }
+            w.string(receiver)
             w.u32(UInt32(methods.count)); for m in methods { w.string(m) }
         case .deleteKey(let key): w.u8(6); w.u8(0); w.fixed(key)
         }
@@ -236,6 +239,12 @@ public final class NearClient: Sendable {
     public func gasPrice() async throws -> UInt128 {
         let r = try await call("gas_price", [.null])
         return r["gas_price"]?.string.flatMap { UInt128($0) } ?? 100_000_000
+    }
+
+    /// Sends and waits until the transaction and its receipts have executed, and returns the RPC's whole result (a
+    /// FinalExecutionOutcome: status, transaction, transaction_outcome, receipts_outcome), as web apps expect it back.
+    public func sendOutcome(_ tx: SignedNearTransaction) async throws -> JSON {
+        try await call("send_tx", ["signed_tx_base64": .string(tx.base64), "wait_until": "EXECUTED_OPTIMISTIC"])
     }
 
     /// Sends and waits until the transaction and its receipts have executed. Returns (hash, success, failure text).
