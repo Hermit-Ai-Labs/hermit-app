@@ -115,6 +115,7 @@ each.
 | Code hash on chain | [`FcBAhBovqfKHHKA3maMyV5C9DCNq3wKRmQzW9cFFW5H3`](https://nearblocks.io/address/hermit-blackbox.near?tab=contract) (sha256 `d90670f7…c61a`, the build in [contracts/blackbox/dist](contracts/blackbox/dist)) |
 | Models published | [Hermit 1.3](https://nearblocks.io/txns/BmZzF1mk4A2VJxWAwFdbAYF4ksTfxZq14tGnJgn85QPp), [Hermit 1.3 Lite](https://nearblocks.io/txns/GULCTTBEDR3pnjNpLS5RZjkjFYH7TXnAQsLNTugumvv2), [Hermit 1.2](https://nearblocks.io/txns/4o5KxZRbUUxdW27ukZnR3Mu2gyzo8vo5VoeHmWagprcH), [Hermit 1.1 Lite](https://nearblocks.io/txns/Grimy2w9k6K29rsifJ4oyZjccfiYaqBcVxLwZ6KS8reR) |
 | First flight record | [`GEh7vi8…HXiU`](https://nearblocks.io/txns/GEh7vi8yjPsr7PBSoPmtUy2o3PwghX7MS1WgRzAHXiU), written by a key limited to `record` |
+| From the app, real use | [`7HCp8a7m…9Bb1`](https://nearblocks.io/txns/7HCp8a7mfDC4BqkkKua4wWzarAvijYrGAqVgGBAD9Bb1): a Hermit wallet's own NEAR account recording an approved AI move |
 | Tests | 17 unit tests and a sandbox story with real access keys |
 
 ```sh
@@ -166,6 +167,7 @@ sequenceDiagram
 | Code hash on chain | `8qSxw5r3ZNX1NMZQAZ3Fjhs15FiitDucDkegt3oSpXJ8` (sha256 `746b0b99…0dc1`, the build in [contracts/insurance/dist](contracts/insurance/dist)) |
 | Deployed in | [`36VH2pTQ…T4ww`](https://nearblocks.io/txns/36VH2pTQfbeTkpUYbmBg2igB8UY8PfT6QAEcEHR3T4ww), registered with USDC in [`5YCQxQ3z…8M4`](https://nearblocks.io/txns/5YCQxQ3zfih695i7V9yJ4C736mHoz13wJS2uNoBve8M4) |
 | Pays in | USDC on NEAR, from a public pool |
+| First member, from the app | [`5enrbGg3…bu`](https://nearblocks.io/txns/5enrbGg3a93w961ChrpBHbYHd2NCDk66rw5A7CRHbabu): 1 USDC from a Hermit wallet bought 30 days of cover and went into the pool |
 
 It has 20 unit tests and a sandbox story with a real token: cover bought, the pool funded, a stranger without cover
 refused, a claim filed, the reviewer unable to decide, the owner approving 18 USDC paid straight to the claimant, and

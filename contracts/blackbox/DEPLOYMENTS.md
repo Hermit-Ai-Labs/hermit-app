@@ -23,6 +23,7 @@
 | 6 | publish Hermit 1.1 Lite | ok | [`Grimy2w9k6…`](https://nearblocks.io/txns/Grimy2w9k6K29rsifJ4oyZjccfiYaqBcVxLwZ6KS8reR) |
 | 7 | a function-call key limited to `record` writes the first fingerprint (0.00018 NEAR of its allowance) | ok | [`GEh7vi8yjP…`](https://nearblocks.io/txns/GEh7vi8yjPsr7PBSoPmtUy2o3PwghX7MS1WgRzAHXiU) |
 | 8 | the same key calls `set_owner` | refused by NEAR (`InvalidAccessKeyError`), owner unchanged | |
+| 9 | **from the Hermit app**: a wallet turns on the Black box and records an approved AI move with its own key | ok | [`7HCp8a7mfD…`](https://nearblocks.io/txns/7HCp8a7mfDC4BqkkKua4wWzarAvijYrGAqVgGBAD9Bb1) |
 
 `python3 near/blackbox.py check` then prints `[PASS]` for all four models the app pins.
 

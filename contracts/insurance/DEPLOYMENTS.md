@@ -18,6 +18,7 @@
 | 1 | create `hermit-insurance.near` through the registrar | [`AgVXyZUZtt…`](https://nearblocks.io/txns/AgVXyZUZttdnBdcN5vnFmTpv56inCLLBmcahMqswYwMX) |
 | 2 | deploy + `new` in one transaction | [`36VH2pTQfb…`](https://nearblocks.io/txns/36VH2pTQfbeTkpUYbmBg2igB8UY8PfT6QAEcEHR3T4ww) |
 | 3 | register the contract with USDC (storage_deposit) | [`5YCQxQ3zfi…`](https://nearblocks.io/txns/5YCQxQ3zfih695i7V9yJ4C736mHoz13wJS2uNoBve8M4) |
+| 4 | **from the Hermit app**: a wallet buys 30 days of cover for 1 USDC; pool 1.00, 1 member | [`5enrbGg3a9…`](https://nearblocks.io/txns/5enrbGg3a93w961ChrpBHbYHd2NCDk66rw5A7CRHbabu) |
 
 `.venv/bin/python near/insurance.py info` reads the pool, members and claims.
 
