@@ -23,6 +23,7 @@ struct SettingsPage: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Hermit runs on this device. Nothing you type leaves it.").font(.system(size: 13)).foregroundStyle(Theme.muted)
                     ModelSheet(embedded: true)
+                    ModelRegistryRow()
                 }
             case "cloud": CloudSettings()
             case "sites": ConnectedSitesSettings()
@@ -48,6 +49,10 @@ struct SettingsPage: View {
             SettingRow(title: "Approve with \(Device.bio)", sub: "Your keys never leave \(Device.here)") {
                 Text("Always on").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
+            Hairline()
+            BlackBoxRow()
+            Hairline()
+            InsuranceSection()
             NoteBox(symbol: "checkmark.shield", text: "Every send, swap and trade asks for \(Device.bio). Hermit stops at \(MoneyFmt.usd(Double(daily))) a day, counting every move it can price.")
                 .padding(.top, 18)
                 .contentTransition(.opacity)

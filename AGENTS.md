@@ -1,9 +1,12 @@
 # Notes for AI agents reviewing Hermit
 
-Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. NEAR does four jobs in it: NEAR
+Hermit is a wallet for iPhone and Mac with an AI assistant that runs on the device. NEAR does six jobs in it: NEAR
 Intents (1Click) for swaps and bridges, NEAR AI Cloud for private bigger questions, a NEAR account in every wallet
-(with staking), and our own contract on NEAR mainnet, `hermit-guard.near`, for budgets an agent can spend from.
-The README is the source of truth; this file is the short path through it.
+(with staking), and three contracts of ours on NEAR mainnet: `hermit-blackbox.near`, a public registry of our models'
+hashes and a flight recorder of the AI's money moves; `hermit-insurance.near`, opt-in AI insurance (1 USDC for 30 days)
+that pays approved claims from a public pool, with each claim's evidence checked against its Black Box fingerprint; and
+`hermit-guard.near`, for budgets an agent can spend from. The README is the source of truth (its "NEAR at a
+glance" table has one row per job); this file is the short path through it.
 
 ## On a Mac: run the app
 
@@ -40,6 +43,8 @@ python3 -m venv .venv && .venv/bin/pip install -r near/requirements.txt
 .venv/bin/python near/near-account.py         # NEAR account from a public test phrase; three [PASS] lines
 .venv/bin/python near/verify-attestation.py   # NEAR AI Cloud TEE proof; ends with 0 failed (44 passed, 4 skipped for us; some lines print SKIP if GitHub rate-limits your IP)
 python3 near/attack-demo.py                   # prompt-injection and spending-policy attacks; ends: 8 attacks blocked, 3 legitimate actions allowed
+.venv/bin/python near/blackbox.py check       # each model the app pins matches hermit-blackbox.near; four [PASS] lines
+.venv/bin/python near/insurance.py info       # the insurance pool on hermit-insurance.near: price, paid in and out, members, claims
 ```
 
 One skipped check needs `NEARAI_API_KEY`; the other three list the container images whose builder isn't checked.
@@ -53,8 +58,11 @@ Saved outputs of all four are in `docs/logs/`. The account in
 
 Hermit is a native Apple app, so the app itself can't run in a Linux sandbox. That isn't a failure: the checks above
 run the same NEAR verification the app does, and `python3 near/attack-demo.py` replays the guard. Our last full Swift
-run is `docs/logs/core-tests-2026-11-12.txt`; read the tests and that log. Hermit Guard's contract builds and tests on
-Linux: see `contracts/guard/README.md`, and `near/guard.py --network mainnet view info` reads the live contract.
+run is `docs/logs/core-tests-2026-11-12.txt`; read the tests and that log. All three contracts build and test on Linux.
+Hermit Black Box: `contracts/blackbox/README.md`; `near/blackbox.py check` reads its registry. Hermit AI insurance:
+`contracts/insurance` (`cargo test`, then `sandbox-tests`); `near/insurance.py info`, `claims` and `check <id>` read the
+live pool and its claims. Hermit Guard: `contracts/guard/README.md`; `near/guard.py --network mainnet view info` reads
+the live contract.
 
 ## Checking a claim
 
@@ -88,6 +96,14 @@ The tests behind the README's claims table, in its order:
 - `NearTests.testTransferMatchesNearApiJs`
 - `NearStakingTests.testStakingCallsMatchNearApiJs`
 - `NearStakingTests.testUnstakeAndWithdrawReviews`
+- `BlackBoxTests.testPinDigestMatchesThePythonScript`
+- `BlackBoxTests.testFingerprintIsSaltedAndCoversTheReview`
+- `tests::evidence_must_hash_to_the_fingerprint`, `tests::one_claim_per_record` (in `contracts/insurance/src/tests.rs`)
+- `tests::rejected_claim_takes_nothing`, `tests::reviewer_cannot_decide` (same file)
+- `tests::approved_claim_larger_than_pool_is_paid_as_it_refills`, `tests::failed_payout_goes_back_to_the_pool` (same file)
 - `ModelUpgradeTests.testShippedCatalog`
 
-Hermit Guard's tests are in `contracts/guard/src/tests.rs` (40) and `contracts/guard/sandbox-tests/tests/story.rs` (12).
+Hermit Black Box's tests are in `contracts/blackbox/src/tests.rs` (17) and `contracts/blackbox/sandbox-tests/tests/story.rs`.
+Hermit AI insurance's are in `contracts/insurance/src/tests.rs` (20) and `contracts/insurance/sandbox-tests/tests/story.rs`
+(the whole story with a real token: cover, funding, a claim, the AI review, the owner approving 18 USDC, paid).
+Hermit Guard's are in `contracts/guard/src/tests.rs` (40) and `contracts/guard/sandbox-tests/tests/story.rs` (12).

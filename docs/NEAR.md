@@ -1,7 +1,9 @@
 # How Hermit uses NEAR
 
-Three parts of Hermit run on NEAR: NEAR Intents moves money between chains, every wallet has a NEAR account that can
-stake with a validator, and Private Cloud runs on NEAR AI Cloud. Code paths below are under
+Six parts of Hermit run on NEAR: NEAR Intents moves money between chains, Private Cloud runs on NEAR AI Cloud, every
+wallet has a NEAR account that can stake with a validator, and three contracts of ours run on mainnet: Hermit Black Box
+(`hermit-blackbox.near`, the model registry and flight recorder), Hermit AI insurance (`hermit-insurance.near`) and
+Hermit Guard (`hermit-guard.near`, budgets). Code paths below are under
 `Packages/HermitKit/Sources/`. To try each part yourself, see [VERIFY.md](VERIFY.md).
 
 ## NEAR Intents (1Click)
@@ -123,6 +125,40 @@ Code: `HermitWallet/NearGuard.swift` (actions, reviews), `NearGuardService.swift
 `HermitUI/Pages/Wallets/GuardViews.swift`. Tests: `NearGuardTests.swift` checks AddKey, DeleteKey and every call byte for
 byte against near-api-js 4.0.4, checks each call's arguments against `contracts/guard/src/lib.rs`, decodes real testnet
 answers recorded on 2026-11-12, and covers the key ordering, the reviews and the hidden-until-configured switch.
+
+## Black Box (hermit-blackbox.near)
+
+The app side of `contracts/blackbox/`, live on mainnet as `hermit-blackbox.near`.
+
+**Model registry.** Settings > Models asks the contract's `check_model` whether the model you run is the one we
+published: its id, the SHA-256 of `model.safetensors` and a digest of every pinned file (SHA-256 over one
+`path<TAB>size<TAB>sha256<LF>` line per file, sorted by path). It's a second, public source for the hashes the app
+already enforces on download. If NEAR can't be reached the row says so; the download check still stands.
+
+**Flight recorder.** Off by default. Settings > Safety > Black box makes an ed25519 key on the device and adds it to your
+NEAR account as a function-call key that can only call `record` on `hermit-blackbox.near`, with a 0.05 NEAR gas
+allowance (one Face ID). The key is kept in the Keychain, this device only. After that, each move the assistant
+prepared and you approved is hashed: SHA-256 over sorted JSON of the review (title, lines, checks, warnings), the result,
+the transaction hash, the model, the time and a 16-byte random salt. Only that hash, a short kind (`swap`, `perp_order`)
+and the model id go on chain, as an event log; the text behind it stays on the device, up to the last 500. A record
+reserves 3 Tgas and burns about 2. Turning it off deletes the key from your NEAR account and from the device.
+
+Code: `HermitWallet/BlackBox.swift`, `HermitUI/Pages/Settings/BlackBoxSettings.swift`, the hook in
+`AppModel.approved`. Tests: `BlackBoxTests.swift` (the Swift digest equals `near/blackbox.py`'s, salted fingerprints,
+kinds the contract accepts), `contracts/blackbox/src/tests.rs`, `contracts/blackbox/sandbox-tests`.
+
+## AI insurance (hermit-insurance.near)
+
+The app side of `contracts/insurance/`. Settings > Safety > AI insurance buys 30 days of cover for 1 USDC on NEAR: one
+`ft_transfer_call` from your NEAR account to the USDC contract with `msg: "cover"`, approved with Face ID. It then turns
+on the Black Box recorder too, since a claim needs its records. While covered, File a claim lists your Black Box
+records; you pick the move, say what it cost and what went wrong, and the app calls `file_claim` with the record's
+fingerprint and the exact text behind it (the contract checks the hash) and 0.05 NEAR for storage. The contract's owner
+sees a Claims list in the same place, with the AI reviewer's verdict, and approves or rejects with a reason; approving
+pays the claimant in USDC from the pool.
+
+Code: `HermitWallet/AIInsurance.swift`, `HermitUI/Pages/Settings/InsuranceSettings.swift`. Contract tests:
+`contracts/insurance/src/tests.rs` (20), `contracts/insurance/sandbox-tests`. Reviewer tools: `near/insurance.py`.
 
 ## Private Cloud on NEAR AI Cloud
 

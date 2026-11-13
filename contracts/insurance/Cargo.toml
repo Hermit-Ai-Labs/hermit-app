@@ -1,0 +1,28 @@
+[package]
+name = "hermit-insurance"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.86"
+description = "Hermit AI insurance: an opt-in pool that pays claims for AI mistakes, every payment and decision on chain"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.17.2"
+
+[dev-dependencies]
+near-sdk = { version = "=5.17.2", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = true

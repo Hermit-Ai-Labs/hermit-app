@@ -1,0 +1,230 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Hermit Black Box</title>
+<style>
+@font-face { font-family: 'Geist'; src: url('../fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Geist Mono'; src: url('../fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; }
+:root {
+  --ink:#0E1116; --ink2:#3A4250; --ink3:#5B6472;
+  --plate:#FAFCFB;
+  --sky:#4FA7E3; --green:#4FC22B; --lav:#B996E6;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: transparent; }
+body { background: none; }
+#fig { position: relative; width: 1200px; height: 980px; border-radius: 28px; overflow: hidden; color: var(--ink);
+  font-family: 'Geist', system-ui, sans-serif; -webkit-font-smoothing: antialiased; background: #E9F1F4; }
+canvas#mosaic { position: absolute; left: 0; top: 0; width: 1200px; z-index: 0; }
+svg.layer { position: absolute; left: 0; top: 0; width: 1200px; overflow: visible; pointer-events: none; z-index: 1; }
+.abs { position: absolute; z-index: 2; }
+.mono { font-family: 'Geist Mono', monospace; font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
+
+/* the black square bullet + uppercase mono label */
+.k { display: flex; align-items: center; gap: 12px; font: 600 18px/22px 'Geist Mono'; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.k::before { content: ''; width: 13px; height: 13px; background: var(--ink); flex: none; }
+.k .c { margin-left: auto; font: 450 18px/22px 'Geist Mono'; letter-spacing: 0; text-transform: none; color: var(--ink3); padding-left: 16px; }
+
+/* plates: the pins on the map */
+.pin { background: var(--plate); padding: 20px 24px 22px; }
+.pin .big { margin-top: 12px; font: 600 28px/34px 'Geist'; letter-spacing: -.02em; white-space: nowrap; }
+.pin .sm { margin-top: 6px; font: 400 18px/25px 'Geist'; color: var(--ink2); white-space: nowrap; }
+.pin .path { margin-top: 8px; font: 500 19px/24px 'Geist Mono'; color: var(--ink); letter-spacing: -.01em; white-space: nowrap; }
+.pin .used { margin-top: 16px; padding-top: 14px; border-top: 2px solid var(--ink); font: 400 18px/26px 'Geist'; color: var(--ink2); }
+.pin .bar { position: absolute; left: 0; top: 0; right: 0; height: 7px; }
+
+/* header: the family title block, straight on the pale top of the sky */
+.eyebrow { left: 64px; top: 56px; display: flex; align-items: center; gap: 12px; font: 500 18px/24px 'Geist Mono'; letter-spacing: .08em; text-transform: uppercase; color: var(--ink2); white-space: nowrap; }
+.eyebrow svg { width: 37px; height: 24px; }
+h1 { left: 62px; top: 96px; font: 600 58px/64px 'Geist'; letter-spacing: -.03em; white-space: nowrap; }
+.sub { left: 64px; top: 174px; font: 400 22px/30px 'Geist'; color: var(--ink2); white-space: nowrap; }
+
+.sec { background: var(--plate); padding: 8px 14px 8px 12px; }
+/* vertical labels, read bottom to top */
+.vert { transform-origin: 0 0; transform: rotate(-90deg); background: var(--plate); padding: 8px 14px 8px 12px; }
+
+/* the unlock: a black tag on the route */
+.unlock { background: var(--ink); color: #fff; padding: 12px 18px 13px; text-align: left; }
+.unlock .a { font: 600 19px/24px 'Geist'; white-space: nowrap; }
+.unlock .b { font: 400 18px/24px 'Geist'; color: #C9CED6; white-space: nowrap; }
+.tag { background: var(--plate); padding: 6px 12px; font: 500 18px/24px 'Geist'; white-space: nowrap; }
+
+.note { background: var(--plate); padding: 16px 22px; font: 400 18px/27px 'Geist'; color: var(--ink2); }
+.note p { white-space: nowrap; }
+</style></head>
+<body>
+<div id="fig">
+<canvas id="mosaic"></canvas>
+<svg class="layer" id="lines"></svg>
+
+<div class="abs eyebrow" id="eyebrow"><svg viewBox="0 0 171.8 110"><g fill="none" stroke="#0E1116" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h161.8v100H5zM105 5v100M105 66.8h61.8M128.6 66.8V105M105 81.4h23.6M119.6 66.8v14.6M5 105A100 100 0 0 1 105 5a61.8 61.8 0 0 1 61.8 61.8 38.2 38.2 0 0 1-38.2 38.2 23.6 23.6 0 0 1-23.6-23.6 14.6 14.6 0 0 1 14.6-14.6"/></g></svg><span>Hermit / Black Box</span></div>
+<h1 class="abs" id="title">Hermit Black Box</h1>
+<div class="abs sub" id="sub">A public record of what the AI did, without the chat. Contract hermit-blackbox.near.</div>
+
+<div class="abs vert k" id="v-dev">On your device</div>
+<div class="abs vert k" id="v-near">On NEAR</div>
+
+<div class="abs pin" id="p-pins"><div class="bar" style="background:var(--lav)"></div><div class="k">Pinned in the app</div><div class="big">4 model hashes</div><div class="sm">SHA-256 of each Hermit model</div></div>
+<div class="abs tag" id="t-check">check_model</div>
+<div class="abs tag" id="t-match">matches</div>
+<div class="abs pin" id="p-reg"><div class="bar" style="background:var(--sky)"></div><div class="k">Model registry</div><div class="big">Append-only</div><div class="sm">4 Hermit models published</div><div class="sm" style="margin-top:2px">Revoke keeps the hashes</div></div>
+
+<div class="abs unlock" id="unlock"><div class="a">You approve an AI move</div><div class="b">with Face ID</div></div>
+<div class="abs tag" id="t-pub">publishes</div>
+<div class="abs pin" id="p-owner"><div class="k">Hermit</div><div class="big">Owner</div><div class="sm">publishes the models</div></div>
+
+<div class="abs pin" id="p-fp"><div class="bar" style="background:var(--lav)"></div><div class="k">Fingerprint</div><div class="big">SHA-256</div><div class="sm">of the review, result, model, time and a salt</div><div class="used">The text stays on the device.</div></div>
+
+<div class="abs pin" id="p-key"><div class="bar" style="background:var(--green)"></div><div class="k">Recorder key</div><div class="big">Function-call key</div><div class="sm">can only call record</div></div>
+<div class="abs tag" id="t-send">sends the hash</div>
+<div class="abs pin" id="p-rec"><div class="bar" style="background:var(--green)"></div><div class="k">Flight recorder</div><div class="big">record()</div><div class="sm">event log, no storage</div><div class="sm" style="margin-top:2px">about 0.0002 NEAR each</div></div>
+
+<div class="abs note" id="note"><p>Only the hash leaves the device, never the chat.</p></div>
+
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+function el(p, tag, a) { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; }
+function R(id) { const r = $(id).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; }
+function place(id, x, y) { const s = $(id).style; if (x != null) s.left = x + 'px'; if (y != null) s.top = y + 'px'; }
+
+// square-cornered orthogonal route (pixel map), arrow head at the end, square dot at the start
+function route(svg, pts, color = '#0E1116', w = 2.5) {
+  const n = pts.length, [ex, ey] = pts[n - 1], [fx, fy] = pts[n - 2];
+  const len = Math.hypot(ex - fx, ey - fy), ux = (ex - fx) / len, uy = (ey - fy) / len, H = 12, W = 6.5;
+  const p = pts.map(q => q.slice()); p[n - 1] = [ex - ux * (H - 1), ey - uy * (H - 1)];
+  el(svg, 'path', { d: 'M' + p.map(q => q.join(',')).join(' L'), fill: 'none', stroke: color, 'stroke-width': w, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' });
+  const bx = ex - ux * H, by = ey - uy * H;
+  el(svg, 'path', { d: `M${ex},${ey} L${bx - uy * W},${by + ux * W} L${bx + uy * W},${by - ux * W} Z`, fill: color });
+}
+function dot(svg, x, y, s = 9, color = '#0E1116') { el(svg, 'rect', { x: x - s / 2, y: y - s / 2, width: s, height: s, fill: color }); }
+
+// seeded noise
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function lattice(seed, gw, gh) { const r = rng(seed), a = []; for (let i = 0; i < gw * gh; i++) a.push(r()); return (x, y) => {
+  const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, s = t => t * t * (3 - 2 * t);
+  const g = (i, j) => a[((j % gh + gh) % gh) * gw + ((i % gw + gw) % gw)];
+  const top = g(x0, y0) + (g(x0 + 1, y0) - g(x0, y0)) * s(fx), bot = g(x0, y0 + 1) + (g(x0 + 1, y0 + 1) - g(x0, y0 + 1)) * s(fx);
+  return top + (bot - top) * s(fy); }; }
+
+function mosaic(H) {
+  const S = 2, W = 1200, cv = $('mosaic');
+  cv.width = W * S; cv.height = H * S; cv.style.height = H + 'px';
+  const c = cv.getContext('2d');
+  const CELL = 24, cols = W / CELL, rows = Math.ceil(H / CELL);
+  const nA = lattice(7, 64, 64), nB = lattice(19, 64, 64), nC = lattice(31, 64, 64), r = rng(42);
+  const BLUE = ['#5DAEE6', '#7DC0EA', '#A3D3F1', '#C6E3F5'];
+  const GREEN = ['#58C934', '#84D866', '#ABE596', '#CBF0BC'];
+  const WHITE = ['#EDF3F2', '#F5F8F6'];
+  const LAV = ['#D3BDEE', '#E2D3F3'];
+  const PALE = ['#CFE7F6', '#DDEEF8', '#EAF3F5', '#F5F8F6'];
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const v = j / rows;                                  // 0 top (sky) .. 1 bottom (grass)
+    // horizontal bands up top, vertical streaks below
+    const hx = i / (7 - 5 * v), hy = j / (1.4 + 5 * v);
+    const n = nA(hx, hy), m = nB(i / 5, j / 5), q = nC(i / 2.2 + 9, j / 2.2);
+    const g = v * 1.15 + (m - 0.5) * 0.9 - 0.12;
+    let pal = g > 0.55 ? GREEN : BLUE;
+    let lvl = Math.min(3, Math.max(0, Math.floor((1 - n) * 4.2 + (r() - .5) * 0.9)));
+    let col = pal[lvl];
+    if (q > 0.80 && r() < 0.6) col = WHITE[r() < .5 ? 0 : 1];
+    else if (q < 0.10 && r() < 0.55) col = LAV[r() < .5 ? 0 : 1];
+    // the top of the sky is pale, so the title sits straight on it
+    const ty = j * CELL, pale = ty < 216 ? 1 : Math.max(0, 1 - (ty - 216) / 96);
+    if (r() < pale) col = PALE[Math.min(3, Math.floor(n * 3.2 + r() * 1.2))];
+    c.fillStyle = col; c.fillRect(i * CELL * S, j * CELL * S, CELL * S, CELL * S);
+  }
+  // fine film grain, 1 CSS px, few levels so it stays light
+  const img = c.getImageData(0, 0, W * S, H * S), d = img.data, gr = rng(5);
+  for (let y = 0; y < H * S; y += 2) for (let x = 0; x < W * S; x += 2) {
+    const k = gr(), dv = k < 0.22 ? -14 : k > 0.86 ? 12 : 0;
+    if (!dv) continue;
+    for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const o = ((y + oy) * W * S + x + ox) * 4; d[o] += dv; d[o + 1] += dv; d[o + 2] += dv; }
+  }
+  c.putImageData(img, 0, 0);
+}
+
+function layout() {
+  const svg = $('lines'); svg.innerHTML = '';
+  const X0 = 64, X1 = 1136, ROW1 = 268, LW = 480, RW = 420, RX = X1 - RW;
+  for (const id of ['p-pins', 'p-fp', 'p-key']) $(id).style.width = LW + 'px';
+  for (const id of ['p-reg', 'p-owner', 'p-rec']) $(id).style.width = RW + 'px';
+  const eq = ids => { const h = Math.max(...ids.map(i => $(i).offsetHeight)); ids.forEach(i => $(i).style.height = h + 'px'); return h; };
+
+  // row 1: pinned hashes <-> registry
+  place('p-pins', X0, ROW1); place('p-reg', RX, ROW1);
+  const h1 = eq(['p-pins', 'p-reg']);
+  const pins = R('p-pins'), reg = R('p-reg');
+  const yF = ROW1 + 62, yB = ROW1 + h1 - 40;
+  route(svg, [[pins.r, yF], [reg.l, yF]]);
+  route(svg, [[reg.l, yB], [pins.r, yB]]);
+  const mx = (pins.r + reg.l) / 2, tc = $('t-check'), tm = $('t-match');
+  place('t-check', mx - tc.offsetWidth / 2, yF - 14 - tc.offsetHeight);
+  place('t-match', mx - tm.offsetWidth / 2, yB + 14);
+
+  // row 2: you approve (left), Hermit publishes (right)
+  const yU = ROW1 + h1 + 100;
+  place('unlock', X0, yU); place('p-owner', RX, yU);
+  const u = R('unlock'), ow = R('p-owner');
+  route(svg, [[ow.cx, ow.t], [ow.cx, reg.b]]);
+  const tp = $('t-pub'); place('t-pub', ow.cx - tp.offsetWidth / 2, (ow.t + reg.b) / 2 - tp.offsetHeight / 2);
+
+  // fingerprint, then the recorder key
+  place('p-fp', X0, u.b + 60);
+  const fp = R('p-fp');
+  route(svg, [[u.cx, u.b], [u.cx, fp.t]]);
+  const yK = fp.b + 64;
+  place('p-key', X0, yK); place('p-rec', RX, yK);
+  const hk = eq(['p-key', 'p-rec']);
+  const key = R('p-key'), rec = R('p-rec');
+  route(svg, [[u.cx, fp.b], [u.cx, key.t]]);
+  const yS = yK + 62;
+  route(svg, [[key.r, yS], [rec.l, yS]]);
+  const ts = $('t-send'); place('t-send', (key.r + rec.l) / 2 - ts.offsetWidth / 2, yS + 14);
+
+  place('note', X0, yK + hk + 40);
+  const H = R('note').b + 56;
+  $('fig').style.height = H + 'px';
+  svg.setAttribute('height', H);
+
+  const v = $('v-dev'); place('v-dev', 12, Math.round((ROW1 + yK + hk) / 2 + v.offsetWidth / 2));
+  const n = $('v-near'); place('v-near', 1200 - 12 - n.offsetHeight, Math.round((ROW1 + yK + hk) / 2 + n.offsetWidth / 2));
+  mosaic(H);
+}
+
+window.figureCheck = function () {
+  const problems = [];
+  const W = $('fig').offsetWidth, H = $('fig').offsetHeight;
+  const leaves = [...document.querySelectorAll('body *')].filter(e => !e.closest('svg') && !e.closest('script, style') && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+  const boxes = [];
+  for (const e of leaves) {
+    const fs = parseFloat(getComputedStyle(e).fontSize);
+    if (fs < 18) problems.push(`small font ${fs} "${e.textContent.trim()}"`);
+    for (const n of e.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+      const rng = document.createRange(); rng.selectNodeContents(n);
+      for (const r of rng.getClientRects()) {
+        if (r.left < 0 || r.top < 0 || r.right > W || r.bottom > H) problems.push(`off canvas "${n.textContent.trim()}"`);
+        boxes.push({ r, t: n.textContent.trim() });
+      }
+    }
+    if (e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).display !== 'inline') problems.push(`overflow "${e.textContent.trim()}"`);
+  }
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i].r, b = boxes[j].r;
+    if (a.left < b.right - .5 && b.left < a.right - .5 && a.top < b.bottom - .5 && b.top < a.bottom - .5) problems.push(`text overlap "${boxes[i].t}" / "${boxes[j].t}"`);
+  }
+  const blocks = [...document.querySelectorAll('.abs')];
+  for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
+    const a = blocks[i].getBoundingClientRect(), b = blocks[j].getBoundingClientRect();
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) problems.push(`block overlap ${blocks[i].id} / ${blocks[j].id}`);
+  }
+  for (const c of document.querySelectorAll('.pin')) {
+    const cr = c.getBoundingClientRect();
+    for (const k of c.querySelectorAll('*')) { const r = k.getBoundingClientRect(); if (r.width && !k.classList.contains('bar') && (r.right > cr.right - 16 || r.left < cr.left + 16 || r.bottom > cr.bottom - 12)) problems.push(`tight in ${c.id}: "${k.textContent.trim().slice(0, 30)}"`); }
+  }
+  return { problems };
+};
+window.figureReady = document.fonts.ready.then(() => layout());
+</script>
+</body></html>

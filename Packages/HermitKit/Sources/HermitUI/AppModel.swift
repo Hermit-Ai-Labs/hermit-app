@@ -602,6 +602,12 @@ public final class AppModel {
         }
         approvedIDs.insert(a.title)
         approvalCount += 1
+        // Flight recorder (hermit-blackbox.near): a fingerprint of this AI-prepared decision, when the user turned it on.
+        if BlackBox.isOn, a.perform != nil || hash != nil {
+            let modelID = ChatMode.current == .cloud ? "near-ai-cloud" : models.selectedID
+            let (k, t, l, c, w, s) = (a.kind, a.title, a.lines, a.checks, a.warnings, a.success)
+            Task.detached { await BlackBox.note(kind: k, title: t, lines: l, checks: c, warnings: w, result: s, tx: hash, model: modelID) }
+        }
         guard route == .home, inChat else { toast(a.success); return }
         // The button that opened this review is done: take it out of every message it was in.
         for i in messages.indices {

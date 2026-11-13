@@ -1,0 +1,66 @@
+name: insurance
+
+# Builds Hermit AI insurance, runs the unit and sandbox tests, and checks the build is byte-for-byte the one on mainnet.
+on:
+  push:
+    branches: [main]
+    paths: ["contracts/insurance/**", ".github/workflows/insurance.yml"]
+  workflow_dispatch:
+
+jobs:
+  insurance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/insurance/target
+            contracts/insurance/sandbox-tests/target
+          key: insurance-${{ runner.os }}-${{ hashFiles('contracts/insurance/**/Cargo.lock', 'contracts/insurance/rust-toolchain.toml') }}
+          restore-keys: insurance-${{ runner.os }}-
+
+      - name: Rust toolchains (pinned for the contract, stable for the sandbox tests)
+        run: |
+          cd contracts/insurance
+          rustup show active-toolchain || rustup toolchain install   # reads rust-toolchain.toml (1.86.0 + wasm32)
+          rustup show
+          rustup toolchain install stable --profile minimal
+
+      - name: Install binaryen v119 and wasm-tools
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/binaryen.tgz https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz
+          echo "716bcf9f5f36a6f466239fbb09a925eeaf54c46411ccefac979ec649e7c06d2d  /tmp/binaryen.tgz" | sha256sum -c -
+          tar xzf /tmp/binaryen.tgz -C /tmp
+          echo "/tmp/binaryen-version_119/bin" >> "$GITHUB_PATH"
+          curl -sSL -o /tmp/wt.tgz https://github.com/bytecodealliance/wasm-tools/releases/download/v1.263.0/wasm-tools-1.263.0-x86_64-linux.tar.gz
+          mkdir -p /tmp/wt && tar xzf /tmp/wt.tgz -C /tmp/wt --strip-components=1
+          echo "/tmp/wt" >> "$GITHUB_PATH"
+
+      - name: Unit tests
+        working-directory: contracts/insurance
+        run: cargo test --lib --locked -- --nocapture
+
+      - name: Build wasm and compare with the mainnet build
+        working-directory: contracts/insurance
+        run: |
+          cp dist/insurance.wasm /tmp/committed.wasm
+          ./build.sh dist
+          sha256sum dist/insurance.wasm /tmp/committed.wasm
+          echo "### insurance.wasm $(stat -c %s dist/insurance.wasm) bytes, sha256 $(sha256sum dist/insurance.wasm | cut -d' ' -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sandbox tests (real wasm, real access keys)
+        working-directory: contracts/insurance/sandbox-tests
+        env:
+          INSURANCE_WASM: ${{ github.workspace }}/contracts/insurance/dist/insurance.wasm
+          FT_WASM: ${{ github.workspace }}/contracts/guard/dist/test_ft.wasm
+        run: cargo test --locked -- --nocapture

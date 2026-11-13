@@ -7,7 +7,7 @@
 const { chromium } = require(process.env.PW || 'playwright');
 const { execFileSync } = require('child_process');
 const fs = require('fs'), path = require('path');
-const ALL = ['system_overview', 'money_move', 'private_cloud', 'assistant_loop', 'keys_accounts'];
+const ALL = ['system_overview', 'money_move', 'private_cloud', 'assistant_loop', 'keys_accounts', 'black_box', 'ai_insurance'];
 const keys = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 const OUT = path.join(__dirname, '..');
 (async () => {

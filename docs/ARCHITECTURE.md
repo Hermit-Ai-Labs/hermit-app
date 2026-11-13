@@ -1,7 +1,7 @@
 # Architecture, as text
 
 The five figures in the README, written out so a person or a model can read them without opening an image, plus Hermit
-Guard. GitHub draws each `mermaid` block as a diagram. The images are in [img/](img/); the code paths are under
+Guard and Hermit Black Box. GitHub draws each `mermaid` block as a diagram. The images are in [img/](img/); the code paths are under
 `Packages/HermitKit/Sources/`.
 
 ## 1. System overview
@@ -28,6 +28,7 @@ flowchart TB
     cloud["NEAR AI Cloud<br/>TEE gateway and model"]
     intents["NEAR Intents 1Click<br/>signed quotes, solvers fill"]
     guard["hermit-guard.near<br/>budgets with on-chain rules"]
+    bbox["hermit-blackbox.near<br/>model registry, flight recorder"]
   end
   enclave -. "attestation, then prompt" .-> cloud
   loop -- quotes --> intents
@@ -35,6 +36,8 @@ flowchart TB
   loop -. "read only" .-> data["Public data<br/>prices, balances"]
   enclave -. "GPU evidence" .-> nras["NVIDIA NRAS"]
   model -. "pinned SHA-256, once" .-> dl["Model download"]
+  review -. "fingerprint of each approved AI move" .-> bbox
+  model -. "hashes checked" .-> bbox
 ```
 
 Code: `HermitCore/` (assistant, tool loop, guard), `HermitModel/` (on-device model), `HermitCloud/` (NEAR AI Cloud and its
@@ -177,3 +180,49 @@ stranger](https://nearblocks.io/txns/4Am1L4p2A9TnWFjLuHhevdgLhLPGCCFMh3MjNrmGh3k
 
 Code: `contracts/guard/src/lib.rs`, app side `HermitWallet/NearGuard.swift`. Tests: `contracts/guard/src/tests.rs`,
 `contracts/guard/sandbox-tests/tests/story.rs`.
+
+## 7. Hermit Black Box: model registry and flight recorder
+
+![Hermit Black Box](img/black_box.png)
+
+Our second contract on NEAR mainnet, [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near).
+
+```mermaid
+flowchart LR
+  subgraph device["On your iPhone or Mac"]
+    pins["Pinned model hashes"] -- "check_model" --> ok{"Matches?"}
+    approve["You approve an AI move<br/>(Face ID)"] --> hash["SHA-256 of the review, result,<br/>model, time, salt"]
+    hash --> keep[("Text behind each hash<br/>stays here")]
+    hash --> rkey["Recorder key<br/>function-call: record only"]
+  end
+  subgraph chain["hermit-blackbox.near"]
+    registry["Model registry<br/>append-only, revoke keeps hashes"]
+    log["record() event log<br/>no storage, gas only"]
+  end
+  hermit["Hermit (owner, 1 yocto)"] -- "publish_model" --> registry
+  ok <-- "view" --> registry
+  rkey -- "fp, kind, model" --> log
+```
+
+Only the fingerprint leaves the device. Anyone holding the text behind a fingerprint can hash it and find it in the log.
+
+Code: `contracts/blackbox/src/lib.rs`, `HermitWallet/BlackBox.swift`. Tests: `contracts/blackbox/src/tests.rs`,
+`contracts/blackbox/sandbox-tests/tests/story.rs`, `BlackBoxTests.swift`. Mainnet run: `contracts/blackbox/DEPLOYMENTS.md`.
+
+## 8. Hermit AI insurance
+
+![Hermit AI insurance](img/ai_insurance.png)
+
+```mermaid
+flowchart LR
+  you["You: 1 USDC"] -- "ft_transfer_call cover" --> pool[("Public USDC pool<br/>hermit-insurance.near")]
+  anyone["Anyone"] -- "fund" --> pool
+  claim["Claim: Black Box fingerprint<br/>+ the text behind it"] --> check{"sha256(evidence)<br/>== fingerprint?"}
+  check -- yes --> ai["AI reviewer<br/>verdict + reason on chain"]
+  ai --> owner["Owner decides in the app<br/>reason on chain"]
+  owner -- approve --> pay["USDC payout from the pool"]
+  pool --> pay
+```
+
+Only an approved claim can take money out of the pool; there's no admin withdraw. Code: `contracts/insurance/src/lib.rs`,
+`HermitWallet/AIInsurance.swift`. Tests: `contracts/insurance/src/tests.rs`, `contracts/insurance/sandbox-tests`.

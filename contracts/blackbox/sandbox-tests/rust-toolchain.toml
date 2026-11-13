@@ -1,0 +1,4 @@
+# The tests run on the host (not wasm), so any recent stable works; the contract itself is pinned one level up.
+[toolchain]
+channel = "stable"
+profile = "minimal"
