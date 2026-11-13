@@ -508,7 +508,16 @@ struct GuardBudgetsSheet: View {
 
     private func ordersSection(_ s: NearGuard.Snapshot) -> some View {
         GuardSection(title: "Standing orders") {
-            Button("New order") { route = .order }.buttonStyle(OutlineButton()).disabled(s.pockets.isEmpty || s.orders.count >= NearGuard.maxOrders)
+            if s.pockets.isEmpty {
+                // Nothing to press yet: an order pays from a pocket, so say what comes first instead of a dead button.
+                Label("Needs a pocket", systemImage: "lock.fill")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.hint)
+                    .labelStyle(.titleAndIcon)
+            } else {
+                let full = s.orders.count >= NearGuard.maxOrders
+                Button(full ? "Limit reached" : "New order") { route = .order }
+                    .buttonStyle(OutlineButton()).disabled(full || busy != nil)
+            }
         } content: {
             if s.orders.isEmpty {
                 EmptyNote(text: s.pockets.isEmpty ? "Make a pocket first. A standing order pays from a pocket on a schedule."

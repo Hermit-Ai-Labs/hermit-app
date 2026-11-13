@@ -157,19 +157,29 @@ struct SpendPolicyCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("Spending policy")
-            DetailLines(lines: [("Daily limit", "$\(limit)"), ("Left today", "$\(vm.service.spendLimit.remaining())"),
+            DetailLines(lines: [("Daily limit", "$\(limit)"), ("Left today", MoneyFmt.usd(NSDecimalNumber(decimal: vm.service.spendLimit.remaining()).doubleValue, digits: 2)),
                                 ("Assistant, per move", "up to $\(cap)"), ("Assistant pays out to", "Your own addresses only"),
                                 ("New address", "Warned before Approve")])
-            HStack(spacing: 8) {
-                Text("Assistant cap").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                Spacer()
-                ForEach([25, 100, 250] as [Decimal], id: \.self) { v in
-                    SelectChip(title: "$\(v)", on: cap == v) { cap = v; policy.agentCapUSD = v }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    Text("Assistant cap").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    chips
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Assistant cap").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    HStack(spacing: 8) { chips }
                 }
             }
             NoteBox(symbol: "checkmark.shield", text: "NEAR Intents swaps are priced with 1Click's live token prices and counted toward the daily limit; plain sends count stablecoins. The assistant can only prepare. You approve every move with \(Device.bio).")
         }
         .onAppear { cap = policy.agentCapUSD; limit = vm.service.spendLimit.dailyLimitUSD }
+    }
+
+    private var chips: some View {
+        ForEach([25, 100, 250] as [Decimal], id: \.self) { v in
+            SelectChip(title: "$\(v)", on: cap == v) { cap = v; policy.agentCapUSD = v }
+        }
     }
 }
 

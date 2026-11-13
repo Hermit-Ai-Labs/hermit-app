@@ -239,11 +239,12 @@ struct ListRow<Trailing: View>: View {
 
 /// Plain white secondary button with a border.
 struct OutlineButton: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
+        configuration.label.font(.system(size: 13, weight: .medium)).foregroundStyle(enabled ? Theme.text : Theme.hint)
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(configuration.isPressed ? Theme.hover : Theme.bg, in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+            .background(configuration.isPressed ? Theme.hover : enabled ? Theme.bg : Theme.subtle, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border.opacity(enabled ? 1 : 0.6)))
     }
 }
 

@@ -641,6 +641,7 @@ struct OneWalletView: View {
                                 ("EVM path", KeyVault.evmPath), ("Solana path", KeyVault.solanaPath), ("NEAR path", KeyVault.nearPath)],
                         monoKeys: ["EVM path", "Solana path", "NEAR path"])
             SpendPolicyCard(vm: vm)
+            OnChainSafetyCards(vm: vm, wallet: wallet)
             GuardBudgetsCard(vm: vm, wallet: wallet, open: open)
             IntentsKeyCard()
             ButtonPair {

@@ -14,6 +14,7 @@ struct ThinScrollView<Content: View>: View {
     var body: some View {
         ScrollView {
             content()
+                .containerRelativeFrame(.horizontal)   // never wider than the screen, so a page can't slide sideways
                 #if os(macOS)
                 .background(ScrollerRemover())
                 #endif

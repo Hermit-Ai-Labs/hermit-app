@@ -50,9 +50,12 @@ struct SettingsPage: View {
                 Text("Always on").font(.system(size: 12.5)).foregroundStyle(Theme.hint)
             }
             Hairline()
-            BlackBoxRow()
-            Hairline()
-            InsuranceSection()
+            if let w = WalletsViewModel.shared.service.wallets.first(where: { $0.nearAccount != nil }) {
+                Hairline().padding(.bottom, 16)
+                OnChainSafetyCards(vm: WalletsViewModel.shared, wallet: WalletAccount(record: w))
+                    .padding(.bottom, 8)
+                InsuranceSection()
+            }
             NoteBox(symbol: "checkmark.shield", text: "Every send, swap and trade asks for \(Device.bio). Hermit stops at \(MoneyFmt.usd(Double(daily))) a day, counting every move it can price.")
                 .padding(.top, 18)
                 .contentTransition(.opacity)

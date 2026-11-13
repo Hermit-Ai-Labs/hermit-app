@@ -16,6 +16,7 @@ struct InsuranceSection: View {
     @State private var loss = ""
     @State private var note = ""
     @State private var reason = ""
+    @State private var boxOn = BlackBox.isOn
 
     private var service: WalletService { WalletsViewModel.shared.service }
     private var wallet: WalletRecord? { service.wallets.first { $0.nearAccount != nil } }
@@ -24,38 +25,32 @@ struct InsuranceSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingRow(title: "AI insurance", sub: status) {
-                HStack(spacing: 8) {
-                    Button("Pool") { openURL(AIInsurance.explorer) }.buttonStyle(BlackButton())
-                    Button(busy ? "…" : until == nil ? "Turn on" : "Add 30 days") { Task { await buy() } }
-                        .buttonStyle(BlackButton()).disabled(busy || wallet == nil)
-                }
-            }
             if until != nil {
-                Hairline()
                 SettingRow(title: "File a claim", sub: records.isEmpty
                            ? "Claims use your Black Box records. None yet: approve a move the AI prepared first"
                            : "Pick the move the AI got wrong. Its Black Box record is the evidence") {
                     Button(filing ? "Close" : "Start") { withAnimation(.smooth) { filing.toggle() } }
-                        .buttonStyle(BlackButton()).disabled(records.isEmpty)
+                        .buttonStyle(HoloPillButton()).disabled(records.isEmpty)
                 }
                 if filing { claimForm.padding(.bottom, 12) }
             }
             if isOwner {
                 Hairline()
                 SettingRow(title: "Claims", sub: "You own hermit-insurance.near. Only your approval pays out, and the reason goes on chain") {
-                    Button("Refresh") { Task { await load() } }.buttonStyle(BlackButton())
+                    Button("Refresh") { Task { await load() } }.buttonStyle(HoloPillButton())
                 }
                 ownerList
             }
         }
         .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: BlackBox.changed)) { _ in boxOn = BlackBox.isOn }
+        .onReceive(NotificationCenter.default.publisher(for: AIInsurance.changed)) { _ in if let a = wallet?.nearAccount { until = AIInsurance.knownUntil(a) } }
     }
 
     private var status: String {
         let pool = info.map { " Pool: \(MoneyFmt.usd(NSDecimalNumber(decimal: $0.pool).doubleValue)), paid out \(MoneyFmt.usd(NSDecimalNumber(decimal: $0.paidOut).doubleValue))." } ?? ""
         if let until { return "Covered until \(until.formatted(date: .abbreviated, time: .omitted)).\(pool)" }
-        return "1 USDC on NEAR for 30 days. If the AI's mistake costs you money, approved claims are paid from a public pool. Turns on the Black box too.\(pool)"
+        return "1 USDC on NEAR for 30 days. If the AI's mistake costs you money, approved claims are paid from a public pool. Turn on the Black box above first: its record is the proof for a claim.\(pool)"
     }
 
     private var claimForm: some View {
@@ -69,7 +64,7 @@ struct InsuranceSection: View {
             field("Loss in USDC", text: $loss)
             field("What went wrong", text: $note)
             Button(busy ? "…" : "File claim (0.05 NEAR deposit)") { Task { await file() } }
-                .buttonStyle(BlackButton()).disabled(busy || pick.isEmpty || Decimal(string: loss) == nil)
+                .buttonStyle(HoloPillButton()).disabled(busy || pick.isEmpty || Decimal(string: loss) == nil)
         }
         .onAppear { if pick.isEmpty { pick = records.first?.fp ?? "" } }
     }
@@ -86,8 +81,8 @@ struct InsuranceSection: View {
                     if !c.note.isEmpty { Text(c.note).font(.system(size: 12)).foregroundStyle(Theme.muted) }
                     if c.status == "open" {
                         HStack(spacing: 8) {
-                            Button("Approve \(usd(c.loss))") { Task { await decide(c, approve: true) } }.buttonStyle(BlackButton())
-                            Button("Reject") { Task { await decide(c, approve: false) } }.buttonStyle(BlackButton())
+                            Button("Approve \(usd(c.loss))") { Task { await decide(c, approve: true) } }.buttonStyle(HoloPillButton())
+                            Button("Reject") { Task { await decide(c, approve: false) } }.buttonStyle(HoloPillButton())
                         }
                         .disabled(busy || reason.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
@@ -112,7 +107,10 @@ struct InsuranceSection: View {
 
     private func load() async {
         info = try? await AIInsurance.info()
-        if let a = wallet?.nearAccount { until = try? await AIInsurance.coveredUntil(a) }
+        if let a = wallet?.nearAccount {
+            until = AIInsurance.knownUntil(a) ?? until
+            if let c = try? await AIInsurance.coveredUntil(a) { until = c }
+        }
         if isOwner { claims = (try? await AIInsurance.claims()) ?? [] }
     }
 
@@ -120,8 +118,8 @@ struct InsuranceSection: View {
         guard let w = wallet else { return }
         busy = true; defer { busy = false }
         do {
+            guard BlackBox.isOn else { model.toast("Turn on the Black box first", kind: .info); return }
             _ = try await service.buyInsurance(walletID: w.id)
-            if !BlackBox.isOn { _ = try? await service.enableBlackBox(walletID: w.id) }
             model.toast("AI insurance on for 30 days")
             await load()
         } catch { model.toast(error.localizedDescription, kind: .info) }

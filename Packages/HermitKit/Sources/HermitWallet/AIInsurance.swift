@@ -38,10 +38,33 @@ public enum AIInsurance {
                     members: r["members"]?.int ?? 0, claims: r["claims"]?.int ?? 0)
     }
 
-    /// When the account's cover ends, or nil when it has none running.
+    /// Posted the moment cover is bought on this device, so every screen shows it at once.
+    public static let changed = Notification.Name("hermit.insurance.changed")
+    static func localKey(_ account: String) -> String { "hermit.insurance.until.\(account)" }
+
+    /// The cover end this device knows about right now: set the instant a purchase succeeds, before NEAR's final view
+    /// catches up. nil when there's none running.
+    public static func knownUntil(_ account: String) -> Date? {
+        let t = UserDefaults.standard.double(forKey: localKey(account))
+        return t > Date().timeIntervalSince1970 ? Date(timeIntervalSince1970: t) : nil
+    }
+
+    static func noteBought(account: String, months: Int) {
+        let start = max(knownUntil(account) ?? Date(), Date())
+        let end = start.addingTimeInterval(Double(months) * 30 * 86_400)
+        UserDefaults.standard.set(end.timeIntervalSince1970, forKey: localKey(account))
+        NotificationCenter.default.post(name: changed, object: nil)
+    }
+
+    /// When the account's cover ends, or nil when it has none running. Never earlier than what this device just bought.
     public static func coveredUntil(_ account: String, client: NearClient = NearClient()) async throws -> Date? {
         let r = try await client.view(contract, "cover_of", args: Array(#"{"account_id":"\#(account)"}"#.utf8))
-        return r["active"]?.bool == true ? date(r["expires_ns"]) : nil
+        let chain = r["active"]?.bool == true ? date(r["expires_ns"]) : nil
+        if let chain { UserDefaults.standard.set(max(chain, knownUntil(account) ?? chain).timeIntervalSince1970, forKey: localKey(account)) }
+        switch (chain, knownUntil(account)) {
+        case let (c?, k?): return max(c, k)
+        case let (c, k): return c ?? k
+        }
     }
 
     public static func claims(client: NearClient = NearClient()) async throws -> [Claim] {
@@ -69,9 +92,11 @@ extension WalletService {
     public func buyInsurance(walletID: UUID, months: Int = 1) async throws -> String {
         let amount = AIInsurance.units(Decimal(months))
         let args = AIInsurance.json(["receiver_id": AIInsurance.contract, "amount": amount, "msg": "cover"])
-        return try await executeNear(walletID: walletID, receiver: AIInsurance.usdc,
-                                     actions: [.functionCall(method: "ft_transfer_call", args: args, gas: 100 * AIInsurance.tgas, deposit: 1)],
-                                     reason: "Buy 30 days of AI insurance for \(months) USDC")
+        let hash = try await executeNear(walletID: walletID, receiver: AIInsurance.usdc,
+                                         actions: [.functionCall(method: "ft_transfer_call", args: args, gas: 100 * AIInsurance.tgas, deposit: 1)],
+                                         reason: "Buy 30 days of AI insurance for \(months) USDC")
+        if let a = wallets.first(where: { $0.id == walletID })?.nearAccount { AIInsurance.noteBought(account: a, months: months) }
+        return hash
     }
 
     /// Files a claim for one Black Box record. The contract checks sha256(evidence) == fp. 0.05 NEAR goes with it.

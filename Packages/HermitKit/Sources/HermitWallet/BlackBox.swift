@@ -56,6 +56,8 @@ public enum BlackBox {
     }
 
     public static var isOn: Bool { recorder != nil }
+    /// Posted when the recorder is turned on or off, so screens showing AI insurance (which needs it) refresh.
+    public static let changed = Notification.Name("hermit.blackbox.changed")
     public static var account: String? { recorder?.account }
 
     /// The fingerprint and the canonical text behind it.
@@ -147,13 +149,14 @@ extension WalletService {
         guard Secrets.set("\(from) \(BlackBox.hex(key.rawRepresentation))", for: BlackBox.keyName) else {
             throw WalletError.blocked("The key was added on NEAR but this device couldn't save it. Try again.")
         }
+        NotificationCenter.default.post(name: BlackBox.changed, object: nil)
         return r.hash
     }
 
     /// Turns the recorder off: removes its key from the NEAR account (one approval) and from this device.
     public func disableBlackBox() async throws {
         guard let k = BlackBox.recorder else { return }
-        defer { Secrets.set(nil, for: BlackBox.keyName) }
+        defer { Secrets.set(nil, for: BlackBox.keyName); NotificationCenter.default.post(name: BlackBox.changed, object: nil) }
         guard let w = wallets.first(where: { $0.nearAccount == k.account }), let pub = [UInt8](hex: k.account) else { return }
         let client = NearClient()
         async let nonceA = client.accessKeyNonce(account: k.account, publicKey: NearAccount.publicKeyString(pub))
