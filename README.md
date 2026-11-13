@@ -32,7 +32,7 @@ whichever path fits your machine:
 | A Mac (Apple silicon, macOS 26) | Download https://hermit.my/dmg, drag Hermit to Applications, open it | The app, notarized by Apple. No Xcode, no account, no invite code |
 | An iPhone (iOS 26) | Join the iPhone beta on TestFlight: https://testflight.apple.com/join/ed9vUh7d | Hermit on your iPhone, installed through Apple's TestFlight |
 | A Mac, through TestFlight | Join the Mac beta on TestFlight: https://testflight.apple.com/join/P66H5DF8 | The same Mac app as the download, updated through TestFlight |
-| A Mac with Xcode 26 | Build it from source ([docs/BUILD.md](docs/BUILD.md)) and run `bash scripts/core-tests.sh` | `Executed 260 tests, with 13 tests skipped and 0 failures` |
+| A Mac with Xcode 26 | Build and run it yourself: `brew install xcodegen && xcodegen generate`, open `Hermit.xcodeproj`, pick the Hermit scheme and press Run ([docs/BUILD.md](docs/BUILD.md)) | The app, built from this repository on your own Mac. `bash scripts/core-tests.sh` runs its tests too |
 | Any machine, Linux included | Run the four Python checks in [Check it yourself](#check-it-yourself) | The same NEAR checks the app makes, passing live, and the attacks on the assistant, blocked |
 | No Mac or iPhone | Watch the demo video (TODO) and open https://hermit.my/gallery | The screens, and real flows we ran on mainnet |
 
