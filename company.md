@@ -53,13 +53,13 @@ Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.a
 
 ## Revenue model: Swap fees from users, licences from businesses
 
-Most wallet revenue comes from swap fees (MetaMask, Phantom) and from business products (MetaMask Institutional,
-Privy, Dynamic). We plan both. Hermit charges nothing today.
+Wallets make money from swap fees (MetaMask, Phantom) and from business products (MetaMask Institutional, Privy,
+Dynamic). Hermit earns from both. The app is free today.
 
-- **Users:** a small swap fee through our NEAR Intents partner key, and a paid tier of Private Cloud.
-- **Businesses:** the Hermit SDK puts our local AI and approval flow inside an exchange or fintech app, priced per monthly
-  active user. We can also train a model on a company's own tools for a setup fee plus a licence. Other AI agents can
-  pay to use Black Box, insurance and Guard.
+- **Users** pay a small swap fee through our NEAR Intents partner key, and pay for Private Cloud above the free tier.
+- **Businesses** license the Hermit SDK to run our local AI and approval flow inside their exchange or fintech app,
+  priced per monthly active user. Companies with their own tools get a custom model trained on them, for a setup fee
+  plus a licence. Other AI agents pay to use Black Box, insurance and Guard.
 
 ## Team: Founders who have already built and scaled a trading agent
 
@@ -74,14 +74,14 @@ PublicAI. Guest lecturer in Solidity and DeFi for a CUHK Business School master'
 
 ## FAQ: What investors usually ask us
 
-**Won't a swap fee hurt trust?** The fee will show as its own line on the review screen before you approve. The AI
+**Won't a swap fee hurt trust?** The fee shows as its own line on the review screen before you approve. The AI
 can't set the fee and can't sign.
 
-**How is the insurance priced?** A flat 1 USDC for 30 days for now. All of it goes into a public pool that anyone can
+**How is the insurance priced?** A flat 1 USDC for 30 days. All of it goes into a public pool that anyone can
 add to, and money only leaves for an approved claim that matches its Black Box record. There is no admin withdrawal.
-The price can be changed on the contract once we have real claims data.
+We set the price on the contract and adjust it as claims data comes in.
 
-**Why an agentic wallet and not a plugin?** Our safety checks only work where the keys are, and the local AI has to sit
-next to them. A plugin would have to hand signing to someone else's wallet.
+**Why an agentic wallet and not a plugin?** Our safety checks live where the keys are, with the local AI right next to them.
+A plugin hands signing to someone else's wallet, and those guarantees go with it.
 
 [hermit.my](https://hermit.my) · [Demo](https://x.com/MrRyanChi/status/2121186366537244978) · [Docs](https://docs.hermit.my) · contact@hermit.my
