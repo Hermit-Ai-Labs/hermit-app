@@ -57,16 +57,28 @@ We plan to do both.
 
 **[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/)) co-founded
 [insiders.bot](https://x.com/insidersdotbot), a prediction-market agent on Polymarket and Predict.fun that peaked at US$360K ARR and
-$1M+ in monthly volume. He is co-president of 0xU Club, Hong Kong's largest Web3 student association, and studied at
-UPenn (FranklinDAO) and CUHK.
+$1M+ in monthly volume. He is a guest lecturer on the HKU MBA programme and co-president of 0xU Club, Hong Kong's
+largest Web3 student association, and studied at UPenn (FranklinDAO) and CUHK.
 
 **[Daksh Joshi](https://x.com/dakshbigshit)** ([LinkedIn](https://www.linkedin.com/in/joshidaksh/)) co-founded
 insiders.bot with Ryan, and Sigmaboy.ai. He does technical BD at Astralane (low-latency trading infrastructure) and was
 CPO at PublicAI. He studied finance and maths at CUHK, where he now guest-lectures Solidity and DeFi in a Business
 School master's course.
 
-## Ask us about
+## FAQ
 
-How a fee affects trust, how we price the insurance pool, and why we built a wallet rather than a plugin.
+**Won't a swap fee make users trust the AI less?**
+Hermit charges no fee today. When we add one, it will appear as its own line on the review screen, next to the network
+cost, before you approve with Face ID. The AI only prepares a move. It can't pick the fee or sign anything.
+
+**How is the insurance pool priced?**
+Cover costs a flat 1 USDC for 30 days, and all of it goes into a public pool on `hermit-insurance.near` that anyone can
+add to. Money leaves the pool only for an approved claim, and each claim must match its Black Box record. There is no
+admin withdraw. The price is a setting on the contract, so it can change as real claims come in.
+
+**Why a wallet and not a plugin?**
+Our safety guarantees sit where the keys are. The model runs next to the vault, the spending policy runs before
+anything is signed, and Face ID unlocks the key only for the move you approved. A plugin would hand that last step to
+someone else's wallet, and we couldn't promise any of it.
 
 [hermit.my](https://hermit.my) · [Demo](https://x.com/MrRyanChi/status/2121186366537244978) · [Docs](https://docs.hermit.my) · contact@hermit.my
