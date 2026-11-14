@@ -11,8 +11,8 @@ You type what you want in plain words, for example:
 - "Send 50 USDC to each of these 12 wallets."
 - "Pay my designer 100 USDC every month."
 
-With its **local AI**, Hermit makes all of this **simple and accessible**, without ever handing your private key to a
-cloud AI.
+With its **local AI**, Hermit lets anyone **make full use of programmable money**, without ever handing their private
+key to a cloud AI.
 
 The local AI **prepares every transaction** and shows you a review. **You approve**, and it is done.
 
