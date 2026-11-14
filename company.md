@@ -6,12 +6,14 @@ Hermit is an **agentic wallet**. It is a **self-custody** crypto wallet run by a
 
 You type what you want in plain words, for example:
 
-- "Move my 500 USDC from Solana to Arbitrum, then lend it on Aave."
-- "Short ETH on Hyperliquid with $100 at 3x leverage."
-- "Turn my ETH on Base into NEAR and stake it with a validator."
+- "Long SOL with $200 at 5x, take profit at $260, stop loss 8% below entry."
+- "Find the best USDC yield and put $1,000 in it."
+- "Send 50 USDC to each of these 12 wallets."
+- "Pay my designer 100 USDC every month, even when my phone is off."
 
-**Done by hand**, each of these means picking the right bridge or exchange, holding gas on more than one chain,
-approving tokens and finding the right protocol. Hermit's local AI **works out the steps** and prepares them for you.
+**Done by hand**, these mean setting trigger orders on a perp exchange, comparing yield protocols, pasting addresses one
+by one, or deploying a smart contract for recurring payments. Hermit's local AI **handles the technical part** and
+prepares it for you.
 
 The local AI **prepares every transaction** and shows you a review. **You approve**, and it is done.
 
