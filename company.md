@@ -24,14 +24,20 @@ means juggling several apps.
   mistakes for 1 USDC. [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near) gives agents on-chain
   budgets.
 
-## Progress and traction (as of 2026-11-13)
+## Progress
 
 We shipped 39 TestFlight builds in two weeks (24 iPhone, 15 Mac) and trained and published 4 models, with their hashes
 on chain. 298 app tests pass ([log](docs/logs/core-tests-2026-11-13.txt)). Everything is open source under MIT, training
 data included ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
 
-Usage is early: 6 waitlist sign-ups and 6 public TestFlight testers. The mainnet activity so far (swaps, staking, 2 Black
-Box records, 1 insurance member) is our own ([README](README.md)). No revenue yet.
+## Product
+
+<p>
+<img src="docs/img/screens/offline.jpg" width="23%" alt="Hermit's home screen on iPhone: your own AI, works offline.">
+<img src="docs/img/screens/swap.jpg" width="23%" alt="A swap review: 5 USDT to 1.37 NEAR via NEAR Intents.">
+<img src="docs/img/screens/approve.jpg" width="23%" alt="The approval sheet: nothing moves until you approve with Face ID.">
+<img src="docs/img/screens/proof.jpg" width="23%" alt="The Private Cloud proof sheet, checked on the phone.">
+</p>
 
 Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.apple.com/join/ed9vUh7d) ·
 [Mac TestFlight](https://testflight.apple.com/join/P66H5DF8)
