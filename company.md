@@ -1,73 +1,87 @@
 # Hermit
 
-## What
+## Overview: A local agentic wallet for iPhone and Mac
 
-An agentic wallet for iPhone and Mac, run by a local AI on your device, that makes advanced crypto strategies
-anyone's: say "bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and it prepares every step.
-Nothing moves until you approve with Face ID.
+Hermit is a crypto wallet for iPhone and Mac with its own AI running on your device. You say what you want, like
+"bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and it lines up every step. Nothing
+moves until you approve with Face ID.
 
-## Why
+## Pain point: On-chain finance is too technical for most people to use well
 
-- Today AI in a wallet means sending your balances and plans to someone's server.
-- An AI that moves money needs limits you can check, not trust.
-- Cross-chain still takes several apps.
+Getting the most out of on-chain finance still takes real technical skill, and bridging, lending and leverage each live
+in a different app. AI could close that gap, but AI in a wallet today means sending your balances and plans to someone
+else's server. If an AI is going to move your money, you should be able to check its limits yourself instead of taking
+them on trust.
 
-## Built
+## What we built: Our own on-device AI, 30 money tools and 3 live NEAR contracts
 
-- **Our own models**, on device, offline: [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit).
-  0 false "done" claims in 1,801 tests, never asks for a key in 60 of 60 attacks ([results](docs/MODEL-RESULTS.md)).
-- **30 money tools** on EVM, Solana, NEAR, Bitcoin and Hyperliquid, routed by NEAR Intents.
-- **Private Cloud** on NEAR AI Cloud, used only after the device checks the enclave's proof.
-- **3 contracts on NEAR mainnet:** [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near)
-  (model hashes and a fingerprint of every AI move), [`hermit-insurance.near`](https://nearblocks.io/address/hermit-insurance.near)
-  (1 USDC buys 30 days of cover against AI mistakes), [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near)
-  (on-chain budgets for agents).
+- **Our own model runs offline on the device.** In 1,801 tests,
+  [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) never once said a move was done when it
+  wasn't, and it never asked for a private key in any of 60 attack attempts ([results](docs/MODEL-RESULTS.md)).
+- **30 money tools** across EVM, Solana, NEAR, Bitcoin and Hyperliquid, routed by NEAR Intents.
+- **Private Cloud** on NEAR AI Cloud handles bigger questions, and the device checks the enclave's proof before
+  sending anything.
+- **3 contracts on NEAR mainnet.** [`hermit-blackbox.near`](https://nearblocks.io/address/hermit-blackbox.near) records
+  model hashes and a fingerprint of every AI move.
+  [`hermit-insurance.near`](https://nearblocks.io/address/hermit-insurance.near) sells 30 days of cover against AI
+  mistakes for 1 USDC. [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near) gives agents on-chain
+  budgets.
 
-## Progress
+## Progress: 39 app builds in two weeks, fully open source
 
-- **39 TestFlight builds in two weeks** (24 iPhone, 15 Mac).
-- 3 contracts live on NEAR mainnet; 4 models trained and published, hashes on chain.
-- 298 app tests passing ([log](docs/logs/core-tests-2026-11-13.txt)). Open source, MIT, training data public
-  ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
+We shipped 39 TestFlight builds in two weeks (24 iPhone, 15 Mac) and trained and published 4 models, with their hashes
+on chain. 298 app tests pass ([log](docs/logs/core-tests-2026-11-13.txt)). Everything is open source under MIT, training
+data included ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
 
-## Traction
+## Product: Live on iPhone and Mac today
 
-Early, real numbers as of 2026-11-13:
-
-- 6 waitlist sign-ups and 6 public TestFlight testers (4 iPhone, 2 Mac).
-- On mainnet from the app: real swaps and staking, 2 Black Box records, 1 insurance member. These are our own first
-  moves ([README](README.md)).
-- Revenue: none yet.
+<p>
+<img src="docs/img/screens/offline.jpg" width="23%" alt="Hermit's home screen on iPhone: your own AI, works offline.">
+<img src="docs/img/screens/swap.jpg" width="23%" alt="A swap review: 5 USDT to 1.37 NEAR via NEAR Intents.">
+<img src="docs/img/screens/approve.jpg" width="23%" alt="The approval sheet: nothing moves until you approve with Face ID.">
+<img src="docs/img/screens/proof.jpg" width="23%" alt="The Private Cloud proof sheet, checked on the phone.">
+</p>
 
 Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.apple.com/join/ed9vUh7d) ·
 [Mac TestFlight](https://testflight.apple.com/join/P66H5DF8)
 
-## Money
+## Revenue model: Swap fees from users, licences from businesses
 
-Wallets earn from swap fees (MetaMask's and Phantom's main income) and from selling to businesses (MetaMask
-Institutional, Infura, Phantom Connect; Privy and Dynamic charge per active wallet).
+Wallets earn mainly from swap fees, which is most of MetaMask's and Phantom's income, and from selling to businesses.
+We plan to do both.
 
-- **B2C:** a small swap fee via our NEAR Intents partner key; paid Private Cloud past the free tier.
-- **B2B:**
-  1. **Hermit SDK:** our AI, tools and approve flow inside an exchange's or fintech's app, per monthly active user.
-  2. **Private deployment:** a model trained on a company's own tools, run on device or in an enclave. Setup fee plus license.
-  3. **Black Box, insurance and budgets for other AI agents:** proof of what their AI did, cover for mistakes, on-chain caps.
+- **Consumers** pay a small swap fee through our NEAR Intents partner key, and pay for Private Cloud past the free tier.
+- **Businesses** can put our AI and approval flow inside their exchange or fintech app with the Hermit SDK, priced per
+  monthly active user. A company that wants its own model gets one trained on its tools and run on device or in an
+  enclave, for a setup fee plus a license. Other AI agents can also use Black Box, insurance and Guard for proof of
+  what they did, cover for mistakes and spending caps.
 
-## Team
+## Team: Founders who have already built and scaled a trading agent
 
-**[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/))
-- Co-founded [insiders.bot](https://x.com/insidersdotbot), a Solana and prediction-market trading bot: peak US$360K ARR and
-  $1M+ monthly volume.
-- Co-president of 0xU Club, Hong Kong's largest Web3 student association.
-- UPenn (FranklinDAO) and CUHK.
+**[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/)) co-founded
+[insiders.bot](https://x.com/insidersdotbot), a prediction-market agent on Polymarket and Predict.fun that peaked at US$360K ARR and
+$1M+ in monthly volume. He is a guest lecturer on the HKU MBA programme and co-president of 0xU Club, Hong Kong's
+largest Web3 student association, and studied at UPenn (FranklinDAO) and CUHK.
 
-**[Daksh Joshi](https://x.com/dakshbigshit)** ([LinkedIn](https://www.linkedin.com/in/joshidaksh/))
-- Co-founded insiders.bot with Ryan, and Sigmaboy.ai.
-- Technical BD at Astralane (low-latency trading infrastructure); previously CPO at PublicAI.
-- Guest lecturer at CUHK Business School, teaching Solidity and DeFi in a master's course. CUHK finance and maths.
+**[Daksh Joshi](https://x.com/dakshbigshit)** ([LinkedIn](https://www.linkedin.com/in/joshidaksh/)) co-founded
+insiders.bot with Ryan, and Sigmaboy.ai. He does technical BD at Astralane (low-latency trading infrastructure) and was
+CPO at PublicAI. He studied finance and maths at CUHK, where he now guest-lectures Solidity and DeFi in a Business
+School master's course.
 
-## Ask us
+## FAQ: What investors usually ask us
 
-How a fee affects trust · how the insurance pool gets priced · why a wallet, not a plugin.
+**Won't a swap fee make users trust the AI less?**
+Hermit charges no fee today. When we add one, it will appear as its own line on the review screen, next to the network
+cost, before you approve with Face ID. The AI only prepares a move. It can't pick the fee or sign anything.
+
+**How is the insurance pool priced?**
+Cover costs a flat 1 USDC for 30 days, and all of it goes into a public pool on `hermit-insurance.near` that anyone can
+add to. Money leaves the pool only for an approved claim, and each claim must match its Black Box record. There is no
+admin withdraw. The price is a setting on the contract, so it can change as real claims come in.
+
+**Why a wallet and not a plugin?**
+Our safety guarantees sit where the keys are. The model runs next to the vault, the spending policy runs before
+anything is signed, and Face ID unlocks the key only for the move you approved. A plugin would hand that last step to
+someone else's wallet, and we couldn't promise any of it.
 
 [hermit.my](https://hermit.my) · [Demo](https://x.com/MrRyanChi/status/2121186366537244978) · [Docs](https://docs.hermit.my) · contact@hermit.my
