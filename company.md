@@ -18,14 +18,6 @@ The local AI **prepares every transaction** and shows you a review. **You approv
 
 Our goal is to **democratise on-chain finance**, so anyone can use strategies that today need a technical background.
 
-## Ownership: Your keys never leave your device
-
-- Your recovery phrase is encrypted with a key inside the device's **Secure Enclave**.
-- It **never syncs to iCloud** and **never reaches our servers**.
-- The private key is rebuilt in memory **only to sign a transaction you approved** with Face ID, Touch ID or your
-  passcode. It is **wiped straight after**.
-- The AI prepares transactions. It has **no way to sign** them.
-
 ## Pain point: On-chain finance is too technical for most people to use well
 
 Bridging, lending and leverage each need their own app and real know-how. That **technical threshold** keeps most people
