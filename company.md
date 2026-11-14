@@ -1,16 +1,19 @@
 # Hermit
 
+## Overview: A local agentic wallet for iPhone and Mac
+
 Hermit is a crypto wallet for iPhone and Mac with its own AI running on your device. You say what you want, like
 "bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and it lines up every step. Nothing
 moves until you approve with Face ID.
 
-## Why
+## Pain point: On-chain finance is too technical for most people to use well
 
-AI in a wallet today means sending your balances and plans to someone else's server. If an AI is going to move your
-money, you should be able to check its limits yourself instead of taking them on trust. And going cross-chain still
-means juggling several apps.
+Getting the most out of on-chain finance still takes real technical skill, and bridging, lending and leverage each live
+in a different app. AI could close that gap, but AI in a wallet today means sending your balances and plans to someone
+else's server. If an AI is going to move your money, you should be able to check its limits yourself instead of taking
+them on trust.
 
-## What works today
+## What we built: Our own on-device AI, 30 money tools and 3 live NEAR contracts
 
 - **Our own model runs offline on the device.** In 1,801 tests,
   [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) never once said a move was done when it
@@ -24,13 +27,13 @@ means juggling several apps.
   mistakes for 1 USDC. [`hermit-guard.near`](https://nearblocks.io/address/hermit-guard.near) gives agents on-chain
   budgets.
 
-## Progress
+## Progress: 39 app builds in two weeks, fully open source
 
 We shipped 39 TestFlight builds in two weeks (24 iPhone, 15 Mac) and trained and published 4 models, with their hashes
 on chain. 298 app tests pass ([log](docs/logs/core-tests-2026-11-13.txt)). Everything is open source under MIT, training
 data included ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
 
-## Product
+## Product: Live on iPhone and Mac today
 
 <p>
 <img src="docs/img/screens/offline.jpg" width="23%" alt="Hermit's home screen on iPhone: your own AI, works offline.">
@@ -42,7 +45,7 @@ data included ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-traini
 Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.apple.com/join/ed9vUh7d) ·
 [Mac TestFlight](https://testflight.apple.com/join/P66H5DF8)
 
-## Revenue model
+## Revenue model: Swap fees from users, licences from businesses
 
 Wallets earn mainly from swap fees, which is most of MetaMask's and Phantom's income, and from selling to businesses.
 We plan to do both.
@@ -53,7 +56,7 @@ We plan to do both.
   enclave, for a setup fee plus a license. Other AI agents can also use Black Box, insurance and Guard for proof of
   what they did, cover for mistakes and spending caps.
 
-## Team
+## Team: Founders who have already built and scaled a trading agent
 
 **[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/)) co-founded
 [insiders.bot](https://x.com/insidersdotbot), a prediction-market agent on Polymarket and Predict.fun that peaked at US$360K ARR and
@@ -65,7 +68,7 @@ insiders.bot with Ryan, and Sigmaboy.ai. He does technical BD at Astralane (low-
 CPO at PublicAI. He studied finance and maths at CUHK, where he now guest-lectures Solidity and DeFi in a Business
 School master's course.
 
-## FAQ
+## FAQ: What investors usually ask us
 
 **Won't a swap fee make users trust the AI less?**
 Hermit charges no fee today. When we add one, it will appear as its own line on the review screen, next to the network
