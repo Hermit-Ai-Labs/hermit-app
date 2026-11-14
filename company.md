@@ -56,7 +56,7 @@ We plan to do both.
 ## Team
 
 **[Ryan Chi](https://x.com/MrRyanChi)** ([site](https://www.ryanchi.com/)) co-founded
-[insiders.bot](https://x.com/insidersdotbot), a Solana and prediction-market trading bot that peaked at US$360K ARR and
+[insiders.bot](https://x.com/insidersdotbot), a prediction-market agent on Polymarket and Predict.fun that peaked at US$360K ARR and
 $1M+ in monthly volume. He is co-president of 0xU Club, Hong Kong's largest Web3 student association, and studied at
 UPenn (FranklinDAO) and CUHK.
 
