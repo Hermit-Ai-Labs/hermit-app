@@ -2,9 +2,10 @@
 
 ## Overview: A local agentic wallet for iPhone and Mac
 
-Hermit is a self-custody crypto wallet with an AI assistant that runs on your phone or laptop. You type a request, such
-as "bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and Hermit prepares the transactions
-and shows you a review.
+Hermit is an agentic wallet: a self-custody crypto wallet run by a local AI that lives on your iPhone or Mac. You type
+a request, such as "bridge 20 USDC to Arbitrum and put it in Aave" or "long ETH with $50 at 5x", and the local AI
+prepares the transactions and shows you a review. Our goal is to democratise on-chain finance, so anyone can use
+strategies that today need a technical background.
 
 You own the wallet outright. Your recovery phrase is encrypted with a key held in the device's Secure Enclave, it never
 syncs to iCloud and it never reaches our servers. The private key is only rebuilt in memory to sign a transaction you
@@ -13,14 +14,15 @@ has no way to sign one.
 
 ## Pain point: On-chain finance is too technical for most people to use well
 
-Bridging, lending and leverage each need their own app and some know-how. AI assistants could do that work, but the
-ones in wallets today send your balances and plans to someone else's server, and you have to trust whatever limits they
-say they have.
+Bridging, lending and leverage each need their own app and some know-how, and that technical threshold keeps most
+people out. An agentic wallet can democratise this, but the AI in wallets today runs on someone else's server, so your
+balances and plans leave your device and you have to trust whatever limits they say they have. Hermit's AI runs
+locally, so none of that leaves your device.
 
-## What we built: Our own on-device AI, 30 money tools and 3 live NEAR contracts
+## What we built: Our own local AI, 30 money tools and 3 live NEAR contracts
 
-- **Our own model.** [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) runs offline on the
-  device. In 1,801 tests it never reported a transaction as done when it wasn't, and in 60 attack attempts it never
+- **Our own local model.** [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) runs locally and
+  offline on the device. In 1,801 tests it never reported a transaction as done when it wasn't, and in 60 attack attempts it never
   asked for a private key ([results](docs/MODEL-RESULTS.md)).
 - **30 money tools** on EVM chains, Solana, NEAR, Bitcoin and Hyperliquid. Swaps and bridges go through NEAR Intents.
 - **Private Cloud** for harder questions, on NEAR AI Cloud. The device verifies the server's secure-hardware proof
@@ -37,7 +39,7 @@ say they have.
 chain. 298 app tests passing ([log](docs/logs/core-tests-2026-11-13.txt)). The code is MIT licensed and the training
 data is public ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-training)).
 
-## Product: Live on iPhone and Mac today
+## Product: A live agentic wallet on iPhone and Mac today
 
 <p>
 <img src="docs/img/screens/offline.jpg" width="23%" alt="Hermit's home screen on iPhone: your own AI, works offline.">
@@ -55,7 +57,7 @@ Most wallet revenue comes from swap fees (MetaMask, Phantom) and from business p
 Privy, Dynamic). We plan both. Hermit charges nothing today.
 
 - **Users:** a small swap fee through our NEAR Intents partner key, and a paid tier of Private Cloud.
-- **Businesses:** the Hermit SDK puts our AI and approval flow inside an exchange or fintech app, priced per monthly
+- **Businesses:** the Hermit SDK puts our local AI and approval flow inside an exchange or fintech app, priced per monthly
   active user. We can also train a model on a company's own tools for a setup fee plus a licence. Other AI agents can
   pay to use Black Box, insurance and Guard.
 
@@ -79,7 +81,7 @@ can't set the fee and can't sign.
 add to, and money only leaves for an approved claim that matches its Black Box record. There is no admin withdrawal.
 The price can be changed on the contract once we have real claims data.
 
-**Why a wallet and not a plugin?** Our safety checks only work where the keys are. A plugin would have to hand signing
-to someone else's wallet.
+**Why an agentic wallet and not a plugin?** Our safety checks only work where the keys are, and the local AI has to sit
+next to them. A plugin would have to hand signing to someone else's wallet.
 
 [hermit.my](https://hermit.my) · [Demo](https://x.com/MrRyanChi/status/2121186366537244978) · [Docs](https://docs.hermit.my) · contact@hermit.my
