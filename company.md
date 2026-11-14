@@ -11,9 +11,8 @@ You type what you want in plain words, for example:
 - "Send 50 USDC to each of these 12 wallets."
 - "Pay my designer 100 USDC every month."
 
-**Done by hand**, these mean setting trigger orders on a perp exchange, comparing yield protocols, pasting addresses one
-by one, or deploying a smart contract for recurring payments. Hermit's local AI **handles the technical part** and
-prepares it for you.
+With its **local AI**, Hermit makes all of this **simple and accessible**, without ever handing your private key to a
+cloud AI.
 
 The local AI **prepares every transaction** and shows you a review. **You approve**, and it is done.
 
