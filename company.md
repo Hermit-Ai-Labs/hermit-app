@@ -4,10 +4,15 @@
 
 Hermit is an **agentic wallet**. It is a **self-custody** crypto wallet run by a **local AI** that lives on your **iPhone or Mac**.
 
-You type what you want, for example:
+You type what you want in plain words, for example:
 
-- "Bridge 20 USDC to Arbitrum and put it in Aave"
-- "Long ETH with $50 at 5x"
+- "Move my 500 USDC from Solana to Arbitrum, then lend it on Aave."
+- "Short ETH on Hyperliquid with $100 at 3x leverage."
+- "Turn my ETH on Base into NEAR and stake it with a validator."
+
+Done by hand, each of these means picking the right bridge or exchange, holding gas on more than one chain, approving
+tokens and finding the right protocol. Most people give up halfway. Hermit's local AI works out the steps and prepares
+them for you.
 
 The local AI **prepares every transaction** and shows you a review. **You approve**, and it is done.
 
