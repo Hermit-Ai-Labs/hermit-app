@@ -10,9 +10,8 @@ You type what you want in plain words, for example:
 - "Short ETH on Hyperliquid with $100 at 3x leverage."
 - "Turn my ETH on Base into NEAR and stake it with a validator."
 
-Done by hand, each of these means picking the right bridge or exchange, holding gas on more than one chain, approving
-tokens and finding the right protocol. Most people give up halfway. Hermit's local AI works out the steps and prepares
-them for you.
+**Done by hand**, each of these means picking the right bridge or exchange, holding gas on more than one chain,
+approving tokens and finding the right protocol. Hermit's local AI **works out the steps** and prepares them for you.
 
 The local AI **prepares every transaction** and shows you a review. **You approve**, and it is done.
 
