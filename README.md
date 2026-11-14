@@ -14,6 +14,8 @@ bridge, trade or pay. It prepares the move, and nothing leaves your wallet until
 ID. We didn't want our balances and plans on somebody's server, so the model lives on your device. When a question
 needs a bigger model, Hermit checks a NEAR AI Cloud enclave's proof before it sends a word.
 
+**Tracks:** Unstoppable DeFi, Privacy & Private AI, Autonomous Business, Agent Economy, Open Innovation.
+
 <p align="center">
 <img src="docs/img/screens/offline.jpg" width="23%" alt="Hermit's home screen on iPhone: your own AI, works offline.">
 <img src="docs/img/screens/swap.jpg" width="23%" alt="The Swap review: 5 USDT to 1.37 NEAR via NEAR Intents, cost $0.02 including the 0.2% 1Click fee, under a minute.">
