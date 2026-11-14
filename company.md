@@ -42,7 +42,7 @@ data included ([hermit-training](https://github.com/Hermit-Ai-Labs/hermit-traini
 Try it: [Mac](https://hermit.my/dmg) · [iPhone TestFlight](https://testflight.apple.com/join/ed9vUh7d) ·
 [Mac TestFlight](https://testflight.apple.com/join/P66H5DF8)
 
-## How we make money
+## Revenue model
 
 Wallets earn mainly from swap fees, which is most of MetaMask's and Phantom's income, and from selling to businesses.
 We plan to do both.
