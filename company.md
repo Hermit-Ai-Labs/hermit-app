@@ -100,22 +100,4 @@ Dynamic). Hermit earns from **both**. The app is **free today**.
 - Guest lecturer in **Solidity and DeFi** for a **CUHK Business School** master's course.
 - CUHK finance and maths.
 
-## FAQ: What investors usually ask us
-
-**Won't a swap fee hurt trust?**
-
-The fee shows as **its own line on the review screen** before you approve. The AI **can't set the fee and can't sign**.
-
-**How is the insurance priced?**
-
-A flat **1 USDC for 30 days**. All of it goes into a **public pool** that anyone can add to.
-
-Money only leaves the pool for an **approved claim** that matches its Black Box record. There is **no admin withdrawal**. We
-adjust the price on the contract as claims data comes in.
-
-**Why an agentic wallet and not a plugin?**
-
-Our safety checks **live where the keys are**, with the local AI right next to them. A plugin hands signing to someone
-else's wallet, and those guarantees go with it.
-
 [hermit.my](https://hermit.my) · [Demo](https://x.com/MrRyanChi/status/2121186366537244978) · [Docs](https://docs.hermit.my) · contact@hermit.my
