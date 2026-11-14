@@ -30,8 +30,9 @@ Hermit's AI **runs locally**. **Nothing leaves your device.**
 
 ## What we built: Our own local AI, 30 money tools and 3 live NEAR contracts
 
-- **Our own local model.** [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) runs locally and
-  offline.
+- **Our own local model.** [Hermit 1.3](https://huggingface.co/aiquantgod/Hermit-1.3-4B-MLX-5bit) is a
+  **4B-parameter** model (about 2.8 GB) that runs **locally and offline on both iPhone and Mac**.
+  [Hermit 1.3 Lite](https://huggingface.co/aiquantgod/Hermit-1.3-Lite-MLX-6bit) (**1.7B**) runs on smaller iPhones.
   - 1,801 tests with **zero false "done" reports**.
   - 60 attack attempts, **zero requests for a private key** ([results](docs/MODEL-RESULTS.md)).
 - **30 money tools** on EVM chains, Solana, NEAR, Bitcoin and Hyperliquid. Swaps and bridges run through NEAR Intents.
